@@ -98,12 +98,30 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--db', default='state/camp_snapshots.db')
     ap.add_argument('--accounts', nargs='*', default=None)
+    ap.add_argument('--force', action='store_true',
+                    help='pull even if this hour was already captured')
     args = ap.parse_args()
     tok = os.environ['META_ACCESS_TOKEN']
 
     now = datetime.now(IST)
     ts = now.isoformat(timespec='seconds')
     hour_slot = now.strftime('%Y-%m-%d %H:00')
+
+    # ONE measurement per hour, taken at the first run at/after :00 — so each
+    # hour row holds the COMPLETE previous hour, stamped right when it turns.
+    # Without this gate the 0,20,40 cron (delayed by GitHub to :43-:52) would
+    # INSERT OR REPLACE the clean :00 capture with mid-hour data, and the
+    # dashboard's hourly rows drift to "as of 13:43". Mid-hour runs are no-ops.
+    if not args.force and os.path.exists(args.db):
+        try:
+            prev = sqlite3.connect(args.db).execute(
+                "SELECT MAX(ts) FROM campaign_hourly_snapshots").fetchone()[0]
+        except sqlite3.OperationalError:
+            prev = None   # fresh/empty db — proceed
+        if prev and datetime.fromisoformat(prev) >= now.replace(minute=0, second=0, microsecond=0):
+            print(f"hour {hour_slot} already captured at {prev} — skipping "
+                  f"(use --force to overwrite)")
+            return
 
     accounts = args.accounts or configured_accounts() or None
     print(f"accounts: {len(accounts) if accounts else 0} from config"
