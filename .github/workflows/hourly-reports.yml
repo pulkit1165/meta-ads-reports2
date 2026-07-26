@@ -116,7 +116,7 @@ jobs:
           if git diff --staged --quiet; then echo "no change"; exit 0; fi
           git commit -m "camp-closing log: $(date -u +%FT%TZ)"
           for i in 1 2 3; do
-            git push origin "HEAD:$SNAP_BRANCH" && { echo pushed; break; }
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "hourly-reports $(date -u +%FT%TZ)")":refs/heads/"$SNAP_BRANCH" && { echo pushed; break; }
             echo "retry $i"
             git fetch origin "$SNAP_BRANCH"; git reset --hard "origin/$SNAP_BRANCH"
             gzip -c "../$SNAP_DB" > camp_snapshots.db.gz

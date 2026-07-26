@@ -80,6 +80,6 @@ jobs:
           if git diff --staged --quiet; then echo "no change"; exit 0; fi
           git commit -m "camp-alerts log: $(date -u +%FT%TZ)"
           for i in 1 2 3; do
-            git push origin "HEAD:$SNAP_BRANCH" && break
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "camp-alerts $(date -u +%FT%TZ)")":refs/heads/"$SNAP_BRANCH" && break
             git fetch origin "$SNAP_BRANCH"; git reset --hard "origin/$SNAP_BRANCH"; gzip -c "../$DB" > camp_snapshots.db.gz; git add -A; git commit -m "overlay" || true
           done

@@ -174,7 +174,7 @@ jobs:
           if git diff --staged --quiet; then echo "no change"; exit 0; fi
           git commit -m "snapshot via roas-email: $(date -u +%FT%TZ)"
           for i in 1 2 3; do
-            git push origin HEAD:camp-snapshots && { echo pushed; break; }
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "roas-email-snap $(date -u +%FT%TZ)")":refs/heads/camp-snapshots && { echo pushed; break; }
             git fetch origin camp-snapshots && git reset --hard origin/camp-snapshots
             gzip -c "../$SNAP_DB" > camp_snapshots.db.gz
             git add -A && git commit -m "snapshot overlay" || true
@@ -215,7 +215,7 @@ jobs:
           if git diff --staged --quiet; then echo "no change"; exit 0; fi
           git commit -m "daily finals: $(date -u +%FT%TZ)"
           for i in 1 2 3; do
-            git push origin HEAD:camp-snapshots && { echo pushed; break; }
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "roas-email-snap $(date -u +%FT%TZ)")":refs/heads/camp-snapshots && { echo pushed; break; }
             git fetch origin camp-snapshots && git reset --hard origin/camp-snapshots
             cp "../$FINALS" daily_finals.json
             git add -A && git commit -m "finals overlay" || true
@@ -409,7 +409,7 @@ jobs:
           if git diff --staged --quiet; then echo "no new hour recorded"; exit 0; fi
           git commit -m "roas-email: sent $(TZ=Asia/Kolkata date '+%F %H:00') IST"
           for i in 1 2 3; do
-            git push origin "HEAD:email-state" && { echo pushed; break; }
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "email-state $(date -u +%FT%TZ)")":refs/heads/email-state && { echo pushed; break; }
             git fetch origin email-state && git reset --hard origin/email-state
             cp "../$STATE_FILE" roas_email_sent.json
             git add -A && git commit -m "roas-email overlay" || true
@@ -438,7 +438,7 @@ jobs:
           if git diff --staged --quiet; then echo "archive already up to date"; exit 0; fi
           git commit -m "products report: $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
           for i in 1 2 3 4 5; do
-            git push origin "HEAD:reports-archive" && { echo pushed; exit 0; }
+            git push --force origin "$(git commit-tree "$(git write-tree)" -m "reports-archive $(date -u +%FT%TZ)")":refs/heads/reports-archive && { echo pushed; exit 0; }
             git fetch origin reports-archive && git reset --hard origin/reports-archive
             cp -f ../roas-live/reports/archive/products-report-*.xlsx \
                   ../roas-live/reports/archive/products-report-*.json ./ 2>/dev/null || true

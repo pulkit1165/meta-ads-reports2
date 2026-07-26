@@ -130,7 +130,7 @@ runs:
           # top (latest writer wins — correct for a snapshot, and every run
           # re-ingests recent days so nothing is actually lost).
           for attempt in 1 2 3 4 5; do
-            if git push origin "HEAD:$BRANCH"; then
+            if git push --force origin "$(git commit-tree "$(git write-tree)" -m "state-sync $(date -u +%FT%TZ)")":refs/heads/"$BRANCH"; then
               echo "  ✅ state pushed to branch"
               exit 0
             fi
