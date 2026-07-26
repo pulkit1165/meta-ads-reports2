@@ -1,0 +1,104 @@
+# STATUS
+
+> Living document. The Claude on whichever machine the user is currently working on keeps this current. Read this after `git pull` to see what's actively in flight, what just got shipped, and what the user is thinking about next.
+
+**Last updated:** 2026-05-09 by Claude on machine 1 (`/Users/pulkitsharma/meta-ads-reports`)
+
+## Demo readiness (2026-05-08 → 2026-05-09)
+
+User asked to make NTN category dashboard demo-ready. Three fixes shipped:
+
+1. **Cloudflare 24h cache staleness** — Pages defaulted to `s-maxage=604800`
+   so the dashboard kept showing 24-hour-old data even though we deploy
+   hourly. Both today-live.yml and daily.yml now write `out/_headers` with
+   `max-age=60, must-revalidate` for `/`, `/*.html`, `/v2/*`, `/categories`.
+   Deploys propagate within a minute. (commit dee31a0)
+2. **Made `/` serve the v2 dashboard** — was falling back to today_live
+   because NTN rebuild kept hitting Sheets quota. New preference order:
+   `out/v2/categories.html` → `out/ntn_filtered.html` → `out/today_live.html`.
+   (commit b854ba4)
+3. **Shopify Reality KPI strip + JS escape bug** — added `fetch_shopify_daily()`
+   in `scripts/v2/build_dashboard.py` so the Overview shows ground-truth
+   Shopify orders/revenue alongside Meta pixel-attributed numbers (commit
+   cff1728). That commit accidentally introduced a JS syntax error: a
+   `\'` in a single-quoted JS string rendered as `\\'` and threw at parse
+   time, killing ALL interactivity (clicks/filters/charts/nav dead). Live
+   URL was loading but completely non-functional. Fixed by switching to
+   double-quoted JS string. (commit c49732a)
+
+**Demo URL:** https://meta-ads-reports.pages.dev/ — serves v2 NTN Analytics
+sidebar dashboard (10 pages: Overview, Trends, Categories, Creatives,
+Sentiments, Heatmap, Products, Product Success, Top Ads, Bottom Ads).
+14.2 MB page, last refreshed 17:32 IST today, auto-rebuilds hourly.
+
+
+
+---
+
+## What's just shipped (last few sessions)
+
+- **📈 3D + 7D rolling ROAS + Long-Running Camps section on NTN dashboard (2026-05-05)** — Two visible additions on `meta-ads-reports.pages.dev/`. (1) Four new KPI cards below the existing Orders/Revenue/Spend/ROAS strip: 3-Day Rolling ROAS (spend-weighted blended), 7-Day Rolling ROAS, Long-running Camp count, Long-runner Spend Today. Computed from the existing D['adspend'] + D['roas'] arrays — no new API calls. (2) New "⏳ Long-Running Campaigns (Age > 7 days)" table at end of dashboard. Reads latest GHA tracker tabs (SM/SML/NBP), filters `Day Taken > 10` (= age > 7d), shows Portal/Account/Campaign/Age/Budget/Today Spend/Today ROAS/7D ROAS. ROAS color-coded green ≥2.5 / amber 1.5-2.5 / red <1.5. Header line shows portfolio summary + count below 1.5x today (kill protocol candidates). Includes 3-retry backoff on `gc.open_by_key()` because it shares Sheets quota with date-extend (commit 8efa22d). 3D ROAS today: 1.26x · 7D: 1.22x — both well below SM target 2.3 (pixel contamination still active).
+- **📦 Shopify UTM Orders extractor (2026-05-05)** — `scripts/shopify_utm_orders.py` + `.github/workflows/shopify-utm.yml`. Pulls orders from all 3 Shopify stores (SM/SML/NBP), parses `utm_*` from `landing_site` (falls back to `note_attributes`, then `referring_site`), aggregates by (portal × utm_campaign) → orders/revenue/products. Writes 2 tabs to GHA reports sheet: `📦 UTM Orders Summary YYYY-MM-DD` + `📦 UTM Orders Detail YYYY-MM-DD`. CLI: `--days N` / `--since` / `--until` / `--portal`. Manual workflow_dispatch trigger. **First run finding (Apr 28-May 5):** SM has 97% no_utm gap — ₹1.10 Cr in unattributed revenue. Meta URL templates use `{{campaign.id}}` not `{{campaign.name}}`, so SML/NBP campaign columns show numeric IDs. Fix recommended: change Meta URL params to `utm_campaign={{campaign.name}}` account-wide.
+- **🔧 Zero-pad tab name mismatch fix (2026-05-05)** — `auto_rebuild_dashboard.py` was looking for `NBP 04 MAY 26` but `campaign_tracker_builder.py` writes tabs as `NBP 4 MAY 26` (no zero-pad on single-digit days). Result: May 1-4 Ad Spend + ROAS columns rendered as `-` while April 25-30 worked fine. Changed `tab_label = d.strftime('%d %b %y')` → `f"{d.day} {d.strftime('%b %y').upper()}"`. May dates now populate.
+- **🔧 NTN dashboard 429 quota fix (2026-05-05)** — `auto_rebuild_dashboard.py` was crashing mid-build inside `_extend_with_gha_dates()` with Google Sheets API 429 errors. The crash happened BEFORE `ntn_filtered.html` was written, so the deploy fell back to copying `today_live.html` as `index.html` — which is why the live site only showed today's section, no historical date columns. Fix: `_read_values_with_retry()` helper with 30/60/90s backoff on 429, `time.sleep(1.2)` between portal reads (~50/min cap, under 60/min quota), wrapped the call site in try/except so any future API glitch doesn't crash the whole build. Live site rebuilt to 117KB with all 32 date columns (2-Apr → 4-May).
+- **Active Budget by Product (per-portal) — scheduled twice daily 10 AM + 9 PM IST.** New script `scripts/active_budget_by_product.py` + workflow `.github/workflows/active-budget-by-product.yml`. Writes 3 date-stamped tabs to the operator's "Daily Camp Pushed" sheet (`1eW2_qPdsKJ8zAV5-hsXA5HtfVH9NwDhQLyHYGKz5hXk`): `📊 SM/SML/NBP — Active Budget by Product DD MMM YY`. Each tab has a PRODUCT ROLLUP + PER-CAMP DETAIL (Camp ID + real audience name from ad-set targeting + budget). SM cut excludes `SM_CREDIT_LINE_06`. Inline classifier fixes 2 catalogue bugs (wanda → Jewellery shortcut, `astro.*re` over-matching `astro_destiny_report`). Catalogue fix not yet ported back — see "in flight" below.
+- Cross-page nav on all 3 dashboards (NTN / Today Live / Categories) — current page highlighted, others linked
+- Category Heads summary KPI strip on top of each category panel + sheet tab — 8 spend-weighted cards: Active Ads, Spend, Revenue, ROAS, CTR, CPM, CPV, CPR/1k Reach
+- `/categories` Cloudflare Pages URL — single-page tabbed dashboard with all 8 category tabs, deploys hourly via `today-live.yml`
+- 7-day per-category history cached to `state/category_history.json` so hourly runs don't re-fetch 50 Meta API calls
+- KPI Daily auto-builder (`scripts/kpi_daily_builder.py`) — populates the dashboard's per-portal Meta KPI cards from Meta API, replaces operator's manual fill
+- NTN dashboard date columns extended through yesterday using GHA tracker tabs (Adspend + ROAS derived; Orders/Revenue still `—` until Shopify lands)
+- Cumulative closures parser fix (Part-1 fallback, "None yet" detection, per-day dedup)
+- Cloudflare Pages live at https://meta-ads-reports.pages.dev — deploys via `cloudflare/wrangler-action@v3`, gated on `CLOUDFLARE_PAGES_PROJECT` repo variable
+- ARCHITECTURE.md + bootstrap_local.sh + 3-path setup recipe for new machines
+
+## In flight / paused
+
+1. **Shopify integration** — paused. User pasted SM/SML/NBP Shopify access tokens in chat earlier (compromised, told to rotate). Some new tokens added as GitHub secrets (`SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_ACCESS_TOKEN_SML`, `SHOPIFY_STORE_URL`, `SHOPIFY_STORE_URL_NBP`) but `SHOPIFY_ACCESS_TOKEN_NBP` and `SHOPIFY_STORE_URL_SML` are still missing. Once all 6 secrets are in place + tokens are rotated, build `scripts/shopify_new_returning.py` to auto-fill Orders/Revenue/N-R%/C1-C6 from Shopify.
+
+2. **3 empty category tabs** — 24K Jewellery, Perfumes, Aibot all have 0 ads matching the keyword rules in `derive_category_v2()`. User needs to share 2-3 sample campaign names per category so we can extend the keyword list. Currently empty tabs render placeholder text.
+
+3. **NTN sheet operator backlog** — operator stopped updating the NTN source sheet past 24-Apr (Orders/Revenue/N-R%/Sales Block/C1-C6 cohorts). Dashboard fills Spend+ROAS for newer dates from GHA-derived data. Either resume Shopify integration or operator catches up.
+
+4. **C1-C6 default targets** in the GHA sheet's `C1-C6 Targets` tab are placeholders (30/50/70/75/80/90) — user hasn't tuned them yet.
+
+5. **External cron pinger** for GHA reliability — discussed but not built. GHA's scheduled runs miss slots (today-live + closing-watchlist skipped 04:00 UTC slot 27-Apr). Could set up cron-job.org to hit `workflow_dispatch` API for guaranteed firing.
+
+6. **Port catalogue fixes back to `scripts/product_catalogue.py`** — `active_budget_by_product.py` currently does an inline override for two `derive_product_and_category()` bugs:
+   (a) `wanda` keyword in Jewellery rule fires before astro/crystal-specific rules, so e.g. `ntn_wanda_loose_astro_destiny_*` mis-tags as Jewellery instead of Astro Destiny Report.
+   (b) `astro.*re` rule (line 112) matches `astro_destiny_report` (because "report" contains "re"), shadowing the more specific `astro.*destiny` rule on line 128.
+   Permanent fix: in `PRODUCT_RULES`, move Jewellery rule below Astro/Crystal-specific rules, and reorder Astro rules so `astro.*destiny|destiny.*report` and `astro.*bot|chatbot` come before the broad `astro.*re`. Affects all reports that use `derive_product_and_category()` (creative, daily tracker, category reports). Don't push without re-running validate_reports.py against pre/post diffs.
+
+## Other proposals offered but not built
+
+User had earlier asked "what other reports could help" — I proposed 7 ideas, none built yet:
+- Spend Pacing vs ₹2L plan
+- Day-0 Performance Watch
+- Top 10 / Bottom 10 by today's ROAS
+- Audience Mix Drift (today vs 7-day avg)
+- Spend Velocity Warnings
+- Creative Fatigue Watch
+- Weekly Recap (Sunday rollup)
+
+## Multi-machine setup
+
+User has 3 machines now:
+- Machine 1: `/Users/pulkitsharma/meta-ads-reports/` (this one — pulkit1165 GitHub user)
+- Machine 2: `/Users/apple/Desktop/claude/meta-ads-reports/`
+- Machine 3: being set up via `bootstrap_local.sh`
+
+Cred transfer between machines: AirDrop the JSON + paste the token. Each machine has its own local copies of `.env` and `google-service-account.json` (gitignored). User declined `age`-encrypted-in-git approach for now.
+
+## Read this before doing anything
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — system map, workflows, sheet IDs, troubleshooting
+- [docs/META_REPORTING_MASTER_DOC.md](docs/META_REPORTING_MASTER_DOC.md) — business rules, audience taxonomy, ROAS thresholds
+- [docs/CLOUDFLARE_PAGES_SETUP.md](docs/CLOUDFLARE_PAGES_SETUP.md) — how the live URL got set up
+- [SECRETS.md](SECRETS.md) — required GitHub secrets (mostly set; Shopify ones partial)
+
+## Etiquette for the agent on duty
+
+- Update this `STATUS.md` after each meaningful change (commit it).
+- Don't take destructive actions without explicit user confirmation.
+- Auto mode is on per the user — execute, don't over-plan.
+- Never act on credentials pasted into chat; recommend rotation.

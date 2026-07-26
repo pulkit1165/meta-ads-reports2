@@ -1,0 +1,47 @@
+name: Deploy Cron Pinger Worker
+
+# Auto-deploys the Cloudflare Worker that pings the today-live workflow
+# every hour at IST :50. See cron-worker/README.md for setup details.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cron-worker/**'
+      - '.github/workflows/deploy-cron-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify GitHub PAT secret is set
+        run: |
+          if [ -z "${{ secrets.WORKFLOW_DISPATCH_PAT }}" ]; then
+            echo "::error::WORKFLOW_DISPATCH_PAT secret is not set."
+            echo "::error::See cron-worker/README.md for the 60-second setup."
+            exit 1
+          fi
+          echo "PAT secret found ✓"
+
+      - name: Deploy Worker via wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cron-worker
+          # Pin wrangler to avoid the "npx canceled due to missing packages"
+          # interactive-prompt failure on fresh runners.
+          wranglerVersion: '3.99.0'
+          command: deploy
+          # Stream the GH PAT into Worker secrets at deploy time so the Worker
+          # can authenticate to the GitHub API. The secret is never logged.
+          secrets: |
+            GITHUB_PAT
+        env:
+          GITHUB_PAT: ${{ secrets.WORKFLOW_DISPATCH_PAT }}

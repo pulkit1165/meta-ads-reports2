@@ -1,0 +1,241 @@
+name: v2 Ingest (Meta + Shopify → SQLite)
+
+on:
+  # Every 10 min — operator wants the dashboard as close to Meta/Shopify
+  # reality as practical. Repo is public so Actions minutes are unlimited.
+  # At 10 min the worst-case stale window is 10 min + ~5 min runtime =
+  # ~15 min, average ~5 min. Overlapping scheduled runs queue (see the
+  # concurrency block below); a manual run preempts them. Don't go below 10 min
+  # without a runtime audit —
+  # ingests take 5-7 min so any tighter spacing risks back-to-back queue
+  # buildup.
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: "Backfill N days for both Meta + Shopify (default 2)"
+        required: false
+        default: "2"
+      portal:
+        description: "Limit to one portal (SM/SML/NBP). Empty = all 3."
+        required: false
+        default: ""
+      reclassify_all:
+        description: "Force full re-classification of ALL ads (use after classifier rule changes). Slower."
+        required: false
+        type: boolean
+        default: false
+      source:
+        description: "Internal: 'auto' = keepalive 10-min tick (queues, never preempts). Empty = human/manual refresh (preempts in-progress)."
+        required: false
+        default: ""
+
+concurrency:
+  group: v2-ingest
+  # NEVER preempt — an in-progress run always finishes and deploys. Earlier we
+  # preempted on manual/source="" dispatches so a human refresh felt instant,
+  # but any frequent source="" caller (e.g. an external pinger or repeated
+  # Refresh clicks) then cancelled every in-progress run ~every 10 min before it
+  # could finish, freezing the live data. Queueing is safe: while one run is in
+  # progress, new triggers queue and the newest pending supersedes older pending
+  # ones, so we always converge to the latest data. A manual refresh now waits
+  # for the current run instead of cancelling it.
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    env:
+      GOOGLE_SERVICE_ACCOUNT_FILE: ${{ github.workspace }}/google-service-account.json
+      META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+      TZ: Asia/Kolkata
+      # Shopify
+      SHOPIFY_STORE_URL:        ${{ secrets.SHOPIFY_STORE_URL }}
+      SHOPIFY_ACCESS_TOKEN:     ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+      SHOPIFY_STORE_URL_SML:    ${{ secrets.SHOPIFY_STORE_URL_SML }}
+      SHOPIFY_ACCESS_TOKEN_SML: ${{ secrets.SHOPIFY_ACCESS_TOKEN_SML }}
+      SHOPIFY_STORE_URL_NBP:    ${{ secrets.SHOPIFY_STORE_URL_NBP }}
+      SHOPIFY_ACCESS_TOKEN_NBP: ${{ secrets.SHOPIFY_ACCESS_TOKEN_NBP }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Load ad-account IDs from config
+        run: |
+          grep -E '^[A-Z][A-Z0-9_]*=' config/accounts.env >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Write Google service account file
+        env:
+          SA_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s' "$SA_JSON" > "$GOOGLE_SERVICE_ACCOUNT_FILE"
+          chmod 600 "$GOOGLE_SERVICE_ACCOUNT_FILE"
+
+      - name: Restore SQLite from state branch
+        uses: ./.github/actions/state-sync
+        with:
+          direction: restore
+
+      - name: Initialize / verify schema
+        run: python3 scripts/v2/db_init.py
+
+      - name: Seed lookup tables (NTN codes + sentiment placeholders)
+        run: python3 scripts/v2/seed_lookups.py
+
+      - name: Sync NTN codes from master SKU sheet
+        continue-on-error: true   # if sheet access blips, don't fail the whole run
+        run: python3 scripts/v2/sync_ntn_from_sheet.py
+
+      - name: Determine backfill days
+        id: cfg
+        run: |
+          DAYS="${{ inputs.backfill_days || '2' }}"
+          PORTAL_ARG=""
+          [ -n "${{ inputs.portal }}" ] && PORTAL_ARG="--portal ${{ inputs.portal }}"
+          echo "days=$DAYS" >> "$GITHUB_OUTPUT"
+          echo "portal_arg=$PORTAL_ARG" >> "$GITHUB_OUTPUT"
+
+      # Meta ad-level insights across ~75 accounts is the slow, flaky part. With
+      # no cap it hung indefinitely on Meta's transient 500s, and because the
+      # Shopify step below was gated on success() that HANG SILENTLY FROZE SALES
+      # DATA for days (21 Jul onward). Bound it and let the run continue: stale
+      # Meta for one hour is fine; missing sales is not.
+      - name: Ingest Meta (campaigns + ad-level insights)
+        timeout-minutes: 18
+        continue-on-error: true
+        run: |
+          python3 scripts/v2/ingest_meta.py \
+            --days ${{ steps.cfg.outputs.days }} \
+            ${{ steps.cfg.outputs.portal_arg }}
+
+      # Runs even if Meta timed out/failed above — sales must always land and
+      # get pushed. (continue-on-error on Meta keeps success() true here.)
+      - name: Ingest Shopify (orders + line items)
+        if: ${{ success() }}
+        run: |
+          # Shopify ingest defaults to last 2 days; for explicit backfill use --days
+          python3 scripts/v2/ingest_shopify.py \
+            --days ${{ steps.cfg.outputs.days }} \
+            ${{ steps.cfg.outputs.portal_arg }}
+
+      - name: Classify ads (category, creative type, sentiment, NTN, product)
+        if: ${{ success() }}
+        run: |
+          if [ "${{ inputs.reclassify_all }}" = "true" ]; then
+            python3 scripts/v2/classify_ads.py --reclassify
+          else
+            python3 scripts/v2/classify_ads.py
+          fi
+
+      - name: Build v2 dashboard (categories_v2.html)
+        if: ${{ success() }}
+        run: |
+          mkdir -p out/v2
+          python3 scripts/v2/build_dashboard.py --days 30 --out out/v2/categories.html
+
+      # Rebuild the Antariksh dashboard from the same fresh DB and ship it to its
+      # own Vercel project (antariksh-three.vercel.app). The HTML is NOT committed
+      # back to main (avoids hourly 4MB git bloat) — it's deployed straight to
+      # Vercel, mirroring how the Cloudflare deploy ships out/ without committing.
+      # Org/project IDs below are non-secret; the deploy gracefully no-ops until
+      # the VERCEL_TOKEN secret is added (so this is safe to merge immediately).
+      - name: Build + deploy Antariksh (Vercel)
+        if: ${{ success() }}
+        continue-on-error: true   # never let Antariksh break the main pipeline/deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_AocNAz8F008iWPSLVvar2Xb5
+          VERCEL_PROJECT_ID: prj_lxnCOpXro6HtrSWZSavX1dSkX1LM
+        run: |
+          python3 scripts/v2/build_antariksh_rollup.py --db state/ntn.db --days 120
+          python3 scripts/v2/build_antariksh.py --db state/ntn.db --days 90
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "VERCEL_TOKEN secret not set — built antariksh/index.html but skipping Vercel deploy."
+            exit 0
+          fi
+          npx --yes vercel@latest deploy antariksh --prod --yes --token="$VERCEL_TOKEN"
+
+      # Deploy straight from v2-ingest so the live dashboard is fresh the
+      # moment the DB is. Previously only today-live deployed, and its cron
+      # is flaky (~30% slot reliability + concurrency cancels), so the
+      # dashboard often lagged the DB by hours. Now every successful ingest
+      # publishes immediately. today-live still deploys on its own schedule
+      # as a backstop.
+      - name: Prepare landing page + cache headers
+        id: prepare_landing
+        if: ${{ success() && vars.CLOUDFLARE_PAGES_PROJECT != '' }}
+        run: |
+          if [ -f out/v2/categories.html ]; then
+            cp out/v2/categories.html out/index.html
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "→ index.html from v2/categories.html"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️  v2/categories.html missing — skip deploy, keep previous"
+          fi
+          cat > out/_headers <<'EOF'
+          /*.html
+            Cache-Control: public, max-age=60, s-maxage=60, must-revalidate
+          /v2/*
+            Cache-Control: public, max-age=60, s-maxage=60, must-revalidate
+          /
+            Cache-Control: public, max-age=60, s-maxage=60, must-revalidate
+          /categories
+            Cache-Control: public, max-age=60, s-maxage=60, must-revalidate
+          EOF
+
+      - name: Add password gate (auth worker)
+        if: ${{ success() && vars.CLOUDFLARE_PAGES_PROJECT != '' && steps.prepare_landing.outputs.should_deploy == 'true' }}
+        run: mkdir -p out && cp pages/_worker.js out/_worker.js
+
+      - name: Deploy to Cloudflare Pages
+        if: ${{ success() && vars.CLOUDFLARE_PAGES_PROJECT != '' && steps.prepare_landing.outputs.should_deploy == 'true' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '3.99.0'
+          command: pages deploy out --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }} --branch=main --commit-dirty=true --commit-message="auto-deploy from v2-ingest workflow"
+
+      - name: Print DB summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect('state/ntn.db')
+          for tbl in ('meta_ads_daily', 'meta_ads_meta', 'meta_campaigns',
+                      'shopify_orders', 'shopify_order_items', 'ingest_log'):
+              n = conn.execute(f'SELECT COUNT(*) FROM {tbl}').fetchone()[0]
+              print(f'  {tbl:30s} {n:>10,}')
+          # Latest ingest_log entries
+          print()
+          print('Latest ingest_log:')
+          for r in conn.execute(
+              'SELECT job_name, target_date, status, rows_written, error_message '
+              'FROM ingest_log ORDER BY started_at DESC LIMIT 5'
+          ).fetchall():
+              print(' ', r)
+          PY
+
+      - name: Push SQLite back to state branch
+        if: always()
+        uses: ./.github/actions/state-sync
+        with:
+          direction: save

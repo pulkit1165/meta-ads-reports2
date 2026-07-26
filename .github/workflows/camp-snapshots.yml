@@ -1,0 +1,113 @@
+name: Camp hourly snapshots + live ROAS dashboard
+
+# Hourly: snapshot every ACTIVE campaign's pixel metrics into camp_snapshots.db
+# (kept on the dedicated `camp-snapshots` branch, 365-day retention), then
+# rebuild the live ROAS dashboard. Shares the `camp-live` concurrency group with
+# camp-alerts so the two never write the snapshot DB at the same time.
+on:
+  schedule:
+    # 3x/hour — all three runs write the SAME hour-slot (HH:00), upserting, so the
+    # last successful run in the hour wins. GitHub cron skips ~1/3 of ticks, so
+    # three attempts per hour ensures every hour gets captured (no gaps in the
+    # hourly ROAS matrix).
+    - cron: "0,20,40 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: camp-live             # shared with camp-alerts.yml — serialize DB writes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+      TZ: Asia/Kolkata
+      DB: state/camp_snapshots.db
+      SNAP_BRANCH: camp-snapshots
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+
+      - name: Install gspread (for the Google Sheet push)
+        run: pip install gspread
+
+      - name: Write Google service account file
+        env:
+          SA_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s' "$SA_JSON" > google-service-account.json
+          chmod 600 google-service-account.json
+
+      - name: Restore snapshot DB from branch
+        run: |
+          set -e
+          mkdir -p state
+          if git ls-remote --exit-code --heads origin "$SNAP_BRANCH" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "$SNAP_BRANCH:refs/remotes/origin/$SNAP_BRANCH"
+            if git cat-file -e "origin/$SNAP_BRANCH:camp_snapshots.db.gz" 2>/dev/null; then
+              git show "origin/$SNAP_BRANCH:camp_snapshots.db.gz" | gunzip > "$DB"
+              echo "restored DB ($(du -h "$DB" | cut -f1))"
+            fi
+          else
+            echo "no snapshot branch yet — fresh DB"
+          fi
+
+      - name: Collect hourly snapshot (all active campaigns)
+        run: python3 scripts/v2/camp_snapshot.py --db "$DB"
+
+      - name: Build live ROAS dashboard
+        run: python3 scripts/v2/build_live_roas_dashboard.py --db "$DB" --out live-roas/index.html
+
+      - name: Push live tracker to Google Sheet
+        continue-on-error: true   # a sheet blip must never fail the snapshot/save
+        env:
+          GOOGLE_SERVICE_ACCOUNT_FILE: google-service-account.json
+        run: |
+          python3 scripts/v2/push_live_roas_to_sheet.py --db "$DB" \
+            --sheet 1eW2_qPdsKJ8zAV5-hsXA5HtfVH9NwDhQLyHYGKz5hXk \
+            --tab "Live ROAS Tracker"
+
+      - name: Save DB + dashboard to branch
+        run: |
+          set -e
+          git config user.name  "meta-ads-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT=.camp-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+          if git ls-remote --exit-code --heads origin "$SNAP_BRANCH" >/dev/null 2>&1; then
+            git worktree add -f "$WT" "origin/$SNAP_BRANCH"
+          else
+            git worktree add -f --orphan -b "$SNAP_BRANCH" "$WT"; ( cd "$WT" && git rm -rf . 2>/dev/null || true )
+          fi
+          gzip -c "$DB" > "$WT/camp_snapshots.db.gz"
+          mkdir -p "$WT/live-roas"; cp live-roas/index.html "$WT/live-roas/index.html"
+          cd "$WT"; git add -A
+          if git diff --staged --quiet; then echo "no change"; exit 0; fi
+          git commit -m "camp-snapshots: $(date -u +%FT%TZ)"
+          for i in 1 2 3; do
+            git push origin "HEAD:$SNAP_BRANCH" && { echo pushed; break; }
+            echo "retry $i"; git fetch origin "$SNAP_BRANCH"; git reset --hard "origin/$SNAP_BRANCH"
+            gzip -c "../$DB" > camp_snapshots.db.gz; cp ../live-roas/index.html live-roas/index.html
+            git add -A; git commit -m "camp-snapshots overlay $(date -u +%FT%TZ)" || true
+          done
+
+      # Optional: publish the dashboard to Vercel. No-op until LIVE_ROAS_PROJECT_ID
+      # var + VERCEL_TOKEN secret are set, so safe to merge immediately.
+      - name: Deploy dashboard to Vercel
+        if: ${{ vars.LIVE_ROAS_PROJECT_ID != '' }}
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_AocNAz8F008iWPSLVvar2Xb5
+          VERCEL_PROJECT_ID: ${{ vars.LIVE_ROAS_PROJECT_ID }}
+        run: |
+          [ -z "$VERCEL_TOKEN" ] && { echo "no VERCEL_TOKEN — skip"; exit 0; }
+          npx --yes vercel@latest deploy live-roas --prod --yes --token="$VERCEL_TOKEN"

@@ -1,0 +1,449 @@
+name: ROAS email (hourly)
+
+# Emails blended portal ROAS + the camp-closing decision list to the ops list,
+# once per IST hour. Read-only: it never pauses a campaign (that lives in
+# camp_closing.py, armed separately via AUTOPAUSE_LIVE).
+#
+# The page is rebuilt on EVERY run (every 5-10 min) with Meta spend and Shopify
+# orders both re-pulled live, so it is never showing stale data. The EMAIL is
+# separately gated to one send per IST hour.
+#
+# NOT MISSING AN HOUR is the whole design here. GitHub silently skips roughly a
+# third of scheduled cron ticks under load, so a single hourly cron would drop
+# hours with no warning. Instead we fire THREE times an hour and gate on a
+# state file listing which IST hours have already been mailed:
+#   * first attempt of the hour sends and records the hour
+#   * later attempts see the hour recorded and exit without sending
+#   * if GitHub skips one or two attempts, a later one still delivers the hour
+#   * if it skips all three, the next mail says so explicitly (gap_note)
+# State lives on its own `email-state` branch so it never contends with the
+# camp-snapshots or state branches.
+on:
+  schedule:
+    # Every 10 minutes, matching what antariksh already sustains on this Vercel
+    # account. */5 was too aggressive: ~288 deploys a day tripped Vercel's Attack
+    # Challenge Mode, which served a 403 JS challenge instead of the dashboard.
+    # keepalive.yml dispatches this too, so a build still lands every ~10 min.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      to:
+        description: "Override recipients (comma-separated). Blank = full ops list."
+        type: string
+        default: ""
+      force:
+        description: "Send even if this hour was already emailed"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Build the mail but do not send"
+        type: boolean
+        default: false
+
+concurrency:
+  # camp-live is shared with camp-snapshots.yml / camp-alerts.yml because this
+  # workflow now also writes camp_snapshots.db when the snapshot has gone stale.
+  group: camp-live
+  cancel-in-progress: false
+
+permissions:
+  contents: write            # writes the email-state and reports-archive branches
+
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Kolkata
+      SNAP_DB: state/camp_snapshots.db
+      NTN_DB: state/ntn.db
+      FINALS: state/daily_finals.json
+      STATE_FILE: email-state/roas_email_sent.json
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}   # for the products report (live campaign pull)
+      SHOPIFY_STORE_URL: ${{ secrets.SHOPIFY_STORE_URL }}
+      SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+      SHOPIFY_STORE_URL_SML: ${{ secrets.SHOPIFY_STORE_URL_SML }}
+      SHOPIFY_ACCESS_TOKEN_SML: ${{ secrets.SHOPIFY_ACCESS_TOKEN_SML }}
+      SHOPIFY_STORE_URL_NBP: ${{ secrets.SHOPIFY_STORE_URL_NBP }}
+      SHOPIFY_ACCESS_TOKEN_NBP: ${{ secrets.SHOPIFY_ACCESS_TOKEN_NBP }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      # Install BEFORE anything imports. classify_ads -> _utils needs requests
+      # and dotenv; when these were installed only inside the (conditional)
+      # Shopify step, the product classifier silently lost two of its three
+      # tiers on any run that skipped it — SM read 1 product against Rs93,000
+      # of live budget.
+      - name: Install dependencies
+        run: pip install --quiet requests python-dotenv gspread openpyxl
+
+      - name: Restore both databases
+        run: |
+          set -e
+          mkdir -p state email-state
+          git fetch --depth=1 origin camp-snapshots:refs/remotes/origin/camp-snapshots
+          git show origin/camp-snapshots:camp_snapshots.db.gz | gunzip > "$SNAP_DB"
+          git fetch --depth=1 origin state:refs/remotes/origin/state
+          git show origin/state:ntn.db.gz | gunzip > "$NTN_DB"
+          # Frozen end-of-day finals live on the camp-snapshots branch.
+          git show origin/camp-snapshots:daily_finals.json > "$FINALS" 2>/dev/null \
+            || echo '{}' > "$FINALS"
+          echo "snapshots $(du -h "$SNAP_DB" | cut -f1) · ntn $(du -h "$NTN_DB" | cut -f1)"
+
+      - name: Restore email-send state
+        run: |
+          set -e
+          if git ls-remote --exit-code --heads origin email-state >/dev/null 2>&1; then
+            git fetch --depth=1 origin email-state:refs/remotes/origin/email-state
+            git show origin/email-state:roas_email_sent.json > "$STATE_FILE" 2>/dev/null \
+              || echo '{"sent_hours":[]}' > "$STATE_FILE"
+          else
+            echo '{"sent_hours":[]}' > "$STATE_FILE"
+          fi
+          echo "state: $(cat "$STATE_FILE" | head -c 300)"
+
+      # ONE API PULL PER HOUR, by operator request: at least 55 minutes between
+      # Meta pulls. The workflow still runs every ~10 minutes (it rebuilds the
+      # page, checks the email gate and watches freshness), but it only calls
+      # Meta when the newest snapshot is 55+ minutes old.
+      #
+      # Consequence to be aware of: between pulls the numbers are up to an hour
+      # old. That is the trade for a single clean measurement per hour rather
+      # than a partial one every ten minutes.
+      #
+      # Shopify is gated on the SAME decision below, deliberately. If Shopify
+      # kept ingesting every 10 minutes while Meta went hourly, revenue would run
+      # ahead of spend and inflate ROAS — the exact fault that had this reading
+      # 5.25 against a true 2.29.
+      - name: Pull Meta at the top of the hour
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: |
+          # Pull ONCE PER HOUR, at the top of the hour (:00), so each hour is
+          # CAPTURED COMPLETE — a 6:00 pull holds the full 5:00-5:59 hour, unlike
+          # a :55 pull that missed the final five minutes. A run fires at IST :00
+          # (the */10 UTC cron lands on IST :00), so the pull takes ~2 min and the
+          # board is live just after the hour turns.
+          #
+          # DECISION (prints PULL or SKIP): pull on the first run at/after this
+          # hour's :00 mark, i.e. whenever the newest snapshot is from before it.
+          # If GitHub drops the :00 run, the next run (:10) still sees the mark
+          # unsatisfied and pulls — so an hour is never skipped.
+          DECISION=$(python3 - <<'PY'
+          import sqlite3, os
+          from datetime import datetime, timezone, timedelta
+          IST = timezone(timedelta(hours=5, minutes=30))
+          now = datetime.now(IST)
+          r = sqlite3.connect(os.environ['SNAP_DB']).execute(
+              "SELECT MAX(ts) FROM campaign_hourly_snapshots").fetchone()[0]
+          latest = datetime.fromisoformat(r) if r else None
+          mark = now.replace(minute=0, second=0, microsecond=0)   # top of THIS hour
+          print("PULL" if (latest is None or latest < mark) else "SKIP")
+          PY
+          )
+          echo "pull decision: $DECISION (IST $(date '+%H:%M'))"
+          if [ "$DECISION" = "PULL" ]; then
+            # A transient Meta 5xx must not take down the page rebuild and the
+            # email with it. On failure we keep the previous snapshot; the next
+            # run retries.
+            if python3 scripts/v2/camp_snapshot.py --db "$SNAP_DB"; then
+              echo "SNAP_UPDATED=1" >> "$GITHUB_ENV"
+            else
+              echo "::warning::Meta pull failed — keeping the previous snapshot"
+            fi
+          else
+            echo "already pulled this hour — reusing the current snapshot"
+          fi
+
+      - name: Save refreshed snapshot to branch
+        if: ${{ env.SNAP_UPDATED == '1' }}
+        run: |
+          set -e
+          git config user.name  "meta-ads-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT=.snap-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+          git worktree add -f "$WT" origin/camp-snapshots
+          gzip -c "$SNAP_DB" > "$WT/camp_snapshots.db.gz"
+          cd "$WT"; git add -A
+          if git diff --staged --quiet; then echo "no change"; exit 0; fi
+          git commit -m "snapshot via roas-email: $(date -u +%FT%TZ)"
+          for i in 1 2 3; do
+            git push origin HEAD:camp-snapshots && { echo pushed; break; }
+            git fetch origin camp-snapshots && git reset --hard origin/camp-snapshots
+            gzip -c "../$SNAP_DB" > camp_snapshots.db.gz
+            git add -A && git commit -m "snapshot overlay" || true
+          done
+
+      # Pulled on the same schedule as Meta so the two always describe the same
+      # moment. v2-ingest still ingests Shopify every 10 minutes for the rest of
+      # the pipeline; this call exists so the report's sales figure matches
+      # Shopify admin at the instant spend was measured.
+      - name: Refresh today's Shopify orders
+        if: ${{ env.SNAP_UPDATED == '1' }}
+        continue-on-error: true      # fall back to the branch copy if a store 500s
+        run: python3 scripts/v2/ingest_shopify.py --days 1 2>&1 | tail -6
+
+      # Freeze each completed day once (Meta final daily spend + all-day Shopify
+      # sales), so "yesterday" and the archive show the true full-day ROAS
+      # instead of a snapshot that stops a few minutes into the last hour.
+      - name: Freeze completed days
+        continue-on-error: true      # a Meta blip here must not fail the report
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: |
+          BEFORE=$(md5sum "$FINALS" 2>/dev/null | cut -d' ' -f1)
+          python3 scripts/v2/daily_finals.py --store "$FINALS" --ntn-db "$NTN_DB" --days 8
+          AFTER=$(md5sum "$FINALS" 2>/dev/null | cut -d' ' -f1)
+          [ "$BEFORE" != "$AFTER" ] && echo "FINALS_UPDATED=1" >> "$GITHUB_ENV" || true
+
+      - name: Save finals to branch
+        if: ${{ env.FINALS_UPDATED == '1' }}
+        run: |
+          set -e
+          git config user.name  "meta-ads-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT=.finals-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+          git worktree add -f "$WT" origin/camp-snapshots
+          cp "$FINALS" "$WT/daily_finals.json"
+          cd "$WT"; git add -A
+          if git diff --staged --quiet; then echo "no change"; exit 0; fi
+          git commit -m "daily finals: $(date -u +%FT%TZ)"
+          for i in 1 2 3; do
+            git push origin HEAD:camp-snapshots && { echo pushed; break; }
+            git fetch origin camp-snapshots && git reset --hard origin/camp-snapshots
+            cp "../$FINALS" daily_finals.json
+            git add -A && git commit -m "finals overlay" || true
+          done
+
+      - name: Freshness check + stale-feed alert
+        # Surfaces a stale feed in the job log AND actively emails the operator
+        # when either feed goes cold. The snapshot cron and the Shopify ingest
+        # both skip sometimes; before this, a silent stall (like 21-24 Jul) was
+        # only discovered days later by eyeballing the dashboard. Now any stall
+        # pings within the hour. Wrapped so it can NEVER fail the mail run.
+        continue-on-error: true
+        env:
+          ALERT_TO: pulkitsharma1165@gmail.com
+        run: |
+          python3 - <<'PY'
+          import sqlite3, os, smtplib, ssl, traceback
+          from email.mime.text import MIMEText
+          from datetime import datetime, timezone, timedelta
+          IST = timezone(timedelta(hours=5, minutes=30))
+          now = datetime.now(IST)
+
+          STALE_MIN = 90   # both feeds alert once they cross 1.5 h old
+
+          # Snapshot (Meta pixel ROAS) freshness. Slots are 'YYYY-MM-DD HH'.
+          snap_age_min = None
+          try:
+              s = sqlite3.connect(os.environ['SNAP_DB']).execute(
+                  "SELECT MAX(hour_slot) FROM campaign_hourly_snapshots").fetchone()[0]
+              if s:
+                  slot = datetime.strptime(s[:13], "%Y-%m-%d %H").replace(tzinfo=IST)
+                  snap_age_min = (now - slot).total_seconds() / 60
+          except Exception:
+              s = None
+          print(f"now {now:%Y-%m-%d %H:%M} IST | latest snapshot slot: {s}"
+                + (f" ({snap_age_min:.0f} min old)" if snap_age_min is not None else ""))
+
+          # Shopify freshness is measured by when the INGEST last ran, not by the
+          # newest order time — otherwise a genuine quiet stretch (no sale for
+          # 90 min at night) would false-alarm. ingest_log records every
+          # ingest_shopify run; a stale success there means the pipeline is down.
+          ing_age_min = None
+          try:
+              con = sqlite3.connect(os.environ['NTN_DB'])
+              row = con.execute(
+                  "SELECT MAX(COALESCE(finished_at, started_at)) FROM ingest_log "
+                  "WHERE job_name='ingest_shopify' AND status='success'").fetchone()
+              if row and row[0]:
+                  ing_age_min = (now - datetime.fromisoformat(row[0])).total_seconds() / 60
+              # Order ages are still printed for context (not the alert trigger).
+              for portal, ts in con.execute(
+                      "SELECT portal, MAX(created_at) FROM shopify_orders GROUP BY portal"):
+                  age_h = (now - datetime.fromisoformat(ts)).total_seconds() / 3600
+                  print(f"  shopify {portal}: last order {ts} ({age_h:.1f}h ago)")
+          except Exception:
+              pass
+          print(f"  shopify ingest last succeeded: "
+                + (f"{ing_age_min:.0f} min ago" if ing_age_min is not None else "UNKNOWN"))
+
+          # A feed is STALE if the snapshot OR the Shopify ingest is >90 min old.
+          reasons = []
+          if snap_age_min is None or snap_age_min > STALE_MIN:
+              reasons.append(f"Meta snapshot {('missing' if snap_age_min is None else f'{snap_age_min:.0f} min old')}")
+          if ing_age_min is None or ing_age_min > STALE_MIN:
+              reasons.append(f"Shopify ingest {('has no success on record' if ing_age_min is None else f'last ran {ing_age_min:.0f} min ago')}")
+
+          stale = bool(reasons)
+          print("FEED STATUS:", "STALE — " + "; ".join(reasons) if stale else "fresh")
+
+          # Alert at most ~once/hour (first tick of the IST hour) so an ongoing
+          # outage does not spam every 10 min. GitHub skipping this exact tick
+          # just delays the ping to the next hour — fine for an outage alert.
+          user = os.environ.get('GMAIL_USER'); pw = os.environ.get('GMAIL_APP_PASSWORD')
+          if stale and now.minute < 10 and user and pw:
+              try:
+                  body = (f"The ROAS dashboard feed looks STALE as of {now:%d %b %H:%M} IST.\n\n"
+                          + "\n".join(f"  • {r}" for r in reasons)
+                          + "\n\nThe dashboard may be showing frozen/old numbers. "
+                            "The pipeline self-heals on the next good ingest; if this "
+                            "keeps firing for >2h, the ingest or state branch needs a look.\n\n"
+                            "— automated watchdog (roas-email.yml)")
+                  msg = MIMEText(body)
+                  msg['Subject'] = f"⚠️ ROAS feed STALE — {reasons[0]}"
+                  msg['From'] = user; msg['To'] = os.environ['ALERT_TO']
+                  with smtplib.SMTP('smtp.gmail.com', 587, timeout=30) as srv:
+                      srv.starttls(context=ssl.create_default_context())
+                      srv.login(user, pw)
+                      srv.sendmail(user, [os.environ['ALERT_TO']], msg.as_string())
+                  print(f"  📧 stale-feed alert sent to {os.environ['ALERT_TO']}")
+              except Exception:
+                  print("  (alert email failed — non-fatal)"); traceback.print_exc()
+          PY
+
+      # The PAGE rebuilds on every attempt (3x/hour), unlike the email. Rebuilding
+      # is idempotent — there is no duplicate-send to protect against — so more
+      # attempts strictly means fresher numbers and a better chance of covering
+      # an hour where GitHub skipped a tick. The hour-by-hour table is
+      # reconstructed from the databases each time, so a missed build leaves no
+      # permanent hole: the next build fills it back in.
+      # ── Products report: daily-at-2PM snapshot, archived per day ──
+      # A downloadable "All Portals · Products Report" Excel (faithful clone of
+      # Navdeep's manual tab, verified to reproduce its 10d columns exactly).
+      # Past days are kept forever on the `reports-archive` branch and restored
+      # into the deploy dir every run, so the dashboard's left-sidebar Reports
+      # menu lists every day. The live pull is light (6 accounts, campaign level)
+      # so it never risks the pipeline; all steps are continue-on-error.
+      - name: Restore products-report archive
+        continue-on-error: true
+        run: |
+          mkdir -p roas-live/reports/archive
+          if git ls-remote --exit-code --heads origin reports-archive >/dev/null 2>&1; then
+            git fetch --depth=1 origin reports-archive:refs/remotes/origin/reports-archive
+            WT=.rep-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+            git worktree add -f "$WT" origin/reports-archive
+            rsync -a --exclude='.git' "$WT"/ roas-live/reports/archive/ 2>/dev/null || true
+            git worktree remove -f "$WT" 2>/dev/null || true
+            echo "restored $(ls roas-live/reports/archive/*.xlsx 2>/dev/null | wc -l | tr -d ' ') archived report(s)"
+          else
+            echo "no reports-archive branch yet — will create on first 2 PM run"
+          fi
+
+      - name: Build daily products report (2 PM IST)
+        continue-on-error: true
+        run: |
+          DATE=$(TZ=Asia/Kolkata date +%F)
+          HOUR=$(TZ=Asia/Kolkata date +%H)
+          TARGET="roas-live/reports/archive/products-report-$DATE.xlsx"
+          COUNT=$(ls roas-live/reports/archive/products-report-*.xlsx 2>/dev/null | wc -l | tr -d ' ')
+          # Generate today's snapshot once — at/after 14:00 IST, or immediately if
+          # the archive is still empty (so there is always something to download).
+          if [ ! -f "$TARGET" ] && { [ "$HOUR" -ge 14 ] || [ "$COUNT" -eq 0 ]; }; then
+            echo "generating products report for $DATE (hour=$HOUR)"
+            python3 scripts/v2/build_products_report.py --date "$DATE" --out "$TARGET"
+            [ -f "$TARGET" ] && echo "NEW_REPORT=1" >> "$GITHUB_ENV"
+          else
+            echo "no new report this run (hour=$HOUR, today exists=$([ -f "$TARGET" ] && echo yes || echo no), archived=$COUNT)"
+          fi
+
+      - name: Build ROAS page
+        run: |
+          python3 scripts/v2/build_roas_page.py \
+            --snap-db "$SNAP_DB" --ntn-db "$NTN_DB" --finals "$FINALS" \
+            --out roas-live/index.html --days 7
+
+      - name: Deploy page to Vercel
+        continue-on-error: true      # a deploy blip must never block the email
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PROJ: ${{ vars.ROAS_PAGE_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "no VERCEL_TOKEN — skipping deploy"; exit 0; fi
+          # Vercel rejects VERCEL_ORG_ID without VERCEL_PROJECT_ID, so on the
+          # very first deploy we pass neither and let it create the project.
+          # Set repo variable ROAS_PAGE_PROJECT_ID afterwards to pin it.
+          if [ -n "$PROJ" ]; then
+            export VERCEL_ORG_ID=team_AocNAz8F008iWPSLVvar2Xb5
+            export VERCEL_PROJECT_ID="$PROJ"
+            echo "deploying to pinned project $PROJ"
+          else
+            echo "no ROAS_PAGE_PROJECT_ID set — first deploy will create the project"
+          fi
+          npx --yes vercel@latest deploy roas-live --prod --yes \
+            --token="$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel.log
+          [ -f roas-live/.vercel/project.json ] && \
+            echo "PROJECT_JSON $(cat roas-live/.vercel/project.json)"
+          echo "url: $(grep -oE 'https://[a-z0-9.-]+\.vercel\.app' /tmp/vercel.log | tail -1)"
+
+      - name: Send ROAS email (once per IST hour)
+        run: |
+          ARGS="--state $STATE_FILE"
+          [ -n "${{ github.event.inputs.to }}" ] && ARGS="$ARGS --to ${{ github.event.inputs.to }}"
+          [ "${{ github.event.inputs.force }}" = "true" ] && ARGS="$ARGS --force"
+          [ "${{ github.event.inputs.dry_run }}" = "true" ] && ARGS="$ARGS --dry-run"
+          python3 scripts/v2/roas_email.py --snap-db "$SNAP_DB" --ntn-db "$NTN_DB" $ARGS
+
+      - name: Save send state
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -e
+          git config user.name  "meta-ads-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT=.email-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+          if git ls-remote --exit-code --heads origin email-state >/dev/null 2>&1; then
+            git worktree add -f "$WT" "origin/email-state"
+          else
+            git worktree add -f --orphan -b email-state "$WT"
+            ( cd "$WT" && git rm -rf . 2>/dev/null || true )
+          fi
+          cp "$STATE_FILE" "$WT/roas_email_sent.json"
+          cd "$WT"; git add -A
+          if git diff --staged --quiet; then echo "no new hour recorded"; exit 0; fi
+          git commit -m "roas-email: sent $(TZ=Asia/Kolkata date '+%F %H:00') IST"
+          for i in 1 2 3; do
+            git push origin "HEAD:email-state" && { echo pushed; break; }
+            git fetch origin email-state && git reset --hard origin/email-state
+            cp "../$STATE_FILE" roas_email_sent.json
+            git add -A && git commit -m "roas-email overlay" || true
+          done
+
+      # Persist today's products report to the reports-archive branch so every
+      # past day stays available in the dashboard sidebar across redeploys.
+      # Append-only (one small xlsx+json per day) — no binary-merge conflicts.
+      - name: Save products-report archive
+        if: ${{ env.NEW_REPORT == '1' }}
+        continue-on-error: true
+        run: |
+          git config user.name  "meta-ads-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WT=.reparch-wt; git worktree remove -f "$WT" 2>/dev/null || true; rm -rf "$WT"
+          if git ls-remote --exit-code --heads origin reports-archive >/dev/null 2>&1; then
+            git fetch --depth=1 origin reports-archive:refs/remotes/origin/reports-archive
+            git worktree add -f "$WT" origin/reports-archive
+          else
+            git worktree add -f --orphan -b reports-archive "$WT"
+            ( cd "$WT" && git rm -rf . 2>/dev/null || true )
+          fi
+          cp -f roas-live/reports/archive/products-report-*.xlsx \
+                roas-live/reports/archive/products-report-*.json "$WT"/ 2>/dev/null || true
+          cd "$WT"; git add -A
+          if git diff --staged --quiet; then echo "archive already up to date"; exit 0; fi
+          git commit -m "products report: $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
+          for i in 1 2 3 4 5; do
+            git push origin "HEAD:reports-archive" && { echo pushed; exit 0; }
+            git fetch origin reports-archive && git reset --hard origin/reports-archive
+            cp -f ../roas-live/reports/archive/products-report-*.xlsx \
+                  ../roas-live/reports/archive/products-report-*.json ./ 2>/dev/null || true
+            git add -A
+            git diff --staged --quiet && { echo "remote already matches"; exit 0; }
+            git commit -m "products report overlay" || true
+          done
+          echo "archive push failed after retries" >&2

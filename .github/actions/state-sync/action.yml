@@ -1,0 +1,155 @@
+name: State branch sync
+description: >-
+  Restores the `state/` directory from the `state` branch before a run, and
+  commits `state/` back to the `state` branch after a run. The `state` branch
+  is an orphan branch (no history shared with main) holding only runtime
+  snapshot files that scripts use to detect "closed since last run" etc.
+inputs:
+  direction:
+    description: "'restore' (before run) or 'save' (after run)"
+    required: true
+  state-dir:
+    description: Relative path to the state directory
+    required: false
+    default: state
+
+runs:
+  using: composite
+  steps:
+    - name: Sync state branch
+      shell: bash
+      env:
+        DIRECTION: ${{ inputs.direction }}
+        STATE_DIR: ${{ inputs.state-dir }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$STATE_DIR"
+
+        WT=.state-branch-wt
+        BRANCH=state
+
+        if [ "$DIRECTION" = "restore" ]; then
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+            git fetch --depth=1 origin "$BRANCH:refs/remotes/origin/$BRANCH"
+            # Clean up any leftover worktree from a failed previous run
+            git worktree remove -f "$WT" 2>/dev/null || true
+            rm -rf "$WT"
+            git worktree add -f "$WT" "origin/$BRANCH"
+            # Copy everything except .git into state dir (preserving dotfiles)
+            rsync -a --exclude='.git' "$WT/" "$STATE_DIR/"
+            # The DB is stored gzipped on the branch (keeps the committed blob
+            # well under GitHub's 100 MB hard limit). Decompress so scripts see
+            # the plain state/ntn.db. Tolerate a legacy uncompressed db too.
+            if [ -f "$STATE_DIR/ntn.db.gz" ]; then
+              gunzip -f "$STATE_DIR/ntn.db.gz" && echo "  ✅ decompressed ntn.db"
+            fi
+            # Self-heal a corrupt snapshot. A 'database disk image is malformed'
+            # db used to cascade-fail EVERY step (schema init onward), silently
+            # freezing sales for hours. Rebuild it via .recover so the run
+            # proceeds; a later re-ingest fills anything the recovery dropped.
+            if [ -f "$STATE_DIR/ntn.db" ] && \
+               [ "$(sqlite3 "$STATE_DIR/ntn.db" 'PRAGMA integrity_check;' 2>/dev/null | head -1)" != "ok" ]; then
+              echo "  ⚠️  restored ntn.db is malformed — rebuilding via .recover"
+              sqlite3 "$STATE_DIR/ntn.db" ".recover" 2>/dev/null | sqlite3 "$STATE_DIR/ntn.db.fixed" 2>/dev/null || true
+              if [ -s "$STATE_DIR/ntn.db.fixed" ] && \
+                 [ "$(sqlite3 "$STATE_DIR/ntn.db.fixed" 'PRAGMA integrity_check;' 2>/dev/null | head -1)" = "ok" ]; then
+                mv -f "$STATE_DIR/ntn.db.fixed" "$STATE_DIR/ntn.db"; echo "  ✅ recovered ntn.db"
+              else
+                rm -f "$STATE_DIR/ntn.db.fixed"; echo "  ❌ could not recover ntn.db" >&2
+              fi
+            fi
+            echo "  ✅ restored $(find "$STATE_DIR" -type f ! -name '.gitkeep' | wc -l | tr -d ' ') state file(s) from branch"
+          else
+            echo "  ℹ️  no state branch yet — starting fresh"
+          fi
+
+        elif [ "$DIRECTION" = "save" ]; then
+          # Identity env vars apply to every commit (including those created
+          # by `git rebase`), which git config -c flags do not.
+          export GIT_AUTHOR_NAME="meta-ads-bot"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+
+          # Prepare worktree (may already exist from restore step)
+          if [ ! -d "$WT" ]; then
+            if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+              git fetch --depth=1 origin "$BRANCH:refs/remotes/origin/$BRANCH"
+              git worktree add -f "$WT" "origin/$BRANCH"
+            else
+              git worktree add -f --orphan -b "$BRANCH" "$WT"
+              (cd "$WT" && git rm -rf . 2>/dev/null || true)
+            fi
+          fi
+
+          # Sync state into worktree (mirror — delete files removed from state)
+          rsync -a --delete --exclude='.git' "$STATE_DIR/" "$WT/"
+
+          # Compress the SQLite DB before committing. The uncompressed db hit
+          # ~100 MB (GitHub's hard push limit) which broke every save; gzip
+          # drops it to ~1/3. Scripts never see the .gz (restore decompresses).
+          if [ -f "$WT/ntn.db" ]; then
+            # Fold the WAL into the main file so the published snapshot is a
+            # single, consistent image. Gzipping a WAL-mode db WITHOUT this is
+            # exactly what produced the 'malformed' (page 43887) corruption on
+            # 24 Jul that froze the sales feed.
+            sqlite3 "$WT/ntn.db" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null 2>&1 || true
+            rm -f "$WT/ntn.db-wal" "$WT/ntn.db-shm"
+            # Never publish a corrupt db over the good one — recover, or abort.
+            if [ "$(sqlite3 "$WT/ntn.db" 'PRAGMA integrity_check;' 2>/dev/null | head -1)" != "ok" ]; then
+              echo "  ⚠️  ntn.db failed integrity_check before publish — recovering"
+              sqlite3 "$WT/ntn.db" ".recover" 2>/dev/null | sqlite3 "$WT/ntn.db.fixed" 2>/dev/null || true
+              if [ -s "$WT/ntn.db.fixed" ] && \
+                 [ "$(sqlite3 "$WT/ntn.db.fixed" 'PRAGMA integrity_check;' 2>/dev/null | head -1)" = "ok" ]; then
+                mv -f "$WT/ntn.db.fixed" "$WT/ntn.db"; echo "  ✅ recovered before publish"
+              else
+                rm -f "$WT/ntn.db.fixed"
+                echo "  ❌ ntn.db corrupt & unrecoverable — NOT publishing (keeping last good snapshot)" >&2
+                exit 1
+              fi
+            fi
+            gzip -f "$WT/ntn.db"   # → ntn.db.gz
+          fi
+
+          # Absolute path to the live state dir — used to re-overlay on retry.
+          STATE_ABS="$(cd "$STATE_DIR" && pwd)"
+
+          cd "$WT"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "  ℹ️  no state changes to commit"
+            exit 0
+          fi
+
+          git commit -m "state: $(date -u +%FT%TZ) [${GITHUB_WORKFLOW:-manual}]"
+
+          # Push with retry. The state branch holds a BINARY snapshot (ntn.db)
+          # that several workflows push to, so a rebase-merge hits an
+          # unresolvable binary conflict — that was the failing step. Instead,
+          # on a push race adopt the remote tip and re-overlay OUR snapshot on
+          # top (latest writer wins — correct for a snapshot, and every run
+          # re-ingests recent days so nothing is actually lost).
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:$BRANCH"; then
+              echo "  ✅ state pushed to branch"
+              exit 0
+            fi
+            echo "  ⚠️  push race, retry $attempt/5 — overlaying our snapshot on latest"
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            rsync -a --delete --exclude='.git' "$STATE_ABS/" ./
+            if [ -f ntn.db ]; then gzip -f ntn.db; fi   # keep the blob compressed
+            git add -A
+            if git diff --staged --quiet; then
+              echo "  ℹ️  remote already matches our state"
+              exit 0
+            fi
+            git commit -m "state: $(date -u +%FT%TZ) [${GITHUB_WORKFLOW:-manual}] overlay"
+          done
+          echo "  ❌ state push failed after retries" >&2
+          exit 1
+
+        else
+          echo "  ❌ invalid direction: $DIRECTION (expected 'restore' or 'save')" >&2
+          exit 1
+        fi

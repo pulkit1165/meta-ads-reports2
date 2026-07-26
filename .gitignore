@@ -1,0 +1,45 @@
+.env
+.env.local
+*.env.local
+google-service-account.json
+service-account*.json
+
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.venv/
+venv/
+env/
+
+.DS_Store
+.idea/
+.vscode/
+
+*.log
+tmp/
+.tmp/
+
+# Generated artifacts — keep the dirs (via .gitkeep) but ignore contents on main.
+# Phase 3: state/ contents are persisted on the `state` branch via the workflow.
+# Phase 3: out/ artifacts are uploaded as GHA artifacts per-run.
+state/*
+!state/.gitkeep
+out/*
+!out/.gitkeep
+.claude/
+antariksh/paras_videos.json
+
+# JS/app build artifacts & caches (listing-studio*, studd-muffyn-app)
+node_modules/
+.expo/
+.next/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+.vercel/
+listing-studio/worker_jobs/
