@@ -414,7 +414,11 @@ def main():
     # hero
     h.append('<div class="card hero">')
     h.append(f'<div class="roas">{a["roas"]:.2f}<span>blended ROAS</span></div>')
-    h.append(f'<div class="sub">{rupee(a["rev"])} sales on {rupee(a["spend"])} spend '
+    # "sales till HH:MM" — the cutoff lives in the hero because the operator
+    # compares this number against a live Shopify report; without the time it
+    # reads as wrong whenever the pipeline is a few minutes behind (26 Jul).
+    till = f' till {sdt:%H:%M}' if snap_ts else ''
+    h.append(f'<div class="sub">{rupee(a["rev"])} sales{till} on {rupee(a["spend"])} spend '
              f'&nbsp;&middot;&nbsp; {a["orders"]:,} orders &nbsp;&middot;&nbsp; '
              f'{a["products"]} products live</div>')
     h.append(f'<div class="vs">{rupee(a.get("active_budget", 0))} budget live '
