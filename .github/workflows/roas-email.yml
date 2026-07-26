@@ -361,6 +361,7 @@ jobs:
             --out roas-live/index.html --days 7
 
       - name: Deploy page to Vercel
+        id: vercel_deploy
         continue-on-error: true      # a deploy blip must never block the email
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -447,3 +448,12 @@ jobs:
             git commit -m "products report overlay" || true
           done
           echo "archive push failed after retries" >&2
+
+      - name: Fail run if the page deploy failed
+        # Deploy stays continue-on-error so the email always goes out, but a
+        # silently dead deploy froze the dashboard for 2h on 26 Jul — surface
+        # it as a red run so it's visible within one 10-min cycle.
+        if: ${{ steps.vercel_deploy.outcome == 'failure' }}
+        run: |
+          echo "Vercel deploy failed — dashboard is serving a stale page"
+          exit 1
