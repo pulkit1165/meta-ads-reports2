@@ -400,11 +400,17 @@ jobs:
           else
             echo "no ROAS_PAGE_PROJECT_ID set — first deploy will create the project"
           fi
+          # pipefail matters: `vercel | tee` used to exit 0 via tee even when
+          # the deploy errored, so a dead token served a frozen page for hours
+          # (27 Jul) with every run green.
+          set -o pipefail
           npx --yes vercel@latest deploy roas-live --prod --yes \
             --token="$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel.log
           [ -f roas-live/.vercel/project.json ] && \
             echo "PROJECT_JSON $(cat roas-live/.vercel/project.json)"
-          echo "url: $(grep -oE 'https://[a-z0-9.-]+\.vercel\.app' /tmp/vercel.log | tail -1)"
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.vercel\.app' /tmp/vercel.log | tail -1)
+          echo "url: $URL"
+          [ -n "$URL" ] || { echo "no deployment URL in output — treating as failed"; exit 1; }
 
       - name: Send ROAS email (once per IST hour)
         run: |
