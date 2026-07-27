@@ -304,6 +304,82 @@ def build_rows(day: str, camps: dict, shop: dict,
     return rows
 
 
+def _rgb(hexcode: str) -> dict:
+    return {'red': int(hexcode[0:2], 16) / 255,
+            'green': int(hexcode[2:4], 16) / 255,
+            'blue': int(hexcode[4:6], 16) / 255}
+
+
+def format_tab(sh, ws, rows: list) -> None:
+    """Colour pass: navy title, indigo section bars, grey column headers,
+    verdict cells tinted by outcome, bold TOTAL rows, frozen title."""
+    sid = ws.id
+    ncols = 10
+
+    def cell_fmt(r1, r2, c1, c2, fmt, fields):
+        return {'repeatCell': {
+            'range': {'sheetId': sid, 'startRowIndex': r1, 'endRowIndex': r2,
+                      'startColumnIndex': c1, 'endColumnIndex': c2},
+            'cell': {'userEnteredFormat': fmt}, 'fields': fields}}
+
+    bg = 'userEnteredFormat(backgroundColor,textFormat)'
+    req = [
+        # column widths: wide portal column, medium data columns
+        {'updateDimensionProperties': {
+            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
+                      'startIndex': 0, 'endIndex': 1},
+            'properties': {'pixelSize': 230}, 'fields': 'pixelSize'}},
+        {'updateDimensionProperties': {
+            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
+                      'startIndex': 1, 'endIndex': ncols},
+            'properties': {'pixelSize': 150}, 'fields': 'pixelSize'}},
+        {'updateSheetProperties': {
+            'properties': {'sheetId': sid,
+                           'gridProperties': {'frozenRowCount': 2}},
+            'fields': 'gridProperties.frozenRowCount'}},
+        # title + subtitle
+        cell_fmt(0, 1, 0, ncols,
+                 {'backgroundColor': _rgb('1F2937'),
+                  'textFormat': {'bold': True, 'fontSize': 14,
+                                 'foregroundColor': _rgb('FFFFFF')}}, bg),
+        cell_fmt(1, 2, 0, ncols,
+                 {'backgroundColor': _rgb('F3F4F6'),
+                  'textFormat': {'italic': True, 'fontSize': 9,
+                                 'foregroundColor': _rgb('6B7280')}},
+                 'userEnteredFormat(backgroundColor,textFormat)'),
+    ]
+    for i, r in enumerate(rows):
+        first = str(r[0]) if r else ''
+        if first.startswith('━━━'):
+            req.append(cell_fmt(i, i + 1, 0, ncols,
+                       {'backgroundColor': _rgb('3730A3'),
+                        'textFormat': {'bold': True,
+                                       'foregroundColor': _rgb('FFFFFF')}}, bg))
+            if i + 1 < len(rows):          # column-header row under the bar
+                req.append(cell_fmt(i + 1, i + 2, 0, ncols,
+                           {'backgroundColor': _rgb('E5E7EB'),
+                            'textFormat': {'bold': True}}, bg))
+        elif first == 'No. of Orders':
+            req.append(cell_fmt(i, i + 1, 0, 2,
+                       {'backgroundColor': _rgb('ECFDF5'),
+                        'textFormat': {'bold': True, 'fontSize': 12}}, bg))
+        elif first == 'TOTAL':
+            req.append(cell_fmt(i, i + 1, 0, ncols,
+                       {'backgroundColor': _rgb('F3F4F6'),
+                        'textFormat': {'bold': True}}, bg))
+        # verdict tinting — colour the cell that carries the emoji
+        for j, c in enumerate(r):
+            c = str(c)
+            tint = ('D1FAE5' if '✅' in c else
+                    'FEE2E2' if '🔴' in c else
+                    'FEF3C7' if '⚠️' in c else None)
+            if tint:
+                req.append(cell_fmt(i, i + 1, j, j + 1,
+                           {'backgroundColor': _rgb(tint),
+                            'textFormat': {'bold': True}}, bg))
+    sh.batch_update({'requests': req})
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--snap-db', default='state/camp_snapshots.db')
@@ -349,7 +425,8 @@ def main() -> None:
     order = [w for w in sh.worksheets() if w.title == tab] + \
             [w for w in sh.worksheets() if w.title != tab]
     sh.reorder_worksheets(order)
-    print(f'wrote {tab}: {len(rows)} rows')
+    format_tab(sh, ws, rows)
+    print(f'wrote {tab}: {len(rows)} rows (formatted)')
 
 
 if __name__ == '__main__':
