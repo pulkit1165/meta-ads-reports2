@@ -13,7 +13,7 @@ Guardrails:
     manual re-enable in Ads Manager is respected for the rest of the day
   - every pause is logged to the '🔴 Auto-Closed' sheet tab
 
-Run hourly at :01 IST, 24h starting 12:01 AM, via .github/workflows/auto-close.yml.
+Run twice hourly at :30 and :59 IST, 24h, via .github/workflows/auto-close.yml.
 DRY_RUN=1 env → log + sheet only, no pause calls.
 """
 

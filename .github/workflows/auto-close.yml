@@ -1,4 +1,4 @@
-name: Auto-close low-ROAS campaigns (hourly, from 12:01 AM IST)
+name: Auto-close low-ROAS campaigns (twice hourly at :30 and :59 IST)
 
 # LIVE: pauses campaigns via Meta API when spend >= 40% of daily budget
 # AND today's 1d_click ROAS <= 0.4. Guardrails + audit log in
@@ -6,8 +6,8 @@ name: Auto-close low-ROAS campaigns (hourly, from 12:01 AM IST)
 
 on:
   schedule:
-    # Every hour at :01 IST, all day starting 12:01 AM IST (= :31 UTC)
-    - cron: "31 * * * *"
+    # Twice hourly at :30 and :59 IST, 24h (= :00 and :29 UTC)
+    - cron: "0,29 * * * *"
   workflow_dispatch:
 
 concurrency:
