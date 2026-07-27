@@ -173,7 +173,9 @@ def build_rows(day: str, camps: dict, shop: dict,
     rows: list = [
         [f'DAILY REPORT · {d:%-d %B %Y}'],
         [f'Generated {datetime.now(IST):%d %b %Y %H:%M} IST · '
-         f'ROAS = Shopify sales / Meta spend · core list: "{CONFIG_TAB}" tab'],
+         f'ROAS = Shopify sales / Meta spend · core list: "{CONFIG_TAB}" tab'
+         + (' · ⚠️ PARTIAL DAY — regenerates complete tomorrow 9 AM'
+            if day == datetime.now(IST).strftime('%F') else '')],
         [],
     ]
     total_orders = sum(shop[p]['orders'] for p in PORTALS)
@@ -234,12 +236,17 @@ def build_rows(day: str, camps: dict, shop: dict,
                  rupee(tot_b - tot_s)])
     rows.append([])
 
-    # ROAS (Shopify blended)
+    # ROAS (Shopify blended). For a day whose finals aren't frozen yet (a
+    # same-day partial run), fall back to live Shopify revenue vs snapshot
+    # spend so the section doesn't read 0.00x.
     rows += [['━━━ ROAS (Shopify sales / Meta spend) ━━━'],
              ['Portal', 'ROAS', 'Previous day', 'Change', 'Orders']]
     for p in PORTALS:
         f, fp = finals.get(p, {}), finals_prev.get(p, {})
-        roas = (f.get('sales') or 0) / f['spend'] if f.get('spend') else 0
+        sales = f.get('sales') or shop[p]['rev']
+        spend = f.get('spend') or sum(c['spend'] for c in camps.values()
+                                      if c['portal'] == p)
+        roas = sales / spend if spend else 0
         prev = (fp.get('sales') or 0) / fp['spend'] if fp.get('spend') else 0
         rows.append([PORTAL_LABEL[p], f'{roas:.2f}x',
                      f'{prev:.2f}x' if prev else '—',
