@@ -52,7 +52,8 @@ permissions:
 jobs:
   email:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20 wasn't enough once the top-of-hour hold (up to ~10 min) was added.
+    timeout-minutes: 30
     env:
       TZ: Asia/Kolkata
       SNAP_DB: state/camp_snapshots.db
@@ -107,6 +108,27 @@ jobs:
             echo '{"sent_hours":[]}' > "$STATE_FILE"
           fi
           echo "state: $(cat "$STATE_FILE" | head -c 300)"
+
+      # Measure AT the hour, not ten minutes before it. The */10 cron's :50
+      # tick used to pull at ~:52, so right after the hour the board still said
+      # "through 08:50" — the operator reads it just after the hour turns and
+      # wants it to say 09:00 (27 Jul request). A run that starts in the last
+      # ten minutes of an IST hour holds here until the hour flips, then pulls,
+      # giving a measurement stamped HH:00–HH:01. If GitHub skips the :50 tick
+      # the :00 tick still pulls on arrival — a few minutes past, as before.
+      - name: Hold until the IST hour turns (runs starting :50–:59)
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          M=$(TZ=Asia/Kolkata date +%M); S=$(TZ=Asia/Kolkata date +%S)
+          M=${M#0}; S=${S#0}
+          if [ "$M" -ge 50 ]; then
+            WAIT=$(( (60 - M) * 60 - S + 5 ))
+            echo "started at :$M — holding ${WAIT}s so the pull lands at the top of the hour"
+            sleep "$WAIT"
+            echo "resumed at IST $(TZ=Asia/Kolkata date '+%H:%M:%S')"
+          else
+            echo "minute :$M — no hold needed"
+          fi
 
       # ONE API PULL PER HOUR, by operator request: at least 55 minutes between
       # Meta pulls. The workflow still runs every ~10 minutes (it rebuilds the
