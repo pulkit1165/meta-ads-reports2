@@ -14,6 +14,8 @@ const REPO = 'pulkit1165/meta-ads-reports2';
 const REF  = 'main';
 const PAGE = 'https://roas-live.vercel.app/';
 const WA_RECIPIENTS = ['919517744959', '919815610890'];
+const SUMMARY = 'https://roas-live.vercel.app/summary.json';
+const INR = n => '\u20B9' + Math.round(n).toLocaleString('en-IN');
 
 const CRON_TO_WORKFLOW = {
   '15 * * * *': 'v2-ingest.yml',
@@ -95,12 +97,85 @@ async function watchdog(env) {
   return `STALE ${mins}m — kicked [${kicked.join(', ')}] wa=[${alert}]`;
 }
 
+
+async function getSummary() {
+  const r = await fetch(SUMMARY + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+  if (!r.ok) throw new Error('summary HTTP ' + r.status);
+  return r.json();
+}
+
+function fmtPortals(obj) {
+  return ['SM', 'SML', 'NBP'].filter(p => obj[p]).map(p => {
+    const v = obj[p];
+    return `${p} ${INR(v.sales)}/${INR(v.spend)} R${v.roas ?? '-'}`;
+  }).join(' | ');
+}
+
+async function morningReport() {
+  const s = await getSummary();
+  const y = s.yesterday;
+  const tp = s.top_products_yday.slice(0, 10)
+    .map((p, i) => `${i + 1}. ${p.title} x${p.qty}`).join(' · ');
+  const tot = Object.values(y.portals).reduce((a, v) => ({ s: a.s + v.sales, p: a.p + v.spend }), { s: 0, p: 0 });
+  return `Yesterday ${y.date} FINAL — ${fmtPortals(y.portals)} — TOTAL ${INR(tot.s)}/${INR(tot.p)} R${(tot.s / tot.p).toFixed(2)}. TOP: ${tp}`;
+}
+
+async function eveningReport() {
+  const s = await getSummary();
+  const c = s.closes_today_sm;
+  return `Today ${s.today} live — ${fmtPortals(s.live)}. SM closing: ${c.closes} campaigns paused (${c.early} before 9AM), ${INR(c.sunk)} spent before close. Data as of ${s.built_at.slice(11, 16)} IST`;
+}
+
+async function liveReport() {
+  const s = await getSummary();
+  const t = Object.values(s.live).reduce((a, v) => ({ s: a.s + v.sales, p: a.p + v.spend }), { s: 0, p: 0 });
+  return `Live ${s.today} (as of ${s.built_at.slice(11, 16)} IST) — ${fmtPortals(s.live)} — blended R${t.p ? (t.s / t.p).toFixed(2) : '-'} on ${INR(t.p)} spend. Yesterday: ${fmtPortals(s.yesterday.portals)}`;
+}
+
+async function sendWaText(env, to, text) {
+  return fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text.slice(0, 4000) } }),
+  });
+}
+
+async function pushReport(env, kind) {
+  let text;
+  try { text = kind === 'morning' ? await morningReport() : await eveningReport(); }
+  catch (e) { text = `report build failed: ${e.message}`; }
+  const title = kind === 'morning' ? 'DAILY REPORT' : 'CLOSING REPORT';
+  const out = [];
+  for (const to of WA_RECIPIENTS) {
+    // template first (works outside 24h window)
+    const r = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template',
+        template: { name: 'ntn_daily_meta_report', language: { code: 'en' },
+          components: [{ type: 'body', parameters: [
+            { type: 'text', text: title },
+            { type: 'text', text: text.replace(/[\n\t]+/g, ' · ').replace(/\s{4,}/g, ' ').slice(0, 900) } ] }] } }),
+    });
+    out.push(`${to}:${r.status}`);
+  }
+  return `${kind} push → ${out.join(' ')}`;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     const ts = new Date().toISOString();
     if (event.cron === '*/15 * * * *') {
       const out = await watchdog(env);
       console.log(`[${ts}] watchdog: ${out}`);
+      return;
+    }
+    if (event.cron === '30 3 * * *') {   // 09:00 IST
+      console.log(`[${ts}] ${await pushReport(env, 'morning')}`);
+      return;
+    }
+    if (event.cron === '30 14 * * *') {  // 20:00 IST
+      console.log(`[${ts}] ${await pushReport(env, 'evening')}`);
       return;
     }
     const file = CRON_TO_WORKFLOW[event.cron];
@@ -112,6 +187,39 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'text/plain' };
+    if (url.pathname === '/webhook' && request.method === 'GET') {
+      // Meta webhook verification handshake
+      if (url.searchParams.get('hub.verify_token') === env.WA_VERIFY_TOKEN) {
+        return new Response(url.searchParams.get('hub.challenge'), { headers: cors });
+      }
+      return new Response('bad verify token', { status: 403, headers: cors });
+    }
+    if (url.pathname === '/webhook' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        if (msg && msg.type === 'text') {
+          const from = msg.from;
+          if (WA_RECIPIENTS.includes(from)) {
+            const q = (msg.text?.body || '').trim().toLowerCase();
+            let reply;
+            if (/^(roas|report|live|status)/.test(q)) reply = await liveReport();
+            else if (/^(yday|yesterday|final)/.test(q)) reply = await morningReport();
+            else if (/^clos/.test(q)) reply = await eveningReport();
+            else reply = 'Commands: roas (live) · yesterday (final) · closing (SM closes). Reports auto-arrive 9 AM & 8 PM.';
+            await sendWaText(env, from, reply);
+          }
+        }
+      } catch (e) { console.error('webhook err', e.message); }
+      return new Response('ok', { headers: cors });
+    }
+    if (url.pathname === '/test-push') {
+      return new Response(await pushReport(env, url.searchParams.get('kind') || 'morning'), { headers: cors });
+    }
+    if (url.pathname === '/test-live') {
+      try { return new Response(await liveReport(), { headers: cors }); }
+      catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
+    }
     if (url.pathname === '/watchdog') {
       return new Response(await watchdog(env), { headers: cors });
     }

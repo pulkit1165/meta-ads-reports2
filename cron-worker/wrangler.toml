@@ -14,7 +14,7 @@ compatibility_date = "2024-12-01"
 # and operators need to see late-evening / early-morning numbers fresh.
 # GHA's own cron schedules in each workflow remain as a redundancy layer.
 [triggers]
-crons = ["15 * * * *", "35 * * * *", "*/15 * * * *"]
+crons = ["15 * * * *", "35 * * * *", "*/15 * * * *", "30 3 * * *", "30 14 * * *"]
 
 # Logs (optional — useful for debugging dispatch failures)
 [observability]

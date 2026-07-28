@@ -381,6 +381,9 @@ jobs:
           python3 scripts/v2/build_roas_page.py \
             --snap-db "$SNAP_DB" --ntn-db "$NTN_DB" --finals "$FINALS" \
             --out roas-live/index.html --days 7
+          python3 scripts/v2/build_wa_summary.py \
+            --snap-db "$SNAP_DB" --ntn-db "$NTN_DB" --finals "$FINALS" \
+            --out roas-live/summary.json
 
       - name: Deploy page to Vercel
         id: vercel_deploy

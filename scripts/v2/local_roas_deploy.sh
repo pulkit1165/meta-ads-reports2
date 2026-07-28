@@ -27,6 +27,9 @@ gh api -H 'Accept: application/vnd.github.raw' \
 python3 scripts/v2/build_roas_page.py \
   --snap-db "$WORK/state/camp_snapshots.db" --ntn-db "$WORK/state/ntn.db" \
   --finals "$WORK/state/daily_finals.json" --out roas-live/index.html --days 7
+python3 scripts/v2/build_wa_summary.py \
+  --snap-db "$WORK/state/camp_snapshots.db" --ntn-db "$WORK/state/ntn.db" \
+  --finals "$WORK/state/daily_finals.json" --out roas-live/summary.json
 
 npx --yes vercel@latest deploy roas-live --prod --yes
 echo "$(date '+%F %T') deployed ok" >> /tmp/roas-live-localdeploy/deploy.log
