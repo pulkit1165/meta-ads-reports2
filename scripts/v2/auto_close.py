@@ -184,7 +184,8 @@ def main():
             if budget <= 0:                    continue   # lifetime-budget camps: no daily % to measure
             too_young = False
             try:
-                st = datetime.fromisoformat(camp.get('start_time') or camp.get('created_time'))
+                raw_st = camp.get('start_time') or camp.get('created_time')
+                st = datetime.strptime(raw_st, '%Y-%m-%dT%H:%M:%S%z')
                 too_young = (now - st).total_seconds() < 2 * 3600
             except Exception:
                 pass
