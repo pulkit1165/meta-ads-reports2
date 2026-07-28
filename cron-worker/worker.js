@@ -89,7 +89,37 @@ async function sendWhatsApp(env, text) {
   return results.join(' ');
 }
 
+async function whapiHealthAlert(env) {
+  // If the WhatsApp gateway itself is down, alert via the Meta Cloud API path
+  // (independent of Whapi) so the operator hears about it.
+  if (!env.WHAPI_TOKEN) return '';
+  try {
+    const r = await fetch('https://gate.whapi.cloud/health', {
+      headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}` } });
+    const d = await r.json();
+    const st = d?.status?.text || 'UNKNOWN';
+    if (st === 'AUTH') { await env.WA_STATE.delete('whapi:down'); return ''; }
+    // down — alert once per 3h
+    const k = 'whapi:down';
+    const last = await env.WA_STATE.get(k);
+    if (last && Date.now() - Number(last) < 3 * 3600 * 1000) return `whapi:${st}(alerted)`;
+    await env.WA_STATE.put(k, String(Date.now()), { expirationTtl: 86400 });
+    await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: '919517744959', type: 'template',
+        template: { name: 'ntn_daily_meta_report', language: { code: 'en' },
+          components: [{ type: 'body', parameters: [
+            { type: 'text', text: 'WHAPI DOWN' },
+            { type: 'text', text: `WhatsApp gateway status ${st} — hourly reports blocked. Rescan QR at panel.whapi.cloud (channel DRSTRG-ZHSR9).` } ] }] } }),
+    });
+    return `whapi:${st}(ALERT SENT)`;
+  } catch (e) { return 'whapi:check-err'; }
+}
+
 async function watchdog(env) {
+  const wh = await whapiHealthAlert(env);
+  if (wh) console.log('whapi-health:', wh);
   const { mins, err, stamp } = await pageStalenessMinutes();
   const note = err ? err : `data age ${mins}m (${stamp})`;
   if (mins <= 80) return `OK — ${note}`;
@@ -246,14 +276,19 @@ async function hourlyPush(env, only) {
     if (only && to !== only) continue;
     if (!only && !subs.hourly) continue;
     if (env.WHAPI_TOKEN) {
-      const ir = await fetch('https://gate.whapi.cloud/messages/image', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: to + '@s.whatsapp.net',
-          media: WA_TABLE_PNG + '?t=' + Date.now(), caption }),
-      });
-      if (ir.ok) { out.push(`${to}:img`); continue; }
-      out.push(`${to}:img-fail-${ir.status}`);
+      let ok = false;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        const ir = await fetch('https://gate.whapi.cloud/messages/image', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: to + '@s.whatsapp.net',
+            media: WA_TABLE_PNG + '?t=' + Date.now(), caption }),
+        });
+        if (ir.ok) { out.push(`${to}:img`); ok = true; break; }
+        if (attempt === 1) out.push(`${to}:img-fail-${ir.status}`);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      if (ok) continue;
     }
     const tr = await sendWaText(env, to, caption);
     out.push(`${to}:${tr.ok ? 'txt' : 'txt-fail'}`);
@@ -294,7 +329,7 @@ export default {
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
       // Backstop only: if the :58-notify path failed and the table is fresh
       // (<25 min old), send at the :15 tick. Same dedupe key as notify-hourly.
-      if (h >= 9 && h <= 23 && m >= 15 && m < 30 && !(await env.WA_STATE.get('pause:hourly'))) {
+      if (m >= 15 && m < 30 && !(await env.WA_STATE.get('pause:hourly'))) {
         try {
           const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
           if (tr.ok) {
@@ -398,9 +433,6 @@ export default {
       const tt = await tr.json();
       const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
       if (await env.WA_STATE.get(kvKey)) return new Response('already sent ' + tt.data_through, { headers: cors });
-      const ist = new Date(Date.now() + 330 * 60000);
-      const h = ist.getUTCHours();
-      if (h < 8 || h > 23) return new Response('outside send window', { headers: cors });
       await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
       const out = await hourlyPush(env);
       return new Response(out, { headers: cors });
