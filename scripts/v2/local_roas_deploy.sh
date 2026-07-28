@@ -35,14 +35,14 @@ python3 scripts/v2/build_wa_table.py \
   --finals "$WORK/state/daily_finals.json" \
   --out-json roas-live/wa_table.json --out-png roas-live/wa_table.png
 
-npx --yes vercel@latest deploy roas-live --prod --yes
-echo "$(date '+%F %T') deployed ok" >> /tmp/roas-live-localdeploy/deploy.log
-
-# keep CI's VERCEL_TOKEN in sync with this Mac's (self-refreshing) CLI session,
-# so GHA deploys stop dying when the session token rotates
-VTOK=$(python3 -c "import json;print(json.load(open('$HOME/Library/Application Support/com.vercel.cli/auth.json'))['token'])" 2>/dev/null || true)
-if [ -n "$VTOK" ]; then
-  echo "$VTOK" | gh secret set VERCEL_TOKEN --repo pulkit1165/meta-ads-reports2 \
-    && echo "$(date '+%F %T') VERCEL_TOKEN synced" >> /tmp/roas-live-localdeploy/deploy.log \
-    || echo "$(date '+%F %T') VERCEL_TOKEN sync FAILED" >> /tmp/roas-live-localdeploy/deploy.log
+# Deploy with the PERMANENT API token (operator-created, no expiry) from the
+# workspace .env — NOT the CLI session token, which rotates and dies. Do NOT
+# sync the session token into the CI secret anymore: doing so used to clobber
+# the permanent token with a rotating one and re-break CI within a day.
+PTOK=$(grep '^VERCEL_TOKEN=' "$HOME/.openclaw/workspace/.env" | cut -d= -f2)
+if [ -n "$PTOK" ]; then
+  npx --yes vercel@latest deploy roas-live --prod --yes --token="$PTOK"
+else
+  npx --yes vercel@latest deploy roas-live --prod --yes   # fall back to CLI login
 fi
+echo "$(date '+%F %T') deployed ok" >> /tmp/roas-live-localdeploy/deploy.log
