@@ -13,8 +13,20 @@
 const REPO = 'pulkit1165/meta-ads-reports2';
 const REF  = 'main';
 const PAGE = 'https://roas-live.vercel.app/';
-const WA_RECIPIENTS = ['919517744959', '919815610890'];
+// Per-person report subscriptions — edit + redeploy to change who gets what.
+const RECIPIENTS = {
+  '919517744959': { morning: true, evening: true, hourly: true },   // Pulkit
+  '919815610890': { morning: true, evening: true, hourly: false },
+  '919988048804': { morning: false, evening: false, hourly: true },
+  '919915868288': { morning: false, evening: false, hourly: true },
+  '919988090074': { morning: false, evening: false, hourly: true },
+  '919592573796': { morning: false, evening: false, hourly: true },
+  '918283901380': { morning: false, evening: false, hourly: true },
+};
+const WA_RECIPIENTS = Object.keys(RECIPIENTS);
 const SUMMARY = 'https://roas-live.vercel.app/summary.json';
+const WA_TABLE = 'https://roas-live.vercel.app/wa_table.json';
+const WA_TABLE_PNG = 'https://roas-live.vercel.app/wa_table.png';
 const INR = n => '\u20B9' + Math.round(n).toLocaleString('en-IN');
 
 const CRON_TO_WORKFLOW = {
@@ -111,19 +123,43 @@ function fmtPortals(obj) {
   }).join(' | ');
 }
 
+function portalLine(v) {
+  return `${INR(v.sales)} / ${INR(v.spend)} · ROAS ${v.roas ?? '-'}`;
+}
+function totals(portals) {
+  const t = Object.values(portals).reduce((a, v) => ({ s: a.s + v.sales, p: a.p + v.spend }), { s: 0, p: 0 });
+  return { line: `${INR(t.s)} / ${INR(t.p)} · ROAS ${t.p ? (t.s / t.p).toFixed(2) : '-'}` };
+}
+
 async function morningReport() {
   const s = await getSummary();
   const y = s.yesterday;
   const tp = s.top_products_yday.slice(0, 10)
-    .map((p, i) => `${i + 1}. ${p.title} x${p.qty}`).join(' · ');
-  const tot = Object.values(y.portals).reduce((a, v) => ({ s: a.s + v.sales, p: a.p + v.spend }), { s: 0, p: 0 });
-  return `Yesterday ${y.date} FINAL — ${fmtPortals(y.portals)} — TOTAL ${INR(tot.s)}/${INR(tot.p)} R${(tot.s / tot.p).toFixed(2)}. TOP: ${tp}`;
+    .map((p, i) => `${i + 1}. ${p.title} ×${p.qty}`);
+  return {
+    title: `Daily Final — ${y.date}`,
+    sm: portalLine(y.portals.SM || {sales:0,spend:0}),
+    sml: portalLine(y.portals.SML || {sales:0,spend:0}),
+    nbp: portalLine(y.portals.NBP || {sales:0,spend:0}),
+    total: totals(y.portals).line,
+    details: 'Top products: ' + tp.map(t => t.replace(/\s+/g,' ')).join(', ').slice(0, 500),
+    pretty: `📊 *Daily Final — ${y.date}*\n\nSM: ${portalLine(y.portals.SM)}\nSML: ${portalLine(y.portals.SML)}\nNBP: ${portalLine(y.portals.NBP)}\n*TOTAL: ${totals(y.portals).line}*\n\n*Top 10 by units:*\n${tp.join('\n')}`,
+  };
 }
 
 async function eveningReport() {
   const s = await getSummary();
   const c = s.closes_today_sm;
-  return `Today ${s.today} live — ${fmtPortals(s.live)}. SM closing: ${c.closes} campaigns paused (${c.early} before 9AM), ${INR(c.sunk)} spent before close. Data as of ${s.built_at.slice(11, 16)} IST`;
+  const closing = `${c.closes} campaigns paused today (${c.early} before 9 AM) · ${INR(c.sunk)} spent before close`;
+  return {
+    title: `Evening — ${s.today}`,
+    sm: portalLine(s.live.SM),
+    sml: portalLine(s.live.SML),
+    nbp: portalLine(s.live.NBP),
+    total: totals(s.live).line,
+    details: `SM closing: ${closing}. Data as of ${s.built_at.slice(11, 16)} IST`,
+    pretty: `🌙 *Evening Report — ${s.today}* (as of ${s.built_at.slice(11, 16)} IST)\n\nSM: ${portalLine(s.live.SM)}\nSML: ${portalLine(s.live.SML)}\nNBP: ${portalLine(s.live.NBP)}\n*TOTAL: ${totals(s.live).line}*\n\n*SM closing:* ${closing}`,
+  };
 }
 
 async function liveReport() {
@@ -133,6 +169,21 @@ async function liveReport() {
 }
 
 async function sendWaText(env, to, text) {
+  // Unofficial gateways first (no templates/windows); Meta Cloud API as fallback.
+  if (env.WHAPI_TOKEN) {
+    return fetch('https://gate.whapi.cloud/messages/text', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: to + '@s.whatsapp.net', body: text.slice(0, 4000) }),
+    });
+  }
+  if (env.WASSENGER_KEY) {
+    return fetch('https://api.wassenger.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Token': env.WASSENGER_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '+' + to, message: text.slice(0, 4000) }),
+    });
+  }
   return fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
@@ -140,26 +191,81 @@ async function sendWaText(env, to, text) {
   });
 }
 
-async function pushReport(env, kind) {
-  let text;
-  try { text = kind === 'morning' ? await morningReport() : await eveningReport(); }
-  catch (e) { text = `report build failed: ${e.message}`; }
-  const title = kind === 'morning' ? 'DAILY REPORT' : 'CLOSING REPORT';
-  const out = [];
-  for (const to of WA_RECIPIENTS) {
-    // template first (works outside 24h window)
-    const r = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template',
-        template: { name: 'ntn_daily_meta_report', language: { code: 'en' },
-          components: [{ type: 'body', parameters: [
-            { type: 'text', text: title },
-            { type: 'text', text: text.replace(/[\n\t]+/g, ' · ').replace(/\s{4,}/g, ' ').slice(0, 900) } ] }] } }),
-    });
-    out.push(`${to}:${r.status}`);
+async function sendReport(env, to, rep) {
+  if (env.WHAPI_TOKEN || env.WASSENGER_KEY) {
+    const r = await sendWaText(env, to, rep.pretty);
+    return `${to}:${r.ok ? 'gateway' : 'gateway-fail-' + r.status}`;
   }
-  return `${kind} push → ${out.join(' ')}`;
+  // 1. free-form text — ONLY if the 24h window is verifiably open (user messaged
+  // us <23h ago). The API accepts text outside the window but silently drops it.
+  const last = await env.WA_STATE.get('last:' + to);
+  if (last && Date.now() - Number(last) < 23 * 3600 * 1000) {
+    const r = await sendWaText(env, to, rep.pretty);
+    const body = await r.json().catch(() => ({}));
+    if (r.ok && !body.error) return `${to}:text`;
+  }
+  // 2. structured template ntn_report_v2 (multiline layout, single-line params)
+  const clean = x => String(x).replace(/[\n\t]+/g, ' ').replace(/\s{4,}/g, ' ');
+  const t = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template',
+      template: { name: 'ntn_report_v2', language: { code: 'en' },
+        components: [{ type: 'body', parameters: [
+          rep.title, rep.sm, rep.sml, rep.nbp, rep.total, rep.details,
+        ].map(x => ({ type: 'text', text: clean(x).slice(0, 500) })) }] } }),
+  });
+  if (t.ok) return `${to}:template`;
+  // 3. last resort: old single-blob template
+  const f = await fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template',
+      template: { name: 'ntn_daily_meta_report', language: { code: 'en' },
+        components: [{ type: 'body', parameters: [
+          { type: 'text', text: clean(rep.title) },
+          { type: 'text', text: clean(`${rep.sm} | ${rep.sml} | ${rep.nbp} | TOTAL ${rep.total} · ${rep.details}`).slice(0, 900) } ] }] } }),
+  });
+  return `${to}:fallback:${f.status}`;
+}
+
+async function hourlyPush(env, only) {
+  const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+  if (!r.ok) return 'wa_table fetch failed ' + r.status;
+  const t = await r.json();
+  const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'} (yday ${x.yday ?? '-'})`;
+  const caption = `⏱ *Hourly — ${t.stamp}*\n` + t.rows.map(line).join('\n');
+  const out = [];
+  for (const [to, subs] of Object.entries(RECIPIENTS)) {
+    if (only && to !== only) continue;
+    if (!only && !subs.hourly) continue;
+    if (env.WHAPI_TOKEN) {
+      const ir = await fetch('https://gate.whapi.cloud/messages/image', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: to + '@s.whatsapp.net',
+          media: WA_TABLE_PNG + '?t=' + Date.now(), caption }),
+      });
+      if (ir.ok) { out.push(`${to}:img`); continue; }
+      out.push(`${to}:img-fail-${ir.status}`);
+    }
+    const tr = await sendWaText(env, to, caption);
+    out.push(`${to}:${tr.ok ? 'txt' : 'txt-fail'}`);
+  }
+  return `hourly → ${out.join(' ')}`;
+}
+
+async function pushReport(env, kind, only) {
+  let rep;
+  try { rep = kind === 'morning' ? await morningReport() : await eveningReport(); }
+  catch (e) { return `report build failed: ${e.message}`; }
+  const out = [];
+  for (const [to, subs] of Object.entries(RECIPIENTS)) {
+    if (only && to !== only) continue;
+    if (!only && !subs[kind]) continue;
+    out.push(await sendReport(env, to, rep));
+  }
+  return `${kind} push → ${out.join(' ') || 'no subscribers'}`;
 }
 
 export default {
@@ -168,14 +274,19 @@ export default {
     if (event.cron === '*/15 * * * *') {
       const out = await watchdog(env);
       console.log(`[${ts}] watchdog: ${out}`);
-      return;
-    }
-    if (event.cron === '30 3 * * *') {   // 09:00 IST
-      console.log(`[${ts}] ${await pushReport(env, 'morning')}`);
-      return;
-    }
-    if (event.cron === '30 14 * * *') {  // 20:00 IST
-      console.log(`[${ts}] ${await pushReport(env, 'evening')}`);
+      // Report scheduling rides the 15-min tick (free plan = max 5 crons).
+      // KV keys dedupe so each report fires exactly once per slot.
+      const ist = new Date(Date.now() + 330 * 60000);
+      const ymd = ist.toISOString().slice(0, 10);
+      const h = ist.getUTCHours(), m = ist.getUTCMinutes();
+      const fire = async (key, fn) => {
+        if (await env.WA_STATE.get(key)) return;
+        await env.WA_STATE.put(key, '1', { expirationTtl: 172800 });
+        console.log(`[${ts}] ${await fn()}`);
+      };
+      if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
+      if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
+      if (h >= 9 && h <= 23 && m >= 15 && m < 30) await fire(`push:hourly:${ymd}:${h}`, () => hourlyPush(env));
       return;
     }
     const file = CRON_TO_WORKFLOW[event.cron];
@@ -194,18 +305,61 @@ export default {
       }
       return new Response('bad verify token', { status: 403, headers: cors });
     }
+    if (url.pathname === '/whapi' && request.method === 'POST') {
+      try {
+        const b = await request.json();
+        for (const m of (b?.messages || [])) {
+          if (m.from_me) continue;
+          const from = String(m.from || m.chat_id || '').replace(/@.*/, '').replace(/[^0-9]/g, '');
+          if (!WA_RECIPIENTS.includes(from)) continue;
+          const q = String(m.text?.body || m.body || '').trim().toLowerCase();
+          let reply;
+          if (/^(roas|report|live|status)/.test(q)) reply = await liveReport();
+          else if (/^(yday|yesterday|final)/.test(q)) reply = (await morningReport()).pretty;
+          else if (/^clos/.test(q)) reply = (await eveningReport()).pretty;
+          else reply = 'Commands: roas · yesterday · closing. Auto-reports 9 AM & 8 PM.';
+          await sendWaText(env, from, reply);
+        }
+      } catch (e) { console.error('whapi webhook err', e.message); }
+      return new Response('ok', { headers: cors });
+    }
+    if (url.pathname === '/wassenger' && request.method === 'POST') {
+      try {
+        const b = await request.json();
+        const ev = b?.event || b?.type || '';
+        const data = b?.data || {};
+        if (String(ev).includes('message:in')) {
+          const from = String(data.fromNumber || data.phone || '').replace(/[^0-9]/g, '');
+          if (WA_RECIPIENTS.includes(from)) {
+            const q = String(data.body || '').trim().toLowerCase();
+            let reply;
+            if (/^(roas|report|live|status)/.test(q)) reply = await liveReport();
+            else if (/^(yday|yesterday|final)/.test(q)) reply = (await morningReport()).pretty;
+            else if (/^clos/.test(q)) reply = (await eveningReport()).pretty;
+            else reply = 'Commands: roas · yesterday · closing. Auto-reports 9 AM & 8 PM.';
+            await sendWaText(env, from, reply);
+          }
+        }
+      } catch (e) { console.error('wassenger webhook err', e.message); }
+      return new Response('ok', { headers: cors });
+    }
     if (url.pathname === '/webhook' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const val = body?.entry?.[0]?.changes?.[0]?.value;
+        for (const st of (val?.statuses || [])) {
+          console.log(`wa-status ${st.recipient_id} ${st.status} ${JSON.stringify(st.errors || '')}`);
+        }
+        const msg = val?.messages?.[0];
         if (msg && msg.type === 'text') {
           const from = msg.from;
           if (WA_RECIPIENTS.includes(from)) {
+            await env.WA_STATE.put('last:' + from, String(Date.now()));
             const q = (msg.text?.body || '').trim().toLowerCase();
             let reply;
             if (/^(roas|report|live|status)/.test(q)) reply = await liveReport();
-            else if (/^(yday|yesterday|final)/.test(q)) reply = await morningReport();
-            else if (/^clos/.test(q)) reply = await eveningReport();
+            else if (/^(yday|yesterday|final)/.test(q)) reply = (await morningReport()).pretty;
+            else if (/^clos/.test(q)) reply = (await eveningReport()).pretty;
             else reply = 'Commands: roas (live) · yesterday (final) · closing (SM closes). Reports auto-arrive 9 AM & 8 PM.';
             await sendWaText(env, from, reply);
           }
@@ -213,8 +367,12 @@ export default {
       } catch (e) { console.error('webhook err', e.message); }
       return new Response('ok', { headers: cors });
     }
+    if (url.pathname === '/test-hourly') {
+      return new Response(await hourlyPush(env, url.searchParams.get('to') || null), { headers: cors });
+    }
     if (url.pathname === '/test-push') {
-      return new Response(await pushReport(env, url.searchParams.get('kind') || 'morning'), { headers: cors });
+      return new Response(await pushReport(env, url.searchParams.get('kind') || 'morning',
+        url.searchParams.get('to') || null), { headers: cors });
     }
     if (url.pathname === '/test-live') {
       try { return new Response(await liveReport(), { headers: cors }); }
