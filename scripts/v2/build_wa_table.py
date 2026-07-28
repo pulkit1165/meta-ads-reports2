@@ -30,9 +30,27 @@ def yesterday_roas(finals_path, yday):
 
 
 def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
+    """Branded report card — Studd Muffyn cream/gold. Template drawn in code,
+    numbers overlaid each hour (pixel-exact, no AI drift)."""
     from PIL import Image, ImageDraw, ImageFont
-    SC = 1.6  # supersample so WhatsApp compression still reads crisply
+    SC = 2
+    CREAM, CARD, GOLD, GOLD_D = '#F6F0E4', '#FFFFFF', '#C9964B', '#8a6a33'
+    INK, INK2, LINE = '#2A2320', '#7a6f5e', '#e9e0cf'
+    OK, WARN, BAD = '#0f7a38', '#9a6a00', '#c43c3b'
+
     def font(sz, bold=False):
+        sz = int(sz * SC)
+        for path in (('/System/Library/Fonts/Supplemental/Georgia Bold.ttf' if bold
+                      else '/System/Library/Fonts/Supplemental/Georgia.ttf'),
+                     ('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf' if bold
+                      else '/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf')):
+            try:
+                return ImageFont.truetype(path, sz)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    def sans(sz, bold=False):
         sz = int(sz * SC)
         for path in (('/System/Library/Fonts/Supplemental/Arial Bold.ttf' if bold
                       else '/System/Library/Fonts/Supplemental/Arial.ttf'),
@@ -44,104 +62,124 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
                 continue
         return ImageFont.load_default()
 
-    f_head, f_cell, f_cellb = font(19, True), font(20), font(20, True)
-    probe = ImageDraw.Draw(Image.new('RGB', (10, 10)))
+    probe = ImageDraw.Draw(Image.new('RGB', (8, 8)))
+    f_h, f_c, f_cb = sans(15, True), sans(16), sans(16, True)
 
     headers = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Yday', 'Budget live',
                'Budget left', 'Left %', 'Active %', 'Day %', 'Closed', 'Products']
-    aligns = ['l'] + ['r'] * 12
     def cellvals(r):
         return [r['website'], f"Rs {r['sales']:,.0f}", f"{r['orders']}",
-                f"Rs {r['spend']:,.0f}", f"{r['roas'] or '-'}", f"{r['yday'] or '-'}",
+                f"Rs {r['spend']:,.0f}", f"{r['roas'] if r['roas'] is not None else '-'}",
+                f"{r['yday'] if r['yday'] is not None else '-'}",
                 f"Rs {r['budget_live']:,.0f}", f"Rs {r['budget_left']:,.0f}",
                 f"{r['left_pct']:.0f}%", f"{r['active_pct']:.0f}%",
                 f"{r['day_pct']:.0f}%", f"Rs {r['closed']:,.0f}", f"{r['products']}"]
-    # auto width: widest of header/cells + padding (font metrics differ per OS)
-    pad = int(30 * SC)
+    pad = 22 * SC
     widths = []
     for i, h in enumerate(headers):
-        w = probe.textlength(h, font=f_head)
+        w = probe.textlength(h, font=f_h)
         for r in rows:
-            w = max(w, probe.textlength(cellvals(r)[i], font=f_cellb))
+            w = max(w, probe.textlength(cellvals(r)[i], font=f_cb))
         widths.append(int(w) + pad)
 
-    W = sum(widths) + int(40 * SC)
-    rowh, headh, toph = int(52 * SC), int(56 * SC), int(64 * SC)
-    extra = (headh + rowh * len(hour_slice) + int(46 * SC)) if hour_slice else 0
-    H = toph + headh + rowh * len(rows) + int(28 * SC) + extra
-    img = Image.new('RGB', (W, H), '#ffffff')
+    M = 18 * SC                      # outer margin
+    P = 16 * SC                      # card padding
+    table_w = sum(widths)
+    W = table_w + 2 * (M + P)
+    rowh, headh = 40 * SC, 36 * SC
+    top_band = 74 * SC
+    card1_h = headh + rowh * len(rows) + 2 * P
+    card2_h = (headh + (rowh) * len(hour_slice) + 2 * P + 30 * SC) if hour_slice else 0
+    H = top_band + card1_h + (14 * SC + card2_h if hour_slice else 0) + 30 * SC
+
+    img = Image.new('RGB', (W, H), CREAM)
     d = ImageDraw.Draw(img)
-    d.text((int(20 * SC), int(18 * SC)), f'NTN — Today by Website · {stamp}',
-           font=font(24, True), fill='#1a1c22')
-    y = toph
-    d.rectangle([int(12 * SC), y, W - int(12 * SC), y + headh], fill='#eef1f6')
-    x = int(20 * SC)
-    for hname, w, al in zip(headers, widths, aligns):
-        tx = x + (w - int(14 * SC) if al == 'r' else 0)
-        d.text((tx, y + int(34 * SC)), hname, font=f_head, fill='#5a6070',
-               anchor='rs' if al == 'r' else 'ls')
-        x += w
-    y += headh
-    for i, r in enumerate(rows):
-        if r['website'] == 'All':
-            d.rectangle([int(12 * SC), y, W - int(12 * SC), y + rowh], fill='#f3f0e8')
-        elif i % 2:
-            d.rectangle([int(12 * SC), y, W - int(12 * SC), y + rowh], fill='#fafbfc')
-        bold = r['website'] == 'All'
-        rc = ('#0f7a38' if (r['roas'] or 0) >= 1.6 else
-              '#9a6a00' if (r['roas'] or 0) >= 1.0 else '#c43c3b')
-        x = int(20 * SC)
-        for (hname, w, al), val in zip(zip(headers, widths, aligns), cellvals(r)):
-            tx = x + (w - int(14 * SC) if al == 'r' else 0)
-            d.text((tx, y + int(34 * SC)), str(val),
-                   font=(f_cellb if (bold or hname == 'ROAS') else f_cell),
-                   fill=rc if hname == 'ROAS' else '#22252c',
-                   anchor='rs' if al == 'r' else 'ls')
+
+    # ── header band: gold rule + serif title, like the site headings ──
+    ty = 20 * SC
+    title = 'NTN  LIVE  REPORT'
+    tw = probe.textlength(title, font=font(21, True))
+    cx = W // 2
+    d.text((cx, ty + 10 * SC), title, font=font(21, True), fill=GOLD_D, anchor='mm')
+    dia = 4 * SC
+    for sx in (cx - tw / 2 - 26 * SC, cx + tw / 2 + 26 * SC):
+        d.polygon([(sx, ty + 10 * SC - dia), (sx + dia, ty + 10 * SC),
+                   (sx, ty + 10 * SC + dia), (sx - dia, ty + 10 * SC)], fill=GOLD)
+        rx = 60 * SC
+        x0 = sx - rx - 8 * SC if sx < cx else sx + 8 * SC
+        d.rectangle([x0, ty + 10 * SC, x0 + rx, ty + 10 * SC + SC], fill=GOLD)
+    d.text((cx, ty + 34 * SC), stamp, font=sans(13), fill=INK2, anchor='mm')
+
+    def card(x0, y0, x1, y1):
+        d.rounded_rectangle([x0, y0, x1, y1], radius=10 * SC, fill=CARD,
+                            outline=GOLD, width=SC)
+
+    def roas_chip(x_right, ymid, val):
+        col = OK if (val or 0) >= 1.6 else WARN if (val or 0) >= 1.0 else BAD
+        txt = f"{val}" if val is not None else '-'
+        tw = probe.textlength(txt, font=f_cb)
+        d.rounded_rectangle([x_right - tw - 16 * SC, ymid - 11 * SC, x_right, ymid + 11 * SC],
+                            radius=11 * SC, fill=col)
+        d.text((x_right - 8 * SC, ymid), txt, font=f_cb, fill='#ffffff', anchor='rm')
+
+    def draw_table(y0, hdrs, wds, datarows, vals_fn):
+        x0 = M
+        card(x0, y0, W - M, y0 + headh + rowh * len(datarows) + 2 * P)
+        y = y0 + P
+        x = x0 + P
+        for hname, w in zip(hdrs, wds):
+            anc = 'lm' if hname == 'Website' else 'rm'
+            tx = x if hname == 'Website' else x + w - 8 * SC
+            d.text((tx, y + headh // 2), hname.upper(), font=sans(12, True),
+                   fill=GOLD_D, anchor=anc)
             x += w
-        y += rowh
+        y += headh
+        d.rectangle([x0 + P, y, W - M - P, y + SC], fill=LINE)
+        for r in datarows:
+            vals = vals_fn(r)
+            bold = r['website'] == 'All'
+            if bold:
+                d.rounded_rectangle([x0 + P // 2, y + 3 * SC, W - M - P // 2, y + rowh - 0],
+                                    radius=6 * SC, fill='#F6EFD9')
+            x = x0 + P
+            ymid = y + rowh // 2 + 2 * SC
+            for hname, w, val in zip(hdrs, wds, vals):
+                if hname == 'ROAS':
+                    rv = r['roas']
+                    roas_chip(x + w - 8 * SC, ymid, rv)
+                else:
+                    anc = 'lm' if hname == 'Website' else 'rm'
+                    tx = x if hname == 'Website' else x + w - 8 * SC
+                    d.text((tx, ymid), str(val), font=(f_cb if bold else f_c),
+                           fill=INK, anchor=anc)
+                x += w
+            y += rowh
+        return y + P
+
+    y_end = draw_table(top_band, headers, widths, rows, cellvals)
+
     if hour_slice:
-        label = f'Last hour · window ending {data_through} IST'
-        y += int(18 * SC)
-        d.text((int(20 * SC), y + int(4 * SC)), label, font=font(21, True), fill='#1a1c22')
-        y += int(34 * SC)
+        y2 = y_end + 14 * SC
         mheads = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS']
         def mvals(r):
             return [r['website'], f"Rs {r['sales']:,.0f}", f"{r['orders']}",
-                    f"Rs {r['spend']:,.0f}", f"{r['roas'] or '-'}"]
+                    f"Rs {r['spend']:,.0f}", r['roas']]
         mw = []
         for i, h in enumerate(mheads):
-            w = probe.textlength(h, font=f_head)
+            w = probe.textlength(h, font=f_h)
             for r in hour_slice:
-                w = max(w, probe.textlength(mvals(r)[i], font=f_cellb))
+                w = max(w, probe.textlength(str(mvals(r)[i]), font=f_cb))
             mw.append(int(w) + pad)
-        tot_w = sum(mw) + int(16 * SC)
-        d.rectangle([int(12 * SC), y, int(12 * SC) + tot_w, y + int(40 * SC)], fill='#eef1f6')
-        x = int(20 * SC)
-        for hname, w in zip(mheads, mw):
-            tx = x + (w - int(14 * SC) if hname != 'Website' else 0)
-            d.text((tx, y + int(27 * SC)), hname, font=f_head, fill='#5a6070',
-                   anchor='rs' if hname != 'Website' else 'ls')
-            x += w
-        y += int(40 * SC)
-        for r in hour_slice:
-            bold = r['website'] == 'All'
-            if bold:
-                d.rectangle([int(12 * SC), y, int(12 * SC) + tot_w, y + rowh - int(8 * SC)],
-                            fill='#f3f0e8')
-            rc = ('#0f7a38' if (r['roas'] or 0) >= 1.6 else
-                  '#9a6a00' if (r['roas'] or 0) >= 1.0 else '#c43c3b')
-            x = int(20 * SC)
-            for hname, w, val in zip(mheads, mw, mvals(r)):
-                tx = x + (w - int(14 * SC) if hname != 'Website' else 0)
-                d.text((tx, y + int(28 * SC)), str(val),
-                       font=(f_cellb if (bold or hname == 'ROAS') else f_cell),
-                       fill=rc if hname == 'ROAS' else '#22252c',
-                       anchor='rs' if hname != 'Website' else 'ls')
-                x += w
-            y += rowh - int(8 * SC)
-    d.text((int(20 * SC), H - int(24 * SC)),
-           'Sales = Shopify (cancelled excluded) · Spend = Meta · full-hour aligned · auto-generated',
-           font=font(15), fill='#8b8d99')
+        # stretch mini table to full width for symmetry
+        stretch = (table_w - sum(mw)) // len(mw)
+        mw = [w + stretch for w in mw]
+        d.text((M + P, y2 + 12 * SC), f'LAST HOUR  ·  window ending {data_through} IST',
+               font=sans(13, True), fill=GOLD_D, anchor='lm')
+        draw_table(y2 + 26 * SC, mheads, mw, hour_slice, mvals)
+
+    d.text((cx, H - 14 * SC),
+           'Sales: Shopify (cancelled excluded)  ·  Spend: Meta  ·  full-hour aligned',
+           font=sans(11), fill=INK2, anchor='mm')
     img.save(out_png)
 
 
