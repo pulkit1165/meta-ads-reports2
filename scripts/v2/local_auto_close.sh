@@ -8,4 +8,4 @@ cd /Users/pulkitsharma/meta-ads-reports
 export $(grep -E "^META_ACCESS_TOKEN=" /Users/pulkitsharma/.openclaw/workspace/.env)
 export GOOGLE_SERVICE_ACCOUNT_FILE=/Users/pulkitsharma/.openclaw/workspace/google-service-account.json
 
-/usr/bin/env python3 scripts/v2/auto_close.py >> /tmp/auto_close_local.log 2>&1
+/opt/homebrew/bin/python3 scripts/v2/auto_close.py >> /tmp/auto_close_local.log 2>&1
