@@ -29,7 +29,7 @@ def yesterday_roas(finals_path, yday):
         return {}
 
 
-def render_png(rows, out_png, stamp):
+def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
     from PIL import Image, ImageDraw, ImageFont
     def font(sz, bold=False):
         try:
@@ -51,7 +51,8 @@ def render_png(rows, out_png, stamp):
             ('Products', 100, 'r')]
     W = sum(c[1] for c in cols) + 40
     rowh, headh, toph = 52, 56, 64
-    H = toph + headh + rowh * len(rows) + 28
+    extra = (headh + rowh * len(hour_slice) + 46) if hour_slice else 0
+    H = toph + headh + rowh * len(rows) + 28 + extra
     img = Image.new('RGB', (W, H), '#ffffff')
     d = ImageDraw.Draw(img)
     d.text((20, 18), f'NTN — Today by Website · {stamp}', font=font(24, True), fill='#1a1c22')
@@ -85,7 +86,42 @@ def render_png(rows, out_png, stamp):
                    fill=color, anchor='rs' if al == 'r' else 'ls')
             x += w
         y += rowh
-    d.text((20, H - 24), 'Sales = Shopify (cancelled excluded) · Spend = Meta · auto-generated',
+    if hour_slice:
+        try:
+            hh = int(data_through[:2]) if data_through else 0
+            label = f'Last complete hour · {hh-1:02d}:00–{hh-1:02d}:59 IST'
+        except Exception:
+            label = 'Last complete hour'
+        y += 18
+        d.text((20, y + 4), label, font=font(21, True), fill='#1a1c22')
+        y += 34
+        mini = [('Website', 190, 'l'), ('Sales', 130, 'r'), ('Orders', 100, 'r'),
+                ('Spend', 130, 'r'), ('ROAS', 90, 'r')]
+        d.rectangle([12, y, 12 + sum(c[1] for c in mini) + 16, y + 40], fill='#eef1f6')
+        x = 20
+        for name, w, al in mini:
+            tx = x + (w - 14 if al == 'r' else 0)
+            d.text((tx, y + 12), name, font=font(17, True), fill='#5a6070',
+                   anchor='rs' if al == 'r' else 'ls')
+            x += w
+        y += 40
+        for i, r in enumerate(hour_slice):
+            bold = r['website'] == 'All'
+            if bold:
+                d.rectangle([12, y, 12 + sum(c[1] for c in mini) + 16, y + rowh - 8], fill='#f3f0e8')
+            rc = ('#0f7a38' if (r['roas'] or 0) >= 1.6 else
+                  '#9a6a00' if (r['roas'] or 0) >= 1.0 else '#c43c3b')
+            vals = [r['website'], f"Rs {r['sales']:,.0f}", f"{r['orders']}",
+                    f"Rs {r['spend']:,.0f}", f"{r['roas'] or '-'}"]
+            x = 20
+            for (name, w, al), v in zip(mini, vals):
+                tx = x + (w - 14 if al == 'r' else 0)
+                d.text((tx, y + 11), str(v), font=font(19, bold or name == 'ROAS'),
+                       fill=rc if name == 'ROAS' else '#22252c',
+                       anchor='rs' if al == 'r' else 'ls')
+                x += w
+            y += rowh - 8
+    d.text((20, H - 24), 'Sales = Shopify (cancelled excluded) · Spend = Meta · full-hour aligned · auto-generated',
            font=font(15), fill='#8b8d99')
     img.save(out_png)
 
@@ -106,6 +142,48 @@ def main():
     tot = ph.summarise(rows)
     yd = yesterday_roas(args.finals, yday)
 
+    # Last COMPLETE hour slice, computed from raw tables so buckets align:
+    # spend = cum-spend delta between the H:00 and (H-1):00 snapshots;
+    # sales = Shopify orders created inside [(H-1):00, (H-1):59].
+    import sqlite3 as _sq
+    scon = _sq.connect(args.snap_db)
+    snap_hours = [h for (h,) in scon.execute(
+        "SELECT DISTINCT hour_slot FROM campaign_hourly_snapshots WHERE hour_slot LIKE ? ORDER BY hour_slot",
+        (day + '%',))]
+    data_through = snap_hours[-1][-5:] if snap_hours else None
+    hour_slice = []
+    if len(snap_hours) >= 2:
+        cur, prev = snap_hours[-1], snap_hours[-2]
+        def spend_at(slot):
+            out = {}
+            for name, sp in scon.execute(
+                    "SELECT account_name, SUM(spend) FROM campaign_hourly_snapshots WHERE hour_slot=? GROUP BY account_name", (slot,)):
+                pcode = ph.portal_of(name)
+                if pcode: out[pcode] = out.get(pcode, 0) + (sp or 0)
+            return out
+        sc, sp_ = spend_at(cur), spend_at(prev)
+        ncon = _sq.connect(args.ntn_db)
+        h_start = prev[-5:]
+        sales_h, orders_h = {}, {}
+        for pcode, sal, orr in ncon.execute(
+                "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
+                "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)>=? AND substr(created_at,12,5)<? "
+                "AND cancelled_at IS NULL GROUP BY portal",
+                (day, h_start, cur[-5:])):
+            sales_h[pcode] = sal; orders_h[pcode] = orr
+        ncon.close()
+        tot_s = tot_sp = tot_o = 0
+        for pcode in ('SM', 'SML', 'NBP'):
+            sal = sales_h.get(pcode, 0); orr = orders_h.get(pcode, 0)
+            spd = max(0, sc.get(pcode, 0) - sp_.get(pcode, 0))
+            tot_s += sal; tot_sp += spd; tot_o += orr
+            hour_slice.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
+                'orders': orr, 'spend': round(spd),
+                'roas': round(sal / spd, 2) if spd else None})
+        hour_slice.append({'website': 'All', 'sales': round(tot_s), 'orders': tot_o,
+            'spend': round(tot_sp), 'roas': round(tot_s / tot_sp, 2) if tot_sp else None})
+    scon.close()
+
     out_rows = []
     for p in ('SM', 'SML', 'NBP', 'ALL'):
         t = tot.get(p, {})
@@ -122,10 +200,13 @@ def main():
             'closed': round(t.get('closed_budget', 0)),
             'products': t.get('products', 0),
         })
-    stamp = now.strftime('%d %b, %H:%M IST')
+    stamp = (f'{now.strftime("%d %b")} · data through {data_through} IST'
+             if data_through else now.strftime('%d %b, %H:%M IST'))
     json.dump({'built_at': now.isoformat(timespec='seconds'), 'stamp': stamp,
-               'day': day, 'rows': out_rows}, open(args.out_json, 'w'), indent=1)
-    render_png(out_rows, args.out_png, stamp)
+               'day': day, 'data_through': data_through,
+               'hour_slice': hour_slice, 'rows': out_rows},
+              open(args.out_json, 'w'), indent=1)
+    render_png(out_rows, args.out_png, stamp, hour_slice, data_through)
     print(f'wrote {args.out_json} + {args.out_png} — ALL roas {out_rows[-1]["roas"]}')
 
 

@@ -233,8 +233,13 @@ async function hourlyPush(env, only) {
   const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
   if (!r.ok) return 'wa_table fetch failed ' + r.status;
   const t = await r.json();
-  const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'} (yday ${x.yday ?? '-'})`;
-  const caption = `⏱ *Hourly — ${t.stamp}*\n` + t.rows.map(line).join('\n');
+  const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
+  let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*\n` + t.rows.map(line).join('\n');
+  if (t.hour_slice?.length) {
+    const hh = parseInt(t.data_through) - 1;
+    caption += `\n\n*Last hour (${String(hh).padStart(2,'0')}:00–${String(hh).padStart(2,'0')}:59):*\n` +
+      t.hour_slice.map(line).join('\n');
+  }
   const out = [];
   for (const [to, subs] of Object.entries(RECIPIENTS)) {
     if (only && to !== only) continue;
@@ -286,7 +291,18 @@ export default {
       };
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
-      if (h >= 9 && h <= 23 && m >= 15 && m < 30) await fire(`push:hourly:${ymd}:${h}`, () => hourlyPush(env));
+      if (h >= 9 && h <= 23) {
+        // Send each hour's report as soon as the pipeline has that hour's
+        // complete data (data_through == current hour). Dedupe per data-hour.
+        try {
+          const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+          if (tr.ok) {
+            const tt = await tr.json();
+            const dh = parseInt(tt.data_through || '-1');
+            if (dh === h) await fire(`push:hourly:${ymd}:${dh}`, () => hourlyPush(env));
+          }
+        } catch (e) { console.error('hourly check err', e.message); }
+      }
       return;
     }
     const file = CRON_TO_WORKFLOW[event.cron];
