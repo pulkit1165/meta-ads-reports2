@@ -32,6 +32,7 @@ const INR = n => '\u20B9' + Math.round(n).toLocaleString('en-IN');
 const CRON_TO_WORKFLOW = {
   '15 * * * *': 'v2-ingest.yml',
   '35 * * * *': 'today-live.yml',
+  '25 * * * *': 'camp-snapshots.yml',   // IST :55 — the :58 measurement dispatch
 };
 
 async function dispatchWorkflow(env, file) {
@@ -291,17 +292,21 @@ export default {
       };
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
-      if (h >= 9 && h <= 23) {
-        // Send each hour's report as soon as the pipeline has that hour's
-        // complete data (data_through == current hour). Dedupe per data-hour.
+      // Backstop only: if the :58-notify path failed and the table is fresh
+      // (<25 min old), send at the :15 tick. Same dedupe key as notify-hourly.
+      if (h >= 9 && h <= 23 && m >= 15 && m < 30 && !(await env.WA_STATE.get('pause:hourly'))) {
         try {
           const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
           if (tr.ok) {
             const tt = await tr.json();
-            const dh = parseInt(tt.data_through || '-1');
-            if (dh === h) await fire(`push:hourly:${ymd}:${dh}`, () => hourlyPush(env));
+            const age = Date.now() - Date.parse(tt.built_at);
+            const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
+            if (age < 25 * 60000 && !(await env.WA_STATE.get(kvKey))) {
+              await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
+              console.log(`[${ts}] backstop ${await hourlyPush(env)}`);
+            }
           }
-        } catch (e) { console.error('hourly check err', e.message); }
+        } catch (e) { console.error('hourly backstop err', e.message); }
       }
       return;
     }
@@ -383,6 +388,23 @@ export default {
       } catch (e) { console.error('webhook err', e.message); }
       return new Response('ok', { headers: cors });
     }
+    if (url.pathname === '/notify-hourly') {
+      if (url.searchParams.get('key') !== 'ntnhourly2026') {
+        return new Response('nope', { status: 403, headers: cors });
+      }
+      // Dedupe on the table's data_through stamp so retries can't double-send.
+      const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+      if (!tr.ok) return new Response('table fetch fail', { headers: cors });
+      const tt = await tr.json();
+      const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
+      if (await env.WA_STATE.get(kvKey)) return new Response('already sent ' + tt.data_through, { headers: cors });
+      const ist = new Date(Date.now() + 330 * 60000);
+      const h = ist.getUTCHours();
+      if (h < 8 || h > 23) return new Response('outside send window', { headers: cors });
+      await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
+      const out = await hourlyPush(env);
+      return new Response(out, { headers: cors });
+    }
     if (url.pathname === '/test-hourly') {
       return new Response(await hourlyPush(env, url.searchParams.get('to') || null), { headers: cors });
     }
@@ -393,6 +415,21 @@ export default {
     if (url.pathname === '/test-live') {
       try { return new Response(await liveReport(), { headers: cors }); }
       catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
+    }
+    if (url.pathname === '/whapi-status') {
+      try {
+        const hdr = { 'Authorization': `Bearer ${env.WHAPI_TOKEN}` };
+        const [h, m] = await Promise.all([
+          fetch('https://gate.whapi.cloud/health', { headers: hdr }).then(r => r.json()).catch(e => ({ err: e.message })),
+          fetch('https://gate.whapi.cloud/messages/list?count=100', { headers: hdr }).then(r => r.json()).catch(e => ({ err: e.message })),
+        ]);
+        const chats = {};
+        for (const msg of (m.messages || [])) {
+          if (msg.from_me) chats[msg.chat_id] = (chats[msg.chat_id] || 0) + 1;
+        }
+        return new Response(JSON.stringify({ health: h, sent_total: m.total, distinct_outbound_chats: Object.keys(chats).length, per_chat: chats }, null, 2),
+          { headers: { ...cors, 'Content-Type': 'application/json' } });
+      } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
     if (url.pathname === '/watchdog') {
       return new Response(await watchdog(env), { headers: cors });

@@ -118,8 +118,17 @@ def main():
                 "SELECT MAX(ts) FROM campaign_hourly_snapshots").fetchone()[0]
         except sqlite3.OperationalError:
             prev = None   # fresh/empty db — proceed
-        if prev and datetime.fromisoformat(prev) >= now.replace(minute=0, second=0, microsecond=0):
-            print(f"hour {hour_slot} already captured at {prev} — skipping "
+        # ONE measurement per hour, anchored to the :58 boundary: the operator's
+        # hourly report is "complete hour, calculated at :58, sent at :00", so
+        # the capture that defines hour H is the first run at/after H:58 (the
+        # Worker dispatches at :55 IST to land here). A run before :58 still
+        # pulls if the PREVIOUS :58 boundary was never captured (backstop).
+        if now.minute >= 58:
+            mark = now.replace(minute=58, second=0, microsecond=0)
+        else:
+            mark = (now - timedelta(hours=1)).replace(minute=58, second=0, microsecond=0)
+        if prev and datetime.fromisoformat(prev) >= mark:
+            print(f"boundary {mark:%H:%M} already captured at {prev} — skipping "
                   f"(use --force to overwrite)")
             return
 

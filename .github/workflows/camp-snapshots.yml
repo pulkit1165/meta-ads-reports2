@@ -65,6 +65,35 @@ jobs:
       - name: Collect hourly snapshot (all active campaigns)
         run: python3 scripts/v2/camp_snapshot.py --db "$DB"
 
+      # ── :58 hourly WhatsApp report: fresh sales overlay → table → deploy → send ──
+      - name: Build hourly WhatsApp table (complete hour @ :58)
+        continue-on-error: true    # report path must never break the snapshot save
+        env:
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          SHOPIFY_STORE_URL: ${{ secrets.SHOPIFY_STORE_URL }}
+          SHOPIFY_ACCESS_TOKEN_NBP: ${{ secrets.SHOPIFY_ACCESS_TOKEN_NBP }}
+          SHOPIFY_STORE_URL_NBP: ${{ secrets.SHOPIFY_STORE_URL_NBP }}
+          SHOPIFY_ACCESS_TOKEN_SML: ${{ secrets.SHOPIFY_ACCESS_TOKEN_SML }}
+          SHOPIFY_STORE_URL_SML: ${{ secrets.SHOPIFY_STORE_URL_SML }}
+        run: |
+          pip install pillow -q
+          git fetch --depth=1 origin state:refs/remotes/origin/state || true
+          git show origin/state:ntn.db.gz | gunzip > state/ntn.db
+          git show origin/camp-snapshots:daily_finals.json > state/daily_finals.json 2>/dev/null || echo '{}' > state/daily_finals.json
+          python3 scripts/v2/wa_overlay_orders.py --ntn-db state/ntn.db
+          python3 scripts/v2/build_wa_table.py             --snap-db "$DB" --ntn-db state/ntn.db --finals state/daily_finals.json             --out-json roas-live/wa_table.json --out-png roas-live/wa_table.png
+
+      - name: Deploy table + notify Worker to send
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
+            printf '{"projectId":"prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB","orgId":"team_AocNAz8F008iWPSLVvar2Xb5"}' > roas-live/.vercel/project.json 2>/dev/null ||               (mkdir -p roas-live/.vercel && printf '{"projectId":"prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB","orgId":"team_AocNAz8F008iWPSLVvar2Xb5"}' > roas-live/.vercel/project.json)
+            npx --yes vercel@latest deploy roas-live --prod --yes --token="$VERCEL_TOKEN"
+            curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
+          fi
+
       - name: Build live ROAS dashboard
         run: python3 scripts/v2/build_live_roas_dashboard.py --db "$DB" --out live-roas/index.html
 

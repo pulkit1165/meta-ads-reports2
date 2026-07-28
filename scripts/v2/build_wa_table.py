@@ -88,8 +88,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
         y += rowh
     if hour_slice:
         try:
-            hh = int(data_through[:2]) if data_through else 0
-            label = f'Last complete hour · {hh-1:02d}:00–{hh-1:02d}:59 IST'
+            label = f'Last hour · window ending {data_through} IST'
         except Exception:
             label = 'Last complete hour'
         y += 18
@@ -150,10 +149,15 @@ def main():
     snap_hours = [h for (h,) in scon.execute(
         "SELECT DISTINCT hour_slot FROM campaign_hourly_snapshots WHERE hour_slot LIKE ? ORDER BY hour_slot",
         (day + '%',))]
-    data_through = snap_hours[-1][-5:] if snap_hours else None
+    max_ts, = scon.execute(
+        "SELECT MAX(ts) FROM campaign_hourly_snapshots WHERE hour_slot LIKE ?",
+        (day + '%',)).fetchone()
+    data_through = max_ts[11:16] if max_ts else None
     hour_slice = []
     if len(snap_hours) >= 2:
         cur, prev = snap_hours[-1], snap_hours[-2]
+        prev_ts, = scon.execute(
+            "SELECT MAX(ts) FROM campaign_hourly_snapshots WHERE hour_slot=?", (prev,)).fetchone()
         def spend_at(slot):
             out = {}
             for name, sp in scon.execute(
@@ -163,13 +167,14 @@ def main():
             return out
         sc, sp_ = spend_at(cur), spend_at(prev)
         ncon = _sq.connect(args.ntn_db)
-        h_start = prev[-5:]
+        w_start = prev_ts[11:16] if prev_ts else prev[-5:]
+        w_end = max_ts[11:16] if max_ts else cur[-5:]
         sales_h, orders_h = {}, {}
         for pcode, sal, orr in ncon.execute(
                 "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
                 "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)>=? AND substr(created_at,12,5)<? "
                 "AND cancelled_at IS NULL GROUP BY portal",
-                (day, h_start, cur[-5:])):
+                (day, w_start, w_end)):
             sales_h[pcode] = sal; orders_h[pcode] = orr
         ncon.close()
         tot_s = tot_sp = tot_o = 0
