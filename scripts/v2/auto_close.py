@@ -8,7 +8,8 @@ Kill rule (per operator, backed by ROAS kill-point analysis):
 Guardrails:
   - only the 6 ROAS-dashboard accounts
   - spend floor ₹500 (small numbers are noise)
-  - campaigns started today are skipped (no meaningful intraday ROAS yet)
+  - campaigns must be live ≥2h (lets purchase attribution land; fresh launches
+    that bleed all morning are still caught)
   - each campaign is paused at most once per day (state/auto_close_kills.json);
     manual re-enable in Ads Manager is respected for the rest of the day
   - every pause is logged to the '🔴 Auto-Closed' sheet tab
@@ -158,7 +159,7 @@ def main():
             'limit': 500,
         })
         camps_raw = paginate(f"{account_id}/campaigns", {
-            'fields': 'id,name,start_time,effective_status,daily_budget,adsets{daily_budget}',
+            'fields': 'id,name,start_time,created_time,effective_status,daily_budget,adsets{daily_budget}',
             'effective_status': '["ACTIVE"]',
             'limit': 500,
         })
@@ -181,12 +182,17 @@ def main():
                 braw = str(int(total)) if total else '0'
             budget = safe_float(braw) / 100
             if budget <= 0:                    continue   # lifetime-budget camps: no daily % to measure
-            started_today = (camp.get('start_time', '')[:10] == date_str)
+            too_young = False
+            try:
+                st = datetime.fromisoformat(camp.get('start_time') or camp.get('created_time'))
+                too_young = (now - st).total_seconds() < 2 * 3600
+            except Exception:
+                pass
 
             checked += 1
             spend_pct = spend / budget
             if spend < MIN_SPEND:              continue
-            if started_today:                  continue
+            if too_young:                      continue
             if spend_pct < KILL_SPEND_PCT:     continue
             if roas_1d > KILL_ROAS:            continue
 
