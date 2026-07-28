@@ -82,7 +82,9 @@ jobs:
       # tiers on any run that skipped it — SM read 1 product against Rs93,000
       # of live budget.
       - name: Install dependencies
-        run: pip install --quiet requests python-dotenv gspread openpyxl
+        # pillow: build_wa_table.py renders the WhatsApp PNG inside the page
+        # step — missing it killed every page build for 2h on 28 Jul.
+        run: pip install --quiet requests python-dotenv gspread openpyxl pillow
 
       - name: Restore both databases
         run: |
