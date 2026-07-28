@@ -104,6 +104,13 @@ jobs:
           python3 scripts/v2/camp_closing.py --db "$SNAP_DB" \
             --sheet "$SHEET_ID" --tab "Camp Closing" --whatsapp $DRY
 
+      - name: Report 3 — closing by portal (SM/SML/NBP tabs, camp_daily_db style)
+        continue-on-error: true       # presentation only — never blocks the engine
+        env:
+          GOOGLE_SERVICE_ACCOUNT_FILE: google-service-account.json
+        run: |
+          python3 scripts/v2/camp_closing_report.py --db "$SNAP_DB" --sheet "$SHEET_ID"
+
       - name: Save closing log back to branch
         run: |
           set -e
