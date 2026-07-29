@@ -43,3 +43,4 @@ build/
 *.tsbuildinfo
 .vercel/
 listing-studio/worker_jobs/
+sheet-archives/

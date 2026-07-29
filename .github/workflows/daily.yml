@@ -59,6 +59,21 @@ jobs:
         with:
           direction: restore
 
+      - name: Archive + prune old sheet tabs (quota protection)
+        continue-on-error: true    # cleanup must never block the reports
+        run: |
+          pip install -q requests
+          python3 scripts/v2/sheet_archive_cleanup.py --keep-days 45
+
+      - name: Upload sheet archive
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheet-archive-${{ github.run_id }}
+          path: sheet-archives/*.gz
+          retention-days: 90
+          if-no-files-found: ignore
+
       - name: Run daily pipeline (tracker → budget → creative → closing camps)
         run: |
           if [ -n "${{ inputs.date }}" ]; then
