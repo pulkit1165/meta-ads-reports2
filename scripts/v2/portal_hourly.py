@@ -34,12 +34,13 @@ sys.path.insert(0, str(REPO_ROOT / 'scripts'))
 
 PORTALS = ('SM', 'SML', 'NBP')
 
-# "Sales" = REALISED revenue: not cancelled, and payment actually taken. Pending
-# (unpaid / COD-not-confirmed), voided, refunded and expired orders are excluded
-# because they are not money in — this is what the operator's Shopify sale report
-# counts, and counting pending inflated blended ROAS.
+# "Sales" = what the Shopify admin shows (operator request 29 Jul): every order
+# placed and not cancelled counts, INCLUDING pending / COD-not-yet-confirmed —
+# that is how Shopify's own sales number works, and the operator reconciles
+# this page against it. Voided/refunded/expired stay excluded (Shopify nets
+# them out as returns / never counts them).
 SALES_FILTER = ("cancelled_at IS NULL AND "
-                "COALESCE(financial_status,'') NOT IN ('pending','voided','refunded','expired')")
+                "COALESCE(financial_status,'') NOT IN ('voided','refunded','expired')")
 
 # Friendly account names as they appear in campaign_hourly_snapshots.account_name,
 # mirroring _utils.PORTAL_ACCOUNTS. Accounts outside these three portals

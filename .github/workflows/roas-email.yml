@@ -306,6 +306,27 @@ jobs:
           if ing_age_min is None or ing_age_min > STALE_MIN:
               reasons.append(f"Shopify ingest {('has no success on record' if ing_age_min is None else f'last ran {ing_age_min:.0f} min ago')}")
 
+          # Public page health — a green deploy can still serve a 404 (26-29 Jul:
+          # gitignore rules silently stripped index.html from the upload, every
+          # run stayed green while the URL was dead). Probe the real URL so a
+          # dead page emails the operator within the hour, whatever the cause.
+          page_err = None
+          try:
+              import urllib.request
+              req = urllib.request.Request('https://roas-live.vercel.app/',
+                                           headers={'User-Agent': 'roas-watchdog'})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  body = r.read(300000).decode('utf-8', 'replace')
+                  if r.status != 200:
+                      page_err = f"HTTP {r.status}"
+                  elif 'Today by website' not in body:
+                      page_err = "200 but page content missing"
+          except Exception as e:
+              page_err = str(e)[:120]
+          print("  dashboard page:", page_err or "OK")
+          if page_err:
+              reasons.append(f"dashboard page DOWN ({page_err})")
+
           stale = bool(reasons)
           print("FEED STATUS:", "STALE — " + "; ".join(reasons) if stale else "fresh")
 
