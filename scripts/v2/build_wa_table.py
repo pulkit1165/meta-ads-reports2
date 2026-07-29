@@ -231,7 +231,7 @@ def main():
         for pcode, sal, orr in ncon.execute(
                 "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
                 "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)>=? AND substr(created_at,12,5)<? "
-                "AND cancelled_at IS NULL GROUP BY portal",
+                "AND cancelled_at IS NULL AND COALESCE(source_name,'') != 'Matrixify App' GROUP BY portal",
                 (day, w_start, w_end)):
             sales_h[pcode] = sal; orders_h[pcode] = orr
         ncon.close()

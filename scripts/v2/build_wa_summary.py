@@ -38,7 +38,7 @@ def top_products(ntn_db, day, n=10):
     rows = con.execute(
         "SELECT oi.product_title, SUM(oi.quantity) q FROM shopify_order_items oi "
         "JOIN shopify_orders o ON o.order_id=oi.order_id "
-        "WHERE substr(o.created_at,1,10)=? AND o.cancelled_at IS NULL "
+        "WHERE substr(o.created_at,1,10)=? AND o.cancelled_at IS NULL AND COALESCE(o.source_name,'') != 'Matrixify App' "
         "GROUP BY oi.product_title ORDER BY q DESC LIMIT ?", (day, n)).fetchall()
     con.close()
     return [{'title': t[:60], 'qty': int(q)} for t, q in rows]

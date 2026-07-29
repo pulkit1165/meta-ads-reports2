@@ -14,7 +14,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 def pull(store_url, token, day):
     url = (f'https://{store_url}/admin/api/2024-10/orders.json?status=any&limit=250'
            f'&created_at_min={day}T00:00:00%2B05:30'
-           '&fields=id,name,created_at,cancelled_at,financial_status,total_price,subtotal_price,currency')
+           '&fields=id,name,created_at,cancelled_at,financial_status,total_price,subtotal_price,currency,source_name')
     out = []
     while url:
         r = urllib.request.Request(url, headers={'X-Shopify-Access-Token': token})
@@ -50,11 +50,11 @@ def main():
             con.execute(
                 'INSERT OR REPLACE INTO shopify_orders '
                 '(order_id,portal,order_number,created_at,cancelled_at,financial_status,'
-                ' total_price,subtotal_price,currency) VALUES (?,?,?,?,?,?,?,?,?)',
+                ' total_price,subtotal_price,currency,source_name) VALUES (?,?,?,?,?,?,?,?,?,?)',
                 (str(o['id']), portal, o.get('name'), o.get('created_at'),
                  o.get('cancelled_at'), o.get('financial_status'),
                  float(o.get('total_price') or 0), float(o.get('subtotal_price') or 0),
-                 o.get('currency')))
+                 o.get('currency'), o.get('source_name')))
             n += 1
     con.commit()
     print(f'overlaid {n} live orders for {day}')

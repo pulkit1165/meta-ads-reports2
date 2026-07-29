@@ -40,7 +40,11 @@ PORTALS = ('SM', 'SML', 'NBP')
 # this page against it. Voided/refunded/expired stay excluded (Shopify nets
 # them out as returns / never counts them).
 SALES_FILTER = ("cancelled_at IS NULL AND "
-                "COALESCE(financial_status,'') NOT IN ('voided','refunded','expired')")
+                "COALESCE(financial_status,'') NOT IN ('voided','refunded','expired') AND "
+                # Matrixify bulk-imports are historical orders re-created on the
+                # import day — Shopify Analytics excludes them, so must we
+                # (28 Jul: 33 imported orders inflated 'sales' by Rs25k).
+                "COALESCE(source_name,'') != 'Matrixify App'")
 
 # Friendly account names as they appear in campaign_hourly_snapshots.account_name,
 # mirroring _utils.PORTAL_ACCOUNTS. Accounts outside these three portals
