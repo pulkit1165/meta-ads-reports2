@@ -62,6 +62,16 @@ jobs:
             echo "no snapshot branch yet — fresh DB"
           fi
 
+      - name: Hold until the :58 IST boundary
+        run: |
+          M=$(TZ=Asia/Kolkata date +%-M); S=$(TZ=Asia/Kolkata date +%-S)
+          # The Worker dispatches at :55 so the runner is warmed up; the
+          # measurement itself must not happen before :58 (gate skips it).
+          if [ "$M" -ge 50 ] && [ "$M" -lt 58 ]; then
+            WAIT=$(( (58 - M) * 60 - S + 3 ))
+            echo "holding ${WAIT}s for the :58 boundary"; sleep "$WAIT"
+          fi
+
       - name: Collect hourly snapshot (all active campaigns)
         run: python3 scripts/v2/camp_snapshot.py --db "$DB"
 
