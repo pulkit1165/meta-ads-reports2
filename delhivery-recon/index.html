@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delhivery Bill Reconciliation</title>
+<script src="xlsx.full.min.js"></script>
+<style>
+:root{
+  color-scheme: light;
+  --surface-1:#fcfcfb; --page:#f9f9f7;
+  --ink-1:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+  --pos:#d03b3b; --neg:#2a78d6; --divmid:#f0efec;
+  --good:#0ca30c; --goodtext:#006300; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --chip:#f0efec; --hover:rgba(11,11,11,.04);
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface-1:#1a1a19; --page:#0d0d0d;
+  --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --pos:#d03b3b; --neg:#3987e5; --divmid:#383835;
+  --good:#0ca30c; --goodtext:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --chip:#2c2c2a; --hover:rgba(255,255,255,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --surface-1:#1a1a19; --page:#0d0d0d;
+    --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --pos:#d03b3b; --neg:#3987e5; --divmid:#383835;
+    --good:#0ca30c; --goodtext:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --chip:#2c2c2a; --hover:rgba(255,255,255,.06);
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink-1);font-size:14px;line-height:1.45}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:var(--ink-1);background:var(--surface-1);border:1px solid var(--border);border-radius:8px;padding:6px 10px;outline:none}
+input:focus,select:focus{border-color:var(--s1)}
+::placeholder{color:var(--ink-3)}
+
+.topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;padding:10px 22px;background:var(--surface-1);border-bottom:1px solid var(--grid)}
+.brand{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+.brand small{display:block;font-weight:400;color:var(--ink-3);font-size:11px;letter-spacing:0}
+.tabs{display:flex;gap:2px;margin-left:8px}
+.tab{padding:7px 14px;border-radius:8px;color:var(--ink-2);font-weight:500}
+.tab:hover{background:var(--hover)}
+.tab.active{background:var(--chip);color:var(--ink-1);font-weight:600}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface-1);font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.small{padding:4px 10px;font-size:12.5px}
+
+.wrap{max-width:1280px;margin:0 auto;padding:20px 22px 80px}
+.page-sec{display:none}
+.page-sec.active{display:block}
+
+.dropzone{border:1.5px dashed var(--axis);border-radius:14px;padding:38px 20px;text-align:center;color:var(--ink-2);background:var(--surface-1);transition:border-color .15s, background .15s;cursor:pointer;margin-bottom:20px}
+.dropzone.drag{border-color:var(--s1);background:var(--hover)}
+.dropzone h3{font-size:15px;color:var(--ink-1);margin-bottom:4px}
+.dropzone p{font-size:12.5px;color:var(--ink-3)}
+.filechips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.filechip{display:inline-flex;align-items:center;gap:8px;background:var(--chip);border-radius:999px;padding:5px 8px 5px 14px;font-size:12.5px;font-weight:500}
+.filechip .x{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3)}
+.filechip .x:hover{background:var(--hover);color:var(--ink-1)}
+.filechip small{color:var(--ink-3);font-weight:400}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
+.kpi .lbl{font-size:12px;color:var(--ink-2);margin-bottom:6px}
+.kpi .val{font-size:26px;font-weight:600;letter-spacing:-.01em}
+.kpi .sub{font-size:12px;color:var(--ink-3);margin-top:3px}
+.kpi .sub .up{color:var(--critical);font-weight:600}
+.kpi .sub .dn{color:var(--goodtext);font-weight:600}
+
+.card{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px}
+.card h3{font-size:13.5px;font-weight:600;margin-bottom:2px}
+.card .sub{font-size:12px;color:var(--ink-3);margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);margin-bottom:10px}
+.legend .key{display:inline-flex;align-items:center;gap:6px}
+.legend .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+.hbar-row{display:grid;grid-template-columns:64px 1fr 92px;align-items:center;gap:10px;padding:3px 0}
+.hbar-row .cat{font-size:12.5px;color:var(--ink-2);text-align:right}
+.hbar-row .val{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.hbar-track{position:relative;height:22px;display:flex;align-items:center}
+.hbar-mid{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--axis)}
+.hbar{height:16px;border-radius:0 4px 4px 0;min-width:2px;transition:width .25s}
+.hbar.negb{border-radius:4px 0 0 4px}
+.hbar-track:hover .hbar{filter:brightness(1.1)}
+.bar-cause .hbar{background:var(--s1)}
+
+.tooltip{position:fixed;z-index:99;pointer-events:none;background:var(--ink-1);color:var(--page);padding:7px 11px;border-radius:8px;font-size:12px;line-height:1.5;opacity:0;transition:opacity .1s;max-width:280px}
+.tooltip b{font-weight:600}
+
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+.filters input[type=search]{min-width:220px}
+.count-note{font-size:12.5px;color:var(--ink-3);margin-left:auto}
+
+table{width:100%;border-collapse:collapse;font-size:12.8px}
+.tbl-wrap{overflow-x:auto;background:var(--surface-1);border:1px solid var(--border);border-radius:14px}
+th{font-weight:600;text-align:left;color:var(--ink-2);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:10px 12px;border-bottom:1px solid var(--grid);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--surface-1)}
+th .arr{color:var(--s1)}
+td{padding:8px 12px;border-bottom:1px solid var(--grid);white-space:nowrap;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--hover)}
+td.num,th.num{text-align:right}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
+.pill.over{background:color-mix(in srgb,var(--critical) 14%,transparent);color:var(--critical)}
+.pill.under{background:color-mix(in srgb,var(--s1) 14%,transparent);color:var(--s1)}
+.pill.ok{background:color-mix(in srgb,var(--good) 13%,transparent);color:var(--goodtext)}
+.pill.warn{background:color-mix(in srgb,var(--warn) 20%,transparent);color:#8a6100}
+:root[data-theme="dark"] .pill.warn{color:var(--warn)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .pill.warn{color:var(--warn)}}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 4px 0;font-size:12.5px;color:var(--ink-2)}
+
+.map-grid{display:grid;grid-template-columns:180px 1fr;gap:8px 14px;align-items:center;max-width:560px}
+.map-grid label{font-size:12.5px;color:var(--ink-2)}
+.note{font-size:12px;color:var(--ink-3)}
+.rate-grid input{width:74px;text-align:right;padding:5px 8px}
+.set-grid{display:grid;grid-template-columns:auto auto;gap:10px 14px;align-items:center;justify-content:start;font-size:13px}
+.editable td input{width:90px;text-align:right;padding:4px 8px;border-radius:6px}
+.editable td input.sku-in{width:200px;text-align:left}
+.muted{color:var(--ink-3)}
+.empty{padding:36px;text-align:center;color:var(--ink-3);font-size:13px}
+.statusbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink-1);color:var(--page);padding:9px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:100}
+.statusbar.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">Delhivery Bill Reconciliation<small>expected freight + COD vs billed · per AWB</small></div>
+  <nav class="tabs">
+    <button class="tab active" data-page="overview">Overview</button>
+    <button class="tab" data-page="shipments">Shipments</button>
+    <button class="tab" data-page="weights">Weight Master</button>
+    <button class="tab" data-page="rates">Rate Card &amp; Settings</button>
+    <button class="tab" data-page="rules">Rules</button>
+  </nav>
+  <div class="top-actions">
+    <button class="btn" id="exportBtn" title="One Excel per invoice: Summary + All Orders + Disputes">⬇ Export Excel</button>
+    <button class="btn primary" id="addInvoiceBtn">+ Add invoice</button>
+    <button class="btn" id="themeBtn" title="Toggle theme">◐</button>
+  </div>
+</div>
+<input type="file" id="invoiceFile" accept=".xlsx,.xls,.csv" multiple hidden>
+<input type="file" id="weightsFile" accept=".xlsx,.xls,.csv" hidden>
+
+<div class="wrap">
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="page-sec active" id="page-overview">
+    <div class="dropzone" id="dropzone">
+      <h3>Drop the Delhivery invoice Excel here</h3>
+      <p>Delhivery One → Finance → Invoice → download Excel &nbsp;·&nbsp; .xlsx / .csv &nbsp;·&nbsp; you can drop multiple billing periods</p>
+    </div>
+    <div class="filechips" id="filechips"></div>
+    <div id="mapCard" class="card" style="display:none">
+      <h3>Column mapping</h3>
+    <div class="sub">Auto-detected from the invoice headers — fix anything that guessed wrong, then Apply. Saved per invoice format.</div>
+      <div class="map-grid" id="mapGrid"></div>
+      <div style="margin-top:14px;display:flex;gap:8px"><button class="btn primary" id="applyMapBtn">Apply mapping</button><span class="note" id="mapNote"></span></div>
+    </div>
+    <div id="overviewBody"></div>
+  </section>
+
+  <!-- ============ SHIPMENTS ============ -->
+  <section class="page-sec" id="page-shipments">
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search AWB / order / SKU…">
+      <select id="fStatus"><option value="">All statuses</option></select>
+      <select id="fZone"><option value="">All zones</option></select>
+      <select id="fBucket"><option value="">All buckets</option></select>
+      <select id="fMode"><option value="">COD + Prepaid</option><option>COD</option><option>Prepaid</option></select>
+      <span class="count-note" id="countNote"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:70vh;overflow:auto">
+      <table id="shipTable">
+        <thead><tr>
+          <th data-k="awb">AWB</th><th data-k="orderId">Order</th><th data-k="sku">SKU</th>
+          <th data-k="zone">Zone</th><th data-k="status">Status</th><th data-k="mode">Mode</th>
+          <th class="num" data-k="chgWeight">Chg. wt (g)</th><th class="num" data-k="billedWeight">Billed wt (g)</th><th data-k="box">Box</th>
+          <th class="num" data-k="expFreight">Exp. freight</th><th class="num" data-k="expCod">Exp. COD fee</th>
+          <th class="num" data-k="expected">Expected ₹</th><th class="num" data-k="billed">Billed ₹</th>
+          <th class="num" data-k="variance">Variance ₹</th><th data-k="bucket">Bucket</th>
+        </tr></thead>
+        <tbody id="shipBody"></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <!-- ============ WEIGHT MASTER ============ -->
+  <section class="page-sec" id="page-weights">
+    <div class="card">
+      <h3>SKU standard weights</h3>
+      <div class="sub">Dead + volumetric weight per SKU (grams). Chargeable weight = higher of the two. Import the standard sheet or edit inline — stored locally in this browser.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn" id="importWeightsBtn">⬆ Import standard sheet</button>
+        <button class="btn" id="addSkuBtn">+ Add SKU</button>
+        <button class="btn" id="exportWeightsBtn">⬇ Export</button>
+        <button class="btn" id="clearWeightsBtn">Clear all</button>
+        <input type="search" id="wq" placeholder="Filter SKUs…" style="margin-left:auto">
+      </div>
+      <div class="note" style="margin-bottom:10px">Import expects columns like <b>SKU / style code</b>, <b>dead weight</b>, <b>volumetric weight</b> and/or a <b>box dimensions</b> column (L*B*H in cm). Weights read as grams; fractional values under 30 (like 0.5) read as kg. Missing volumetric is computed from dimensions: L×B×H ÷ 5000 kg.</div>
+      <div class="tbl-wrap" style="max-height:60vh;overflow:auto">
+        <table class="editable"><thead><tr><th>SKU / style code</th><th class="num">Dead (g)</th><th class="num">Volumetric (g)</th><th class="num">Chargeable (g)</th><th></th></tr></thead>
+        <tbody id="weightsBody"></tbody></table>
+      </div>
+      <div class="note" id="weightsCount" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <h3>Box volumetric reference</h3>
+      <div class="sub">Standard packing boxes (from "All Box Dimensions") — volumetric weight = L × B × H (cm) ÷ 5000 kg</div>
+      <div class="tbl-wrap" style="border:none"><table style="max-width:560px" id="boxTable"><thead><tr><th>Box</th><th>Dimensions (cm)</th><th class="num">Volume (cm³)</th><th class="num">Volumetric wt (g)</th></tr></thead><tbody></tbody></table></div>
+      <div class="note" style="margin-top:8px">Poly-bag shipments have negligible volumetric weight — dead weight governs.</div>
+    </div>
+  </section>
+
+  <!-- ============ RATE CARD ============ -->
+  <section class="page-sec" id="page-rates">
+    <div class="card">
+      <h3>Rate card (₹ per shipment)</h3>
+      <div class="sub">From the KT doc. Edit if the agreed card changes — saved locally. DL = forward delivery · RTO leg is added on top of forward freight · DTO = customer return pickup.</div>
+      <div class="tbl-wrap"><table class="rate-grid"><thead><tr><th>Slab</th><th class="num">A</th><th class="num">B</th><th class="num">C1</th><th class="num">C2</th><th class="num">D1</th><th class="num">D2</th><th class="num">E</th><th class="num">F</th></tr></thead>
+      <tbody id="rateBody"></tbody></table></div>
+      <div class="note" style="margin-top:10px">COD fee = higher of ₹<span id="codMinLbl"></span> or <span id="codPctLbl"></span>% of order value (zone-independent). Prepaid = nil.</div>
+    </div>
+    <div class="card">
+      <h3>Settings</h3>
+      <div class="sub">Applied instantly to the whole reconciliation.</div>
+      <div class="set-grid">
+        <label for="setTol">Variance tolerance (₹) — |variance| within this = Matched</label><input type="number" id="setTol" step="0.5" style="width:90px">
+        <label for="setCodMin">COD minimum fee (₹)</label><input type="number" id="setCodMin" step="1" style="width:90px">
+        <label for="setCodPct">COD % of order value</label><input type="number" id="setCodPct" step="0.1" style="width:90px">
+        <label for="setGst">Billed amounts include GST — gross up expected by (%)</label>
+        <span><input type="checkbox" id="setGstOn" style="width:auto;margin-right:8px"><input type="number" id="setGst" step="0.5" style="width:80px"></span>
+        <label for="setCodRto">Apply COD fee on RTO / DTO shipments (KT default — untick if Delhivery reverses it)</label>
+        <input type="checkbox" id="setCodRto" style="width:auto">
+        <label for="setWtSrc">Chargeable weight source</label>
+        <select id="setWtSrc" style="width:280px">
+          <option value="standard">Standard sheet — max(dead, volumetric)</option>
+          <option value="billed">Delhivery billed weight (audit rate card only)</option>
+        </select>
+      </div>
+      <div style="margin-top:14px"><button class="btn" id="resetRatesBtn">Reset rate card + settings to KT defaults</button></div>
+    </div>
+  </section>
+
+  <!-- ============ RULES ============ -->
+  <section class="page-sec" id="page-rules">
+    <div class="card">
+      <h3>Try it — expected charge for any shipment</h3>
+      <div class="sub">Uses the live rate card and settings — edit those and this recalculates.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <select id="cZone"></select>
+        <select id="cStatus"><option value="DL">Delivered</option><option value="RTO">RTO</option><option value="DTO">DTO</option></select>
+        <input type="number" id="cWeight" value="700" min="1" step="50" style="width:110px" title="Chargeable weight (g)"> g
+        <select id="cMode"><option>COD</option><option>Prepaid</option></select>
+        <input type="number" id="cValue" value="999" min="0" step="1" style="width:110px" title="Order value ₹"> ₹ order value
+      </div>
+      <div id="calcOut"></div>
+    </div>
+    <div id="ruleBody"></div>
+  </section>
+
+</div>
+<div class="tooltip" id="tooltip"></div>
+<div class="statusbar" id="statusbar"></div>
+
+<script>
+"use strict";
+/* ============================== constants ============================== */
+const ZONES = ["A","B","C1","C2","D1","D2","E","F"];
+const KT_RATES = {
+  dl300:   {A:21,B:22,C1:29,C2:31,D1:32,D2:32,E:44,F:55},
+  dl500:   {A:24,B:25,C1:32,C2:34,D1:35,D2:35,E:47,F:58},
+  dlAdd250:{A:8, B:8, C1:10,C2:11,D1:12,D2:12,E:16,F:20},
+  dlAdd500:{A:20,B:24,C1:28,C2:30,D1:32,D2:34,E:42,F:56},
+  rto500:  {A:20,B:24,C1:28,C2:30,D1:32,D2:34,E:42,F:56},
+  rtoAdd500:{A:20,B:24,C1:28,C2:30,D1:32,D2:34,E:42,F:56},
+  dto500:  {A:42,B:51,C1:57,C2:60,D1:62,D2:65,E:69,F:75},
+  dtoAdd500:{A:31,B:40,C1:46,C2:49,D1:51,D2:53,E:59,F:70},
+};
+const SLAB_LABELS = {
+  dl300:"DL 0–300 g", dl500:"DL 0–500 g", dlAdd250:"DL addnl 250 g",
+  dlAdd500:"DL every addnl 500 g", rto500:"RTO 0–500 g", rtoAdd500:"RTO every addnl 500 g",
+  dto500:"DTO 0–500 g", dtoAdd500:"DTO every addnl 500 g",
+};
+const KT_SETTINGS = { tol:2, codMin:24, codPct:1, gstOn:false, gst:18, wtSrc:"standard", codRto:true };
+const BOXES = [["Box 1","13x10x10"],["Box 2","20x10x10"],["Box 3","23x21x12"],["Box 4","27x6x27"],["Box 5","27x10x27"],["Box 6","26x5x41"],["Box 7","53x23x5"],["Box 8","33x6x43"],["Box 9","39x4x49"],["Box 10","14x13x9"],["Box 11","16x10x8"],["Box 12","49x39x4"]];
+const BOX_VOLS = BOXES.map(([name,dims])=>{ const [l,b,h]=dims.split("x").map(Number); return {name, dims, vol:Math.round(l*b*h/5)}; });
+function closestBox(g){ return BOX_VOLS.reduce((best,b)=>Math.abs(b.vol-g)<Math.abs(best.vol-g)?b:best); }
+const FIELDS = [
+  ["awb","AWB / waybill", true],
+  ["orderId","Order ID", false],
+  ["sku","SKU / style code", false],
+  ["qty","Quantity", false],
+  ["zone","Zone", true],
+  ["status","Status (DL / RTO / DTO)", true],
+  ["mode","Payment mode (COD / Prepaid)", false],
+  ["orderValue","Order (COD) value ₹", false],
+  ["billedWeight","Billed / charged weight", false],
+  ["billed","Billed amount ₹", true],
+];
+const AUTO_PATTERNS = {
+  awb:[/^awb/i,/waybill/i,/^wbn$/i,/awb ?(no|number)/i],
+  orderId:[/order ?(id|no|number)/i,/reference/i,/^ref/i,/^order$/i],
+  sku:[/^sku/i,/style/i,/material/i,/item ?(code|sku)/i,/product ?(code|sku)/i,/^product$/i,/description/i],
+  qty:[/^qty$/i,/quantity/i,/pieces/i,/pcs/i,/item ?count/i],
+  zone:[/^zone$/i,/zon/i,/^zn$/i],
+  status:[/status/i,/disposition/i,/charge ?type/i,/shipment ?type/i,/^type$/i],
+  mode:[/payment/i,/pay ?mode/i,/cod.?prepaid/i,/product ?type/i,/^mode$/i,/^pt$/i],
+  orderValue:[/cod ?amount/i,/collectable/i,/collect/i,/order ?value/i,/declared/i,/package ?value/i],
+  billedWeight:[/charged ?weight/i,/charge ?weight/i,/billed ?weight/i,/^cw$/i,/weight/i],
+  billed:[/total ?amount/i,/gross ?amount/i,/net ?(payable|amount)/i,/billed ?amount/i,/total ?charge/i,/invoice ?amount/i,/^total$/i,/^amount$/i],
+};
+
+/* ============================== state ============================== */
+let rates    = load("dlv_rates", JSON.parse(JSON.stringify(KT_RATES)));
+let settings = Object.assign({}, KT_SETTINGS, load("dlv_settings", {}));
+let weights  = load("dlv_weights", {});           // { SKUKEY: {sku, dead, vol} }
+let invoices = [];                                 // [{name, headers, rows(arrays)}]
+let mapping  = null;                               // {field: headerIndex}
+let pendingMapFile = null;
+let shipments = [];                                // computed rows
+let sortK = "variance", sortDir = -1, pageN = 0;
+const PAGE = 200;
+
+function load(k, dflt){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : dflt; }catch(e){ return dflt; } }
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+const $ = id => document.getElementById(id);
+const fmt = n => (n==null||isNaN(n)) ? "—" : n.toLocaleString("en-IN",{maximumFractionDigits:0});
+const fmt2 = n => (n==null||isNaN(n)) ? "—" : n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
+const rup = n => "₹" + fmt(n);
+function toast(msg){ const s=$("statusbar"); s.textContent=msg; s.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>s.classList.remove("show"),3200); }
+const skuKey = s => String(s??"").trim().toUpperCase().replace(/\s+/g," ");
+
+/* ============================== engine ============================== */
+function normZone(v){
+  const s = String(v??"").toUpperCase().replace(/ZONE/g,"").replace(/[^A-Z0-9]/g,"");
+  if (ZONES.includes(s)) return s;
+  const m = s.match(/^(C1|C2|D1|D2|A|B|E|F)/); return m ? m[1] : null;
+}
+function normStatus(v){
+  const s = String(v??"").toLowerCase();
+  if (/rto/.test(s)) return "RTO";
+  if (/dto|reverse|return to (buyer|customer)|pickup/.test(s)) return "DTO";
+  if (/deliver|dl\b|forward/.test(s)) return "DL";
+  return null;
+}
+function normMode(v, orderValue){
+  const s = String(v??"").toLowerCase();
+  if (/cod|cash/.test(s)) return "COD";
+  if (/pre|ppd|paid|online/.test(s)) return "Prepaid";
+  if (v==null || s==="") return (orderValue>0 ? "COD" : "Prepaid");
+  return null;
+}
+function slabCount(g){ return g<=500 ? 0 : Math.ceil((g-500)/500); }   // extra 500g slabs beyond first 500
+function forwardFreight(zone, g){
+  if (g<=300) return rates.dl300[zone];
+  return rates.dl500[zone] + slabCount(g)*rates.dlAdd500[zone];
+}
+function freightFor(status, zone, g){
+  if (status==="RTO") return forwardFreight(zone,g) + rates.rto500[zone] + slabCount(g)*rates.rtoAdd500[zone];
+  if (status==="DTO") return rates.dto500[zone] + slabCount(g)*rates.dtoAdd500[zone];
+  return forwardFreight(zone,g);       // DL and unknown-as-DL
+}
+function codFee(mode, orderValue){
+  if (mode!=="COD") return 0;
+  return Math.max(settings.codMin, settings.codPct/100 * (orderValue||0));
+}
+function grams(v){                     // auto-detect kg vs g: fractional values under 30 are kg (0.5 kg), whole numbers are grams (15 g ring)
+  const n = parseFloat(String(v??"").replace(/[^0-9.]/g,""));
+  if (isNaN(n) || n<=0) return null;
+  return (n<30 && n%1!==0) ? Math.round(n*1000) : Math.round(n);
+}
+function gramsInvoice(v){              // invoice charged-weight: courier weights under 30 are kg (1, 2.5), bigger numbers are grams (500)
+  const n = parseFloat(String(v??"").replace(/[^0-9.]/g,""));
+  if (isNaN(n) || n<=0) return null;
+  return n<=30 ? Math.round(n*1000) : Math.round(n);
+}
+const DIM3 = /([\d.]+)\s*[*x×]\s*([\d.]+)\s*[*x×]\s*([\d.]+)/i;
+function volFromDims(s){               // volumetric g = L×B×H (cm) ÷ 5000 kg = cm³ ÷ 5
+  const m = DIM3.exec(String(s??"")); if (!m) return null;
+  const g = Math.round(parseFloat(m[1])*parseFloat(m[2])*parseFloat(m[3])/5);
+  return g>0 ? g : null;
+}
+function weightForSku(rawSku, qty){
+  if (!rawSku) return {misses:["(no SKU column)"]};
+  const parts = String(rawSku).split(/[,;|+]/).map(s=>s.trim()).filter(Boolean);
+  let dead = 0, vol = 0; const misses = [];
+  for (const p of parts){
+    const w = weights[skuKey(p)];
+    if (!w) { misses.push(p); continue; }
+    dead += (w.dead||0); vol += (w.vol||0);
+  }
+  if (misses.length) return {misses};
+  const q = qty||1;
+  return {dead: dead*q, vol: vol*q, items: parts.length*q, misses:[]};
+}
+
+function recompute(){
+  shipments = [];
+  for (const inv of invoices){
+    const m = inv.mapping; if (!m) continue;
+    for (const r of inv.rows){
+      const get = f => (m[f]==null||m[f]<0) ? null : r[m[f]];
+      const awb = String(get("awb")??"").trim(); if (!awb) continue;
+      const zone = normZone(get("zone"));
+      const status = normStatus(get("status"));
+      const orderValue = parseFloat(String(get("orderValue")??"").replace(/[^0-9.-]/g,"")) || 0;
+      const mode = normMode(get("mode"), orderValue);
+      const qty = Math.max(1, parseInt(get("qty"))||1);
+      const billed = parseFloat(String(get("billed")??"").replace(/[^0-9.-]/g,""));
+      const billedWeight = gramsInvoice(get("billedWeight"));
+      const sku = String(get("sku")??"").trim();
+
+      let chgWeight=null, wMiss=[], boxGuess=null, boxBilled=null, boxUp=false;
+      if (settings.wtSrc==="billed"){ chgWeight = billedWeight; if (chgWeight==null) wMiss=["(no billed weight)"]; }
+      else {
+        const w = weightForSku(sku, qty); wMiss = w.misses;
+        if (!wMiss.length){
+          if (w.items>1){
+            // multi-item: box unknown — guess the box whose volumetric wt is closest to the summed dead weight
+            boxGuess = closestBox(w.dead);
+            chgWeight = Math.max(w.dead, boxGuess.vol);
+            if (billedWeight!=null && billedWeight > chgWeight){
+              boxBilled = closestBox(billedWeight);
+              if (boxBilled.vol > boxGuess.vol) boxUp = true; else boxBilled = null;
+            }
+          } else chgWeight = Math.max(w.dead||0, w.vol||0) || null;
+        }
+      }
+
+      let expFreight=null, expCod=null, expected=null, variance=null, bucket;
+      if (!zone) bucket = "Zone unknown";
+      else if (!status) bucket = "Status unknown";
+      else if (chgWeight==null) bucket = "No weight";
+      else {
+        expFreight = freightFor(status, zone, chgWeight);
+        expCod = (status!=="DL" && !settings.codRto) ? 0 : codFee(mode, orderValue);
+        expected = expFreight + expCod;
+        if (settings.gstOn) expected *= (1 + settings.gst/100);
+        expected = Math.round(expected*100)/100;
+        if (isNaN(billed)) bucket = "No billed amt";
+        else {
+          variance = Math.round((billed - expected)*100)/100;
+          bucket = Math.abs(variance)<=settings.tol ? "Matched" : (variance>0 ? "Overbilled" : "Underbilled");
+        }
+      }
+      shipments.push({file:inv.name, awb, orderId:String(get("orderId")??"").trim(), sku, qty, zone:zone||String(get("zone")??""),
+        status:status||String(get("status")??""), mode:mode||"?", orderValue, chgWeight, billedWeight,
+        expFreight, expCod, expected, billed:isNaN(billed)?null:billed, variance, bucket, wMiss,
+        box: boxGuess?boxGuess.name:"", boxBilled: boxBilled?boxBilled.name:"", boxUp});
+    }
+  }
+  renderAll();
+}
+
+/* ============================== file parsing ============================== */
+function parseFile(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, {type:"array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+      if (!aoa.length){ toast("Empty sheet: "+file.name); return; }
+      // header row = row with the most non-empty string cells among first 12
+      let hi=0, best=0;
+      for (let i=0;i<Math.min(12,aoa.length);i++){
+        const score = (aoa[i]||[]).filter(c=>typeof c==="string" && c.trim().length>1).length;
+        if (score>best){ best=score; hi=i; }
+      }
+      const headers = (aoa[hi]||[]).map(h=>String(h??"").trim());
+      const rows = aoa.slice(hi+1).filter(r=>r && r.some(c=>c!=null && String(c).trim()!==""));
+      const inv = {name:file.name, headers, rows, mapping:null};
+      const sig = "dlv_map_" + headers.join("|").slice(0,400);
+      const savedMap = load(sig, null);
+      const auto = autoMap(headers);
+      inv.mapping = savedMap || null;
+      invoices.push(inv);
+      if (!inv.mapping){
+        pendingMapFile = inv;
+        showMapCard(inv, auto);
+      }
+      renderFileChips();
+      recompute();
+      toast(`Loaded ${file.name} — ${rows.length.toLocaleString()} rows` + (inv.mapping?"":" · confirm column mapping"));
+    }catch(err){ console.error(err); toast("Could not parse "+file.name+": "+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function autoMap(headers){
+  const map = {};
+  for (const [f] of FIELDS){
+    map[f] = -1;
+    for (const pat of AUTO_PATTERNS[f]){
+      const i = headers.findIndex(h=>pat.test(h));
+      if (i>=0 && !Object.values(map).includes(i)){ map[f]=i; break; }
+    }
+  }
+  return map;
+}
+function showMapCard(inv, auto){
+  const grid = $("mapGrid"); grid.innerHTML="";
+  for (const [f,label,req] of FIELDS){
+    const lab = document.createElement("label");
+    lab.innerHTML = label + (req?' <span class="muted">*</span>':'');
+    const sel = document.createElement("select"); sel.dataset.field=f;
+    sel.innerHTML = '<option value="-1">— not in file —</option>' +
+      inv.headers.map((h,i)=>`<option value="${i}" ${auto[f]===i?"selected":""}>${h||("col "+(i+1))}</option>`).join("");
+    grid.append(lab, sel);
+  }
+  $("mapNote").textContent = "File: "+inv.name;
+  $("mapCard").style.display="block";
+  $("mapCard").scrollIntoView({behavior:"smooth", block:"center"});
+}
+$("applyMapBtn").onclick = () => {
+  if (!pendingMapFile) return;
+  const map = {};
+  $("mapGrid").querySelectorAll("select").forEach(s=>map[s.dataset.field]=parseInt(s.value));
+  const missing = FIELDS.filter(([f,l,req])=>req && map[f]<0).map(([f,l])=>l);
+  if (missing.length){ toast("Required: "+missing.join(", ")); return; }
+  pendingMapFile.mapping = map;
+  save("dlv_map_" + pendingMapFile.headers.join("|").slice(0,400), map);
+  // apply to any other unmapped file with identical headers
+  invoices.forEach(inv=>{ if(!inv.mapping && inv.headers.join("|")===pendingMapFile.headers.join("|")) inv.mapping=map; });
+  pendingMapFile = invoices.find(inv=>!inv.mapping) || null;
+  if (pendingMapFile) showMapCard(pendingMapFile, autoMap(pendingMapFile.headers));
+  else $("mapCard").style.display="none";
+  recompute();
+};
+
+/* ============================== weight master ============================== */
+function parseWeightsFile(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, {type:"array"});
+      let added=0;
+      for (const sn of wb.SheetNames){
+        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:null});
+        if (!aoa.length) continue;
+        let hi=0,best=0;
+        for (let i=0;i<Math.min(10,aoa.length);i++){
+          const sc=(aoa[i]||[]).filter(c=>typeof c==="string"&&c.trim().length>1).length;
+          if(sc>best){best=sc;hi=i;}
+        }
+        const H = (aoa[hi]||[]).map(h=>String(h??"").toLowerCase());
+        const iSku = H.findIndex(h=>/sku|style|code|product|item|name/.test(h));
+        let iDead = H.findIndex(h=>/dead|physical|actual|dry/.test(h));
+        let iVol  = H.findIndex(h=>/vol/.test(h));
+        const iDims = H.findIndex(h=>/dimension|lbh|l\s*[*x×]\s*b|box/.test(h));
+        if (iSku<0) continue;
+        if (iDead<0 && iVol<0){ // maybe single "weight" col
+          iDead = H.findIndex(h=>/weight|wt/.test(h));
+          if (iDead<0 && iDims<0) continue;
+        }
+        for (const r of aoa.slice(hi+1)){
+          if (!r) continue;
+          const sku = String(r[iSku]??"").trim(); if (!sku) continue;
+          const dead = iDead>=0 ? grams(r[iDead]) : null;
+          let vol  = iVol>=0 ? grams(r[iVol]) : null;
+          if (vol==null && iDims>=0) vol = volFromDims(r[iDims]);   // L×B×H cm ÷ 5
+          if (dead==null && vol==null) continue;
+          weights[skuKey(sku)] = {sku, dead:dead||0, vol:vol||0};
+          added++;
+        }
+      }
+      save("dlv_weights", weights);
+      renderWeights(); recompute();
+      toast(`Imported ${added.toLocaleString()} SKU weights from ${file.name}`);
+    }catch(err){ toast("Could not parse "+file.name+": "+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function renderWeights(){
+  const q = $("wq").value.trim().toUpperCase();
+  const body = $("weightsBody"); body.innerHTML="";
+  const keys = Object.keys(weights).filter(k=>!q || k.includes(q)).sort();
+  const frag = document.createDocumentFragment();
+  for (const k of keys.slice(0,800)){
+    const w = weights[k];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><input class="sku-in" value="${escapeHtml(w.sku)}" data-k="${escapeHtml(k)}" data-f="sku"></td>
+      <td class="num"><input type="number" value="${w.dead||0}" data-k="${escapeHtml(k)}" data-f="dead"></td>
+      <td class="num"><input type="number" value="${w.vol||0}" data-k="${escapeHtml(k)}" data-f="vol"></td>
+      <td class="num">${fmt(Math.max(w.dead||0,w.vol||0))}</td>
+      <td><button class="btn small" data-del="${escapeHtml(k)}">✕</button></td>`;
+    frag.append(tr);
+  }
+  body.append(frag);
+  $("weightsCount").textContent = `${keys.length.toLocaleString()} SKUs` + (keys.length>800?" (showing first 800 — use the filter)":"") + (q?` matching “${q}”`:"");
+}
+$("weightsBody").addEventListener("change", e=>{
+  const k = e.target.dataset.k, f = e.target.dataset.f;
+  if (!k || !weights[k]) return;
+  if (f==="sku"){
+    const nk = skuKey(e.target.value);
+    if (nk && nk!==k){ weights[nk] = {...weights[k], sku:e.target.value.trim()}; delete weights[k]; }
+  } else weights[k][f] = parseInt(e.target.value)||0;
+  save("dlv_weights", weights); renderWeights(); recompute();
+});
+$("weightsBody").addEventListener("click", e=>{
+  const k = e.target.dataset.del;
+  if (k){ delete weights[k]; save("dlv_weights", weights); renderWeights(); recompute(); }
+});
+$("addSkuBtn").onclick = ()=>{
+  const sku = prompt("SKU / style code:"); if (!sku) return;
+  weights[skuKey(sku)] = {sku:sku.trim(), dead:0, vol:0};
+  save("dlv_weights", weights); renderWeights();
+};
+$("clearWeightsBtn").onclick = ()=>{ if(confirm("Delete ALL stored SKU weights?")){ weights={}; save("dlv_weights",weights); renderWeights(); recompute(); } };
+$("exportWeightsBtn").onclick = ()=>{
+  const rows = Object.values(weights).map(w=>({SKU:w.sku, "Dead weight (g)":w.dead, "Volumetric weight (g)":w.vol, "Chargeable (g)":Math.max(w.dead||0,w.vol||0)}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "weights");
+  XLSX.writeFile(wb, "sku-standard-weights.xlsx");
+};
+$("importWeightsBtn").onclick = ()=>$("weightsFile").click();
+$("weightsFile").onchange = e=>{ [...e.target.files].forEach(parseWeightsFile); e.target.value=""; };
+$("wq").oninput = renderWeights;
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ============================== rate card + settings ============================== */
+function renderRates(){
+  const body = $("rateBody"); body.innerHTML="";
+  for (const slab of Object.keys(SLAB_LABELS)){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${SLAB_LABELS[slab]}</td>` + ZONES.map(z=>
+      `<td class="num"><input type="number" step="0.5" value="${rates[slab][z]}" data-slab="${slab}" data-zone="${z}"></td>`).join("");
+    body.append(tr);
+  }
+  $("codMinLbl").textContent = settings.codMin;
+  $("codPctLbl").textContent = settings.codPct;
+  $("setTol").value = settings.tol; $("setCodMin").value = settings.codMin; $("setCodPct").value = settings.codPct;
+  $("setGstOn").checked = settings.gstOn; $("setGst").value = settings.gst; $("setWtSrc").value = settings.wtSrc;
+  $("setCodRto").checked = settings.codRto;
+}
+$("rateBody").addEventListener("change", e=>{
+  const {slab, zone} = e.target.dataset; if (!slab) return;
+  rates[slab][zone] = parseFloat(e.target.value)||0;
+  save("dlv_rates", rates); recompute(); renderRules();
+});
+for (const [id,key,isNum] of [["setTol","tol",1],["setCodMin","codMin",1],["setCodPct","codPct",1],["setGst","gst",1],["setGstOn","gstOn",0],["setWtSrc","wtSrc",0],["setCodRto","codRto",0]]){
+  $(id).addEventListener("change", e=>{
+    settings[key] = (id==="setGstOn"||id==="setCodRto") ? e.target.checked : (isNum ? parseFloat(e.target.value)||0 : e.target.value);
+    save("dlv_settings", settings); renderRates(); recompute(); renderRules();
+  });
+}
+$("resetRatesBtn").onclick = ()=>{
+  if (!confirm("Reset rate card and settings to the KT defaults?")) return;
+  rates = JSON.parse(JSON.stringify(KT_RATES)); settings = {...KT_SETTINGS};
+  save("dlv_rates",rates); save("dlv_settings",settings); renderRates(); recompute();
+};
+
+/* ============================== overview render ============================== */
+function renderAll(){ renderOverview(); populateFilters(); renderTable(); }
+function renderOverview(){
+  const el = $("overviewBody");
+  const done = shipments.filter(s=>s.variance!=null);
+  if (!shipments.length){ el.innerHTML = `<div class="empty">Drop an invoice to start. ${Object.keys(weights).length? "" : "Also import the SKU standard weight sheet in the Weight Master tab."}</div>`; return; }
+  const sum = a=>a.reduce((t,x)=>t+x,0);
+  const billedT = sum(done.map(s=>s.billed));
+  const expT = sum(done.map(s=>s.expected));
+  const varT = billedT - expT;
+  const over = done.filter(s=>s.bucket==="Overbilled");
+  const under = done.filter(s=>s.bucket==="Underbilled");
+  const noW = shipments.filter(s=>s.bucket==="No weight");
+  const other = shipments.filter(s=>["Zone unknown","Status unknown","No billed amt"].includes(s.bucket));
+  const overAmt = sum(over.map(s=>s.variance));
+  const underAmt = sum(under.map(s=>s.variance));
+
+  let html = `<div class="kpis">
+    ${kpi("Shipments reconciled", fmt(done.length), `of ${fmt(shipments.length)} rows loaded`)}
+    ${kpi("Delhivery billed", rup(billedT), "freight + COD, all reconciled AWBs")}
+    ${kpi("Expected per rate card", rup(expT), settings.gstOn? `incl ${settings.gst}% GST` : "pre-tax rate-card amount")}
+    ${kpi("Net variance", (varT>=0?"+₹":"−₹")+fmt(Math.abs(varT)), billedT? (Math.abs(varT)/billedT*100).toFixed(1)+"% of billed — positive = Delhivery billed more" : "", varT>0?"up":varT<0?"dn":"")}
+    ${kpi("Overbilled AWBs", fmt(over.length), "+₹"+fmt(overAmt)+" recoverable — raise with Delhivery","up")}
+    ${kpi("Underbilled AWBs", fmt(under.length), "−₹"+fmt(Math.abs(underAmt))+" in your favour","dn")}
+  </div>`;
+
+  html += `<div class="card"><h3>Invoice summary</h3><div class="sub">Same numbers as the Summary tab of the Excel export (⬇ Export button, one workbook per invoice)</div>
+    <div class="tbl-wrap" style="border:none"><table id="invSummary"><thead><tr><th>Invoice</th><th class="num">Orders</th><th class="num">Reconciled</th><th class="num">Billed ₹</th><th class="num">Expected ₹</th><th class="num">Variance ₹</th><th class="num">Overbilled</th><th class="num">Underbilled</th><th class="num">Re-weighs</th><th class="num">Bigger box</th></tr></thead><tbody>
+    ${invoices.map(inv=>{ const sm = fileSummary(inv.name);
+      return `<tr><td>${escapeHtml(sm.file)}</td><td class="num">${fmt(sm.orders)}</td><td class="num">${fmt(sm.reconciled)}</td><td class="num">${fmt(sm.billed)}</td><td class="num">${fmt(sm.expected)}</td>
+      <td class="num" style="font-weight:600;color:${sm.variance>0?'var(--critical)':sm.variance<0?'var(--goodtext)':'inherit'}">${sm.variance>=0?"+":"−"}${fmt(Math.abs(sm.variance))}</td>
+      <td class="num">${fmt(sm.overN)} <span class="muted">/ +₹${fmt(sm.overAmt)}</span></td>
+      <td class="num">${fmt(sm.underN)} <span class="muted">/ −₹${fmt(Math.abs(sm.underAmt))}</span></td>
+      <td class="num">${fmt(sm.reweigh)}</td><td class="num" ${sm.boxUps?'style="color:var(--critical);font-weight:600"':''}>${fmt(sm.boxUps)}</td></tr>`; }).join("")}
+    </tbody></table></div></div>`;
+
+  if (noW.length || other.length){
+    const missSkus = {};
+    noW.forEach(s=>s.wMiss.forEach(m=>missSkus[m]=(missSkus[m]||0)+1));
+    const topMiss = Object.entries(missSkus).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    html += `<div class="card"><h3>Coverage gaps — ${fmt(noW.length+other.length)} rows not reconciled</h3>
+      <div class="sub">${noW.length? fmt(noW.length)+(noW.length===1?" row has":" rows have")+" SKUs missing from the standard weight sheet. " : ""}${other.length? fmt(other.length)+(other.length===1?" row has":" rows have")+" unreadable zone / status / billed amount." : ""}</div>
+      ${topMiss.length? `<div class="note">Most frequent missing SKUs: ${topMiss.map(([k,c])=>`<b>${escapeHtml(k)}</b> (${c})`).join(" · ")} — add them in the Weight Master tab.</div>`:""}
+    </div>`;
+  }
+
+  // charts
+  const byZone = {};
+  for (const z of ZONES) byZone[z]={over:0, under:0};
+  done.forEach(s=>{ if(!byZone[s.zone]) return; if (s.variance>settings.tol) byZone[s.zone].over+=s.variance; else if (s.variance<-settings.tol) byZone[s.zone].under+=s.variance; });
+  const causes = [
+    ["Overbilled — weight/slab", sum(done.filter(s=>s.bucket==="Overbilled" && s.billedWeight!=null && s.chgWeight!=null && s.billedWeight>s.chgWeight).map(s=>s.variance))],
+    ["Overbilled — other", sum(done.filter(s=>s.bucket==="Overbilled" && !(s.billedWeight!=null && s.chgWeight!=null && s.billedWeight>s.chgWeight)).map(s=>s.variance))],
+  ].filter(c=>c[1]>0);
+
+  const reweigh = done.filter(s=>s.billedWeight!=null && s.chgWeight!=null && s.billedWeight > s.chgWeight);
+
+  html += `<div class="grid2">
+    <div class="card"><h3>Variance by zone</h3><div class="sub">Sum of over / under billing per zone — where the money is leaking</div>
+      <div class="legend"><span class="key"><span class="sw" style="background:var(--pos)"></span>Overbilled (Delhivery charged more)</span><span class="key"><span class="sw" style="background:var(--neg)"></span>Underbilled</span></div>
+      <div id="zoneChart"></div></div>
+    <div class="card"><h3>Status mix &amp; charges</h3><div class="sub">Reconciled shipments by leg</div>
+      <div class="tbl-wrap" style="border:none"><table><thead><tr><th>Status</th><th class="num">AWBs</th><th class="num">Billed ₹</th><th class="num">Expected ₹</th><th class="num">Variance ₹</th></tr></thead><tbody>
+      ${["DL","RTO","DTO"].map(st=>{
+        const g = done.filter(s=>s.status===st); if(!g.length) return "";
+        const b=sum(g.map(s=>s.billed)), ex=sum(g.map(s=>s.expected));
+        return `<tr><td>${st==="DL"?"Delivered":st}</td><td class="num">${fmt(g.length)}</td><td class="num">${fmt(b)}</td><td class="num">${fmt(ex)}</td><td class="num" style="font-weight:600;color:${b-ex>0?'var(--critical)':'var(--goodtext)'}">${b-ex>=0?"+":"−"}${fmt(Math.abs(b-ex))}</td></tr>`;
+      }).join("")}
+      </tbody></table></div>
+      ${reweigh.length? `<div class="note" style="margin-top:10px">⚖️ <b>${fmt(reweigh.length)} AWBs re-weighed above standard</b> — billed weight &gt; chargeable weight from the standard sheet; worth ₹${fmt(sum(reweigh.map(s=>Math.max(0,s.variance||0))))} of the overbilling. The KT names re-weighs as the usual variance cause.</div>` : ""}
+    </div>
+  </div>`;
+  el.innerHTML = html;
+  renderZoneChart(byZone);
+}
+function kpi(lbl, val, sub, dir){
+  return `<div class="kpi"><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="sub">${dir?`<span class="${dir==="up"?"up":"dn"}">`:""}${sub||""}${dir?"</span>":""}</div></div>`;
+}
+function renderZoneChart(byZone){
+  const host = $("zoneChart"); if (!host) return;
+  const maxAbs = Math.max(1, ...ZONES.flatMap(z=>[byZone[z].over, -byZone[z].under]));
+  host.innerHTML = ZONES.map(z=>{
+    const o=byZone[z].over, u=-byZone[z].under;
+    const ow=(o/maxAbs*50).toFixed(2), uw=(u/maxAbs*50).toFixed(2);
+    const net=o-u;
+    return `<div class="hbar-row" data-tip="<b>Zone ${z}</b><br>Overbilled: +₹${fmt(o)}<br>Underbilled: −₹${fmt(u)}<br>Net: ${net>=0?"+":"−"}₹${fmt(Math.abs(net))}">
+      <div class="cat">Zone ${z}</div>
+      <div class="hbar-track">
+        <div style="width:50%;display:flex;justify-content:flex-end">${u>0?`<div class="hbar negb" style="width:${uw*2}%;background:var(--neg)"></div>`:""}</div>
+        <div class="hbar-mid"></div>
+        <div style="width:50%">${o>0?`<div class="hbar" style="width:${ow*2}%;background:var(--pos)"></div>`:""}</div>
+      </div>
+      <div class="val" ${o===0&&u===0?'style="color:var(--ink-3)"':''}>${net>=0?"+":"−"}₹${fmt(Math.abs(net))}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ============================== shipments table ============================== */
+function populateFilters(){
+  const opts = (id, vals, first) => {
+    const sel=$(id); const cur=sel.value;
+    sel.innerHTML = `<option value="">${first}</option>` + vals.map(v=>`<option>${escapeHtml(v)}</option>`).join("");
+    sel.value = cur;
+  };
+  opts("fStatus", [...new Set(shipments.map(s=>s.status))].filter(Boolean).sort(), "All statuses");
+  opts("fZone", [...new Set(shipments.map(s=>s.zone))].filter(Boolean).sort(), "All zones");
+  opts("fBucket", [...new Set(shipments.map(s=>s.bucket))].sort(), "All buckets");
+}
+function filtered(){
+  const q=$("q").value.trim().toLowerCase(), st=$("fStatus").value, z=$("fZone").value, b=$("fBucket").value, m=$("fMode").value;
+  return shipments.filter(s=>
+    (!q || s.awb.toLowerCase().includes(q) || s.orderId.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)) &&
+    (!st || s.status===st) && (!z || s.zone===z) && (!b || s.bucket===b) && (!m || s.mode===m));
+}
+function renderTable(){
+  const rows = filtered();
+  rows.sort((a,b)=>{
+    const va=a[sortK], vb=b[sortK];
+    if (va==null && vb==null) return 0; if (va==null) return 1; if (vb==null) return -1;
+    return (typeof va==="number" ? va-vb : String(va).localeCompare(String(vb))) * sortDir;
+  });
+  const pages = Math.max(1, Math.ceil(rows.length/PAGE));
+  if (pageN>=pages) pageN=pages-1;
+  const slice = rows.slice(pageN*PAGE, (pageN+1)*PAGE);
+  $("shipBody").innerHTML = slice.map(s=>{
+    const pill = s.bucket==="Overbilled"?"over":s.bucket==="Underbilled"?"under":s.bucket==="Matched"?"ok":"warn";
+    return `<tr>
+      <td>${escapeHtml(s.awb)}</td><td>${escapeHtml(s.orderId)}</td><td title="${escapeHtml(s.sku)}">${escapeHtml(s.sku.slice(0,28))}${s.sku.length>28?"…":""}</td>
+      <td>${escapeHtml(s.zone||"—")}</td><td>${escapeHtml(s.status||"—")}</td><td>${s.mode}</td>
+      <td class="num">${fmt(s.chgWeight)}</td>
+      <td class="num">${s.billedWeight!=null && s.chgWeight!=null && s.billedWeight>s.chgWeight ? `<span style="color:var(--critical);font-weight:600">${fmt(s.billedWeight)}</span>` : fmt(s.billedWeight)}</td>
+      <td>${s.boxUp ? `<span style="color:var(--critical);font-weight:600" title="Delhivery's billed weight implies a bigger box than our guess">${s.box} → ${s.boxBilled}</span>` : (s.box||"—")}</td>
+      <td class="num">${fmt2(s.expFreight)}</td><td class="num">${fmt2(s.expCod)}</td>
+      <td class="num">${fmt2(s.expected)}</td><td class="num">${fmt2(s.billed)}</td>
+      <td class="num" style="font-weight:600;color:${s.variance>settings.tol?'var(--critical)':s.variance<-settings.tol?'var(--s1)':'inherit'}">${s.variance==null?"—":(s.variance>=0?"+":"−")+fmt2(Math.abs(s.variance))}</td>
+      <td><span class="pill ${pill}">${s.bucket}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="15" class="empty">No shipments match.</td></tr>`;
+  $("countNote").textContent = `${rows.length.toLocaleString()} shipments`;
+  $("pager").innerHTML = pages>1 ? `<button class="btn small" onclick="pageN=Math.max(0,pageN-1);renderTable()">←</button> Page ${pageN+1} / ${pages} <button class="btn small" onclick="pageN=Math.min(${pages-1},pageN+1);renderTable()">→</button>` : "";
+  document.querySelectorAll("#shipTable th").forEach(th=>{
+    th.innerHTML = th.innerHTML.replace(/ <span class="arr">.*<\/span>/,"");
+    if (th.dataset.k===sortK) th.innerHTML += ` <span class="arr">${sortDir>0?"↑":"↓"}</span>`;
+  });
+}
+document.querySelectorAll("#shipTable th").forEach(th=>th.onclick=()=>{
+  if (sortK===th.dataset.k) sortDir*=-1; else { sortK=th.dataset.k; sortDir=-1; }
+  renderTable();
+});
+["q","fStatus","fZone","fBucket","fMode"].forEach(id=>$(id).addEventListener("input", ()=>{pageN=0; renderTable();}));
+
+/* ============================== summary + export ============================== */
+function fileSummary(fileName){
+  const all = shipments.filter(s=>s.file===fileName);
+  const done = all.filter(s=>s.variance!=null);
+  const sum = a=>a.reduce((t,x)=>t+x,0);
+  const over = done.filter(s=>s.bucket==="Overbilled"), under = done.filter(s=>s.bucket==="Underbilled");
+  const billed = sum(done.map(s=>s.billed)), expected = sum(done.map(s=>s.expected));
+  const byZone = ZONES.map(z=>{
+    const g = done.filter(s=>s.zone===z); if (!g.length) return null;
+    return {zone:z, awbs:g.length, billed:sum(g.map(s=>s.billed)), expected:sum(g.map(s=>s.expected))};
+  }).filter(Boolean);
+  const byStatus = ["DL","RTO","DTO"].map(st=>{
+    const g = done.filter(s=>s.status===st); if (!g.length) return null;
+    return {status:st, awbs:g.length, billed:sum(g.map(s=>s.billed)), expected:sum(g.map(s=>s.expected))};
+  }).filter(Boolean);
+  return {
+    file:fileName, orders:all.length, reconciled:done.length, gaps:all.length-done.length,
+    billed, expected, variance:Math.round((billed-expected)*100)/100,
+    overN:over.length, overAmt:Math.round(sum(over.map(s=>s.variance))), underN:under.length, underAmt:Math.round(sum(under.map(s=>s.variance))),
+    matched:done.filter(s=>s.bucket==="Matched").length,
+    reweigh:done.filter(s=>s.billedWeight!=null&&s.chgWeight!=null&&s.billedWeight>s.chgWeight).length,
+    boxUps:all.filter(s=>s.boxUp).length,
+    noWeight:all.filter(s=>s.bucket==="No weight").length, byZone, byStatus,
+  };
+}
+function orderRow(s){
+  return { AWB:s.awb, "Order ID":s.orderId, SKU:s.sku, Zone:s.zone, Status:s.status, Mode:s.mode,
+    "Order value ₹":s.orderValue, "Chargeable wt (g)":s.chgWeight, "Billed wt (g)":s.billedWeight,
+    "Box (our guess)":s.box||"", "Box (billed implies)":s.boxBilled||"", "Bigger box than guess":s.boxUp?"YES":"",
+    "Expected freight ₹":s.expFreight, "Expected COD fee ₹":s.expCod, "Expected total ₹":s.expected,
+    "Delhivery billed ₹":s.billed, "Variance ₹ (billed − expected)":s.variance, Bucket:s.bucket,
+    "Missing SKUs":(s.wMiss||[]).join(", ") };
+}
+$("exportBtn").onclick = ()=>{
+  if (!invoices.length){ toast("Load an invoice first."); return; }
+  for (const inv of invoices){
+    const sm = fileSummary(inv.name);
+    const rows = shipments.filter(s=>s.file===inv.name);
+    const disputes = rows.filter(s=>s.bucket==="Overbilled"||s.bucket==="Underbilled");
+    const pct = sm.billed ? (Math.abs(sm.variance)/sm.billed*100).toFixed(1)+"%" : "—";
+    const aoa = [
+      ["DELHIVERY BILL RECONCILIATION — SUMMARY"], [],
+      ["Invoice file", inv.name],
+      ["Orders on invoice", sm.orders],
+      ["Reconciled", sm.reconciled],
+      ["Not reconciled (missing weight / zone / status)", sm.gaps],
+      ["  of which SKU weight missing", sm.noWeight], [],
+      ["Delhivery billed (₹)", sm.billed],
+      ["Expected per rate card (₹)", sm.expected],
+      ["Net variance (₹, + = Delhivery billed more)", sm.variance],
+      ["Variance as % of billed", pct], [],
+      ["Overbilled AWBs", sm.overN], ["Overbilled amount (₹)", sm.overAmt],
+      ["Underbilled AWBs", sm.underN], ["Underbilled amount (₹)", sm.underAmt],
+      ["Matched AWBs (±₹"+settings.tol+")", sm.matched], [],
+      ["Re-weighed above standard (billed wt > chargeable)", sm.reweigh],
+      ["Bigger box than our guess (multi-item)", sm.boxUps], [],
+      ["BY ZONE"], ["Zone","AWBs","Billed ₹","Expected ₹","Variance ₹"],
+      ...sm.byZone.map(z=>[z.zone, z.awbs, z.billed, z.expected, Math.round(z.billed-z.expected)]),
+      [],
+      ["BY STATUS"], ["Status","AWBs","Billed ₹","Expected ₹","Variance ₹"],
+      ...sm.byStatus.map(t=>[t.status==="DL"?"Delivered":t.status, t.awbs, t.billed, t.expected, Math.round(t.billed-t.expected)]),
+    ];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:46},{wch:14},{wch:12},{wch:12},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws, "Summary");
+    const wsO = XLSX.utils.json_to_sheet(rows.map(orderRow)); wsO["!cols"]=Object.keys(orderRow(rows[0]||{})).map(k=>({wch:Math.max(12,k.length+2)}));
+    XLSX.utils.book_append_sheet(wb, wsO, "All Orders");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(disputes.length?disputes.map(orderRow):[{Note:"No disputed AWBs"}]), "Disputes");
+    XLSX.writeFile(wb, "recon-" + inv.name.replace(/\.(xlsx|xls|csv)$/i,"") + ".xlsx");
+  }
+  toast(`Exported ${invoices.length} reconciliation workbook${invoices.length>1?"s":""} (Summary + All Orders + Disputes)`);
+};
+
+/* ============================== rules page ============================== */
+function breakdown(zone, status, g, mode, value){
+  const lines = [];
+  const slabs = slabCount(g);
+  if (status==="DTO"){
+    lines.push([`DTO base 0–500 g · Zone ${zone}`, rates.dto500[zone]]);
+    if (slabs) lines.push([`${slabs} × additional 500 g slab${slabs>1?"s":""} × ₹${rates.dtoAdd500[zone]}`, slabs*rates.dtoAdd500[zone]]);
+  } else {
+    if (g<=300) lines.push([`Forward DL 0–300 g flat · Zone ${zone}`, rates.dl300[zone]]);
+    else {
+      lines.push([`Forward DL 0–500 g base · Zone ${zone}`, rates.dl500[zone]]);
+      if (slabs) lines.push([`${slabs} × additional 500 g slab${slabs>1?"s":""} × ₹${rates.dlAdd500[zone]}`, slabs*rates.dlAdd500[zone]]);
+    }
+    if (status==="RTO"){
+      lines.push([`RTO leg 0–500 g · Zone ${zone}`, rates.rto500[zone]]);
+      if (slabs) lines.push([`RTO ${slabs} × additional 500 g × ₹${rates.rtoAdd500[zone]}`, slabs*rates.rtoAdd500[zone]]);
+    }
+  }
+  if (mode==="COD"){
+    if (status!=="DL" && !settings.codRto) lines.push([`COD fee — skipped on ${status} (setting)`, 0]);
+    else {
+      const pct = settings.codPct/100*value;
+      lines.push([`COD fee — higher of ₹${settings.codMin} or ${settings.codPct}% of ₹${fmt(value)} (₹${fmt2(pct)})`, Math.max(settings.codMin, pct)]);
+    }
+  } else lines.push(["COD fee — prepaid, nil", 0]);
+  let total = lines.reduce((t,l)=>t+l[1],0);
+  if (settings.gstOn){ const gst = total*settings.gst/100; lines.push([`GST ${settings.gst}%`, gst]); total += gst; }
+  return {lines, total};
+}
+function renderCalc(){
+  if (!$("cZone").options.length) $("cZone").innerHTML = ZONES.map(z=>`<option ${z==="B"?"selected":""}>Zone ${z}</option>`).join("");
+  const zone = $("cZone").value.replace("Zone ","");
+  const status = $("cStatus").value, g = parseInt($("cWeight").value)||0, mode = $("cMode").value, value = parseFloat($("cValue").value)||0;
+  if (g<=0){ $("calcOut").innerHTML=""; return; }
+  const b = breakdown(zone, status, g, mode, value);
+  $("calcOut").innerHTML = `<table style="max-width:640px">${b.lines.map(l=>
+    `<tr><td>${l[0]}</td><td class="num">${l[1]?("₹"+fmt2(l[1])):"—"}</td></tr>`).join("")}
+    <tr><td style="font-weight:600">Expected charge</td><td class="num" style="font-weight:700;font-size:16px">₹${fmt2(b.total)}</td></tr></table>`;
+}
+["cZone","cStatus","cWeight","cMode","cValue"].forEach(id=>$(id).addEventListener("input", renderCalc));
+function renderRules(){
+  const B = "B";
+  const ex = [
+    ["Delivered · Zone B · 250 g · COD ₹999", breakdown("B","DL",250,"COD",999)],
+    ["Delivered · Zone B · 700 g · Prepaid", breakdown("B","DL",700,"Prepaid",0)],
+    ["RTO · Zone C1 · 1,200 g · COD ₹1,500", breakdown("C1","RTO",1200,"COD",1500)],
+    ["DTO (customer return) · Zone F · 900 g · Prepaid", breakdown("F","DTO",900,"Prepaid",0)],
+  ];
+  const bands = [["0 – 300 g", 300],["301 – 500 g", 500],["501 – 1,000 g", 1000],["1,001 – 1,500 g", 1500],["1,501 – 2,000 g", 2000]];
+  $("ruleBody").innerHTML = `
+  <div class="card"><h3>What goes in</h3>
+    <div class="sub">The two inputs, exactly as in the KT process</div>
+    <ol style="margin-left:18px;display:grid;gap:8px;font-size:13px">
+      <li><b>Delhivery invoice Excel</b> — Delhivery One → Finance → Invoice → pick the billing period → download. Gives AWB, zone, status, payment mode, order (COD) value and the amount Delhivery billed.</li>
+      <li><b>SKU standard weight sheet</b> — every SKU with its dead (physical) and volumetric weight, kept current before each billing run. Imported in the Weight Master tab.</li>
+    </ol>
+  </div>
+  <div class="card"><h3>Step 1 — Chargeable weight</h3>
+    <div class="sub">Per order, from the standard sheet</div>
+    <div style="font-size:13px;display:grid;gap:6px">
+      <div><b>Chargeable weight = higher of dead weight and volumetric weight.</b></div>
+      <div><b>Volumetric weight = L × B × H (in cm) ÷ 5000</b>, in kg — i.e. box volume in cm³ ÷ 5 gives grams. Box sizes are in the reference table on the Weight Master tab. Poly-bag shipments: dead weight governs.</div>
+      <div><b>Single-item orders:</b> chargeable = max(that SKU's dead, volumetric) from the standard sheet.</div>
+      <div><b>Multi-item orders</b> (multiple SKUs on one line, or qty &gt; 1): the packing box is unknown, so we sum the items' <b>dead</b> weights and guess the box whose volumetric weight is <b>closest</b> to that total. Chargeable = higher of the summed dead weight and the guessed box's volumetric weight. If Delhivery's billed weight points to a <b>bigger box</b> than our guess, the Box column turns <span style="color:var(--critical);font-weight:600">red</span> (e.g. Box 2 → Box 7) and it counts as a discrepancy in the summary.</div>
+      <div>If any SKU isn't on the standard sheet the row goes to the <span class="pill warn">No weight</span> bucket instead of guessing.</div>
+    </div>
+  </div>
+  <div class="card"><h3>Step 2 — Zone, status &amp; payment mode</h3>
+    <div class="sub">Read from the invoice and normalised</div>
+    <div style="font-size:13px;display:grid;gap:6px">
+      <div>Zone → one of ${ZONES.join(" / ")}. Status → <b>Delivered</b>, <b>RTO</b> (came back to you) or <b>DTO</b> (customer return pickup). Mode → COD / Prepaid — if the invoice has no mode column, COD value &gt; 0 means COD.</div>
+      <div>Anything unreadable is set aside in its own bucket (<span class="pill warn">Zone unknown</span> / <span class="pill warn">Status unknown</span>) — never silently guessed, same as the KT's "set aside any ambiguous code".</div>
+    </div>
+  </div>
+  <div class="card"><h3>Step 3 — Freight from the rate card</h3>
+    <div class="sub">Slabs count as: first 500 g is the base, then every started 500 g adds one slab — ceil((weight − 500) / 500)</div>
+    <div style="font-size:13px;display:grid;gap:6px">
+      <div><b>Delivered:</b> up to 300 g → flat 0–300 rate (₹${rates.dl300[B]} in Zone B). Above 300 g → 0–500 base (₹${rates.dl500[B]}) + additional 500 g slabs (₹${rates.dlAdd500[B]} each in Zone B).</div>
+      <div><b>RTO:</b> forward freight as above <b>+ the RTO leg</b> — RTO 0–500 (₹${rates.rto500[B]}) + the same additional slabs (₹${rates.rtoAdd500[B]}). You pay both directions.</div>
+      <div><b>DTO:</b> its own card — 0–500 (₹${rates.dto500[B]}) + additional slabs (₹${rates.dtoAdd500[B]}).</div>
+    </div>
+    <div class="sub" style="margin-top:14px;margin-bottom:8px">Delivered freight ready-reckoner (from the live rate card):</div>
+    <div class="tbl-wrap" style="border:none"><table style="max-width:760px"><thead><tr><th>Weight</th>${ZONES.map(z=>`<th class="num">${z}</th>`).join("")}</tr></thead><tbody>
+      ${bands.map(([lbl,g])=>`<tr><td>${lbl}</td>${ZONES.map(z=>`<td class="num">${fmt(forwardFreight(z,g))}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>
+  </div>
+  <div class="card"><h3>Step 4 — COD fee</h3>
+    <div style="font-size:13px;display:grid;gap:6px">
+      <div><b>COD orders: higher of ₹${settings.codMin} or ${settings.codPct}% of order value.</b> Zone-independent. Prepaid: nil.</div>
+      <div class="note">On RTO/DTO the fee is ${settings.codRto? "currently applied (KT-literal — untick in Settings if Delhivery reverses it via credit note)" : "currently NOT applied (setting)"}. ${settings.gstOn? `GST ${settings.gst}% is added to the expected total (setting).` : "GST gross-up is off — comparison is against pre-tax amounts."}</div>
+    </div>
+  </div>
+  <div class="card"><h3>Step 5 — Reconcile</h3>
+    <div style="font-size:13px;display:grid;gap:6px">
+      <div><b>Variance = Delhivery billed − expected (freight + COD fee).</b></div>
+      <div>Within ±₹${settings.tol} → <span class="pill ok">Matched</span>. Billed more → <span class="pill over">Overbilled</span> (raise with Delhivery — usual cause is a re-weigh; the dashboard flags AWBs where billed weight &gt; standard chargeable weight). Billed less → <span class="pill under">Underbilled</span>.</div>
+    </div>
+  </div>
+  <div class="card"><h3>Worked examples</h3>
+    <div class="sub">Computed live from the current rate card — they update if you edit it</div>
+    <div style="display:grid;gap:14px">${ex.map(([lbl,b])=>`
+      <div><div style="font-weight:600;font-size:13px;margin-bottom:4px">${lbl}</div>
+      <table style="max-width:640px">${b.lines.map(l=>`<tr><td class="muted">${l[0]}</td><td class="num">${l[1]?("₹"+fmt2(l[1])):"—"}</td></tr>`).join("")}
+      <tr><td style="font-weight:600">Expected</td><td class="num" style="font-weight:600">₹${fmt2(b.total)}</td></tr></table></div>`).join("")}
+    </div>
+  </div>`;
+  renderCalc();
+}
+
+/* ============================== chrome ============================== */
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+  document.querySelectorAll(".page-sec").forEach(p=>p.classList.toggle("active",p.id==="page-"+t.dataset.page));
+});
+$("themeBtn").onclick = ()=>{
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+  document.documentElement.dataset.theme = cur==="dark"?"light":"dark";
+  localStorage.setItem("dlv_theme", document.documentElement.dataset.theme);
+};
+if (localStorage.getItem("dlv_theme")) document.documentElement.dataset.theme = localStorage.getItem("dlv_theme");
+$("addInvoiceBtn").onclick = ()=>$("invoiceFile").click();
+$("invoiceFile").onchange = e=>{ [...e.target.files].forEach(parseFile); e.target.value=""; };
+const dz=$("dropzone");
+dz.onclick=()=>$("invoiceFile").click();
+["dragover","dragenter"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault(); dz.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault(); if(ev==="drop"||e.target===document.documentElement) dz.classList.remove("drag");}));
+document.addEventListener("drop", e=>{
+  e.preventDefault(); dz.classList.remove("drag");
+  [...(e.dataTransfer?.files||[])].forEach(f=>{ if(/\.(xlsx|xls|csv)$/i.test(f.name)) parseFile(f); });
+});
+function renderFileChips(){
+  $("filechips").innerHTML = invoices.map((inv,i)=>
+    `<span class="filechip">${escapeHtml(inv.name)} <small>${inv.rows.length.toLocaleString()} rows</small><button class="x" data-i="${i}" title="Remove">✕</button></span>`).join("");
+  $("dropzone").style.display = invoices.length ? "none" : "block";
+}
+$("filechips").addEventListener("click", e=>{
+  const i = e.target.dataset.i;
+  if (i!=null){ invoices.splice(i,1); if(pendingMapFile && !invoices.includes(pendingMapFile)){pendingMapFile=null;$("mapCard").style.display="none";} renderFileChips(); recompute(); }
+});
+/* tooltip for chart rows */
+const tip=$("tooltip");
+document.addEventListener("mousemove", e=>{
+  const row = e.target.closest("[data-tip]");
+  if (row){ tip.innerHTML=row.dataset.tip; tip.style.opacity=1; tip.style.left=Math.min(innerWidth-300,e.clientX+14)+"px"; tip.style.top=(e.clientY+14)+"px"; }
+  else tip.style.opacity=0;
+});
+
+document.querySelector("#boxTable tbody").innerHTML = BOXES.map(([name,dims])=>{
+  const [l,b,h] = dims.split("x").map(Number);
+  return `<tr><td>${name}</td><td>${l} × ${b} × ${h}</td><td class="num">${fmt(l*b*h)}</td><td class="num">${fmt(Math.round(l*b*h/5))}</td></tr>`;
+}).join("");
+renderRates(); renderWeights(); renderAll(); renderRules();
+</script>
+</body>
+</html>
