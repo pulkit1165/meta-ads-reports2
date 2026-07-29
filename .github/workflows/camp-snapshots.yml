@@ -89,8 +89,25 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
-            printf '{"projectId":"prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB","orgId":"team_AocNAz8F008iWPSLVvar2Xb5"}' > roas-live/.vercel/project.json 2>/dev/null ||               (mkdir -p roas-live/.vercel && printf '{"projectId":"prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB","orgId":"team_AocNAz8F008iWPSLVvar2Xb5"}' > roas-live/.vercel/project.json)
-            npx --yes vercel@latest deploy roas-live --prod --yes --token="$VERCEL_TOKEN"
+            # This checkout NEVER has index.html (gitignored; only roas-email
+            # generates it), so deploying roas-live/ as-is replaces the whole
+            # site with a page-less version — that was the 404 flip-flop that
+            # took the dashboard down every ~20 min (26-29 Jul). Stage a copy,
+            # pull the CURRENT live page files in beside the fresh table, and
+            # skip the deploy entirely if the live page can't be fetched —
+            # roas-email redeploys the full site within 10 minutes anyway.
+            export VERCEL_ORG_ID=team_AocNAz8F008iWPSLVvar2Xb5
+            export VERCEL_PROJECT_ID=prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB
+            STAGE=$(mktemp -d)
+            rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
+            for f in index.html summary.json status.json; do
+              curl -fsS --max-time 20 "https://roas-live.vercel.app/$f" -o "$STAGE/$f" || true
+            done
+            if [ -s "$STAGE/index.html" ]; then
+              npx --yes vercel@latest deploy "$STAGE" --prod --yes --token="$VERCEL_TOKEN"
+            else
+              echo "live page unreachable — skipping deploy so we never ship a page-less site"
+            fi
             curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
           fi
 
