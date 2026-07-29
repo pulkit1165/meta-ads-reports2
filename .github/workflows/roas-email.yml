@@ -412,7 +412,17 @@ jobs:
           # the deploy errored, so a dead token served a frozen page for hours
           # (27 Jul) with every run green.
           set -o pipefail
-          npx --yes vercel@latest deploy roas-live --prod --yes \
+          # Deploy from a CLEAN staging dir with no .gitignore anywhere above
+          # it. The CLI keeps applying gitignore rules to subdirectory deploys
+          # (roas-live/.gitignore lists index.html to keep the generated page
+          # out of git), which shipped page-less deploys — 404 since 26 Jul —
+          # and roas-live/.vercelignore did NOT override it. Staging sidesteps
+          # every ignore rule for good.
+          STAGE=$(mktemp -d)
+          rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' \
+            roas-live/ "$STAGE"/
+          ls -la "$STAGE"
+          npx --yes vercel@latest deploy "$STAGE" --prod --yes \
             --token="$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel.log
           [ -f roas-live/.vercel/project.json ] && \
             echo "PROJECT_JSON $(cat roas-live/.vercel/project.json)"

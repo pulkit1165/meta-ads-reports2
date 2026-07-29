@@ -6,28 +6,31 @@ same DBs, so it ships with every page deploy.
 Contents: today live per portal, yesterday finals, yesterday top products,
 today's campaign closes (SM), stamped with build time.
 """
-import argparse, json, sqlite3
+import argparse, json, sqlite3, sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from portal_hourly import build_rows, summarise  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
 PORTALS = ('SM', 'SML', 'NBP')
 
 
-def today_live(ntn_db, day):
-    con = sqlite3.connect(ntn_db)
-    out = {}
-    for p in PORTALS:
-        sales, orders = con.execute(
-            "SELECT COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
-            "WHERE portal=? AND substr(created_at,1,10)=? AND cancelled_at IS NULL",
-            (p, day)).fetchone()
-        spend, = con.execute(
-            "SELECT COALESCE(SUM(spend),0) FROM meta_ads_daily WHERE portal=? AND date=?",
-            (p, day)).fetchone()
-        out[p] = {'sales': round(sales), 'orders': orders, 'spend': round(spend),
-                  'roas': round(sales / spend, 2) if spend else None}
-    con.close()
-    return out
+def today_live(ntn_db, snap_db, day):
+    """Same numbers as the dashboard's "Today by website" table.
+
+    Was: realized-or-not orders / meta_ads_daily — meta_ads_daily misses
+    accounts the v2 ingest skips and the order query counted pending revenue,
+    so the WhatsApp digest disagreed with the page. Both now come from
+    portal_hourly (snapshots spend + realized-sales filter) so the two can
+    never drift apart again.
+    """
+    tot = summarise(build_rows(snap_db, ntn_db, day))
+    return {p: {'sales': round(tot[p]['rev']), 'orders': tot[p]['orders'],
+                'spend': round(tot[p]['spend']),
+                'roas': round(tot[p]['rev'] / tot[p]['spend'], 2) if tot[p]['spend'] else None}
+            for p in PORTALS}
 
 
 def top_products(ntn_db, day, n=10):
@@ -92,7 +95,7 @@ def main():
     out = {
         'built_at': now.isoformat(timespec='seconds'),
         'today': today,
-        'live': today_live(args.ntn_db, today),
+        'live': today_live(args.ntn_db, args.snap_db, today),
         'yesterday': {'date': yday, 'portals': yfin},
         'top_products_yday': top_products(args.ntn_db, yday),
         'closes_today_sm': closes_today(args.snap_db, today),
