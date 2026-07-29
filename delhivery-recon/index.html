@@ -204,12 +204,15 @@ td.num,th.num{text-align:right}
   <section class="page-sec" id="page-weights">
     <div class="card">
       <h3>SKU standard weights</h3>
-      <div class="sub">Dead + volumetric weight per SKU (grams). Chargeable weight = higher of the two. The master catalogue (969 SKUs) ships built-in — imports and edits here override it, saved in this browser. "Clear all" + reload restores the shipped master.</div>
+      <div class="sub">Dead + volumetric weight per SKU (grams). Chargeable weight = higher of the two. The master catalogue (969 SKUs) ships built-in and is <b>locked</b> — everyone reconciles against the same master. Unlock (password) to import/edit in this browser; lock again to revert to the shipped master.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-        <button class="btn" id="importWeightsBtn">⬆ Import standard sheet</button>
-        <button class="btn" id="addSkuBtn">+ Add SKU</button>
+        <button class="btn" id="lockBtn">🔒 Locked</button>
+        <span id="editTools" style="display:none;gap:8px">
+          <button class="btn" id="importWeightsBtn">⬆ Import standard sheet</button>
+          <button class="btn" id="addSkuBtn">+ Add SKU</button>
+          <button class="btn" id="clearWeightsBtn">Clear all</button>
+        </span>
         <button class="btn" id="exportWeightsBtn">⬇ Export</button>
-        <button class="btn" id="clearWeightsBtn">Clear all</button>
         <input type="search" id="wq" placeholder="Filter SKUs…" style="margin-left:auto">
       </div>
       <div class="note" style="margin-bottom:10px">Import expects columns like <b>SKU / style code</b>, <b>dead weight</b>, <b>volumetric weight</b> and/or a <b>box dimensions</b> column (L*B*H in cm). Weights read as grams; fractional values under 30 (like 0.5) read as kg. Missing volumetric is computed from dimensions: L×B×H ÷ 5000 kg.</div>
@@ -330,8 +333,31 @@ const AUTO_PATTERNS = {
 /* ============================== state ============================== */
 let rates    = load("dlv_rates", JSON.parse(JSON.stringify(KT_RATES)));
 let settings = Object.assign({}, KT_SETTINGS, load("dlv_settings", {}));
-let weights  = load("dlv_weights", null);         // { SKUKEY: {sku, dead, vol} } — falls back to the shipped master
-if (!weights || !Object.keys(weights).length) weights = JSON.parse(JSON.stringify(SEED_WEIGHTS));
+// Weight master is LOCKED by default: everyone reconciles against the shipped master.
+// Unlocking (password, per browser session) enables editing; edits live in this browser's localStorage.
+const LOCK_HASH = "8b95a7bcd0eede8ff10b9cbddb54d14b94cddcddc001a967825aedaeb340f9d5";
+let unlocked = sessionStorage.getItem("dlv_unlock")==="1";
+let weights;
+{ const stored = unlocked ? load("dlv_weights", null) : null;
+  weights = (stored && Object.keys(stored).length) ? stored : JSON.parse(JSON.stringify(SEED_WEIGHTS)); }
+async function tryUnlock(){
+  const pw = prompt("Weight master is locked. Enter password to edit:"); if (pw==null) return;
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
+  const hex = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  if (hex===LOCK_HASH){
+    unlocked = true; sessionStorage.setItem("dlv_unlock","1");
+    const stored = load("dlv_weights", null);
+    if (stored && Object.keys(stored).length) weights = stored;
+    renderWeights(); recompute();
+    toast("Unlocked — weight master editable in this browser session");
+  } else toast("Wrong password");
+}
+function lockAgain(){
+  unlocked = false; sessionStorage.removeItem("dlv_unlock");
+  weights = JSON.parse(JSON.stringify(SEED_WEIGHTS));
+  renderWeights(); recompute();
+  toast("Locked — back to the shipped master");
+}
 let invoices = [];                                 // [{name, headers, rows(arrays)}]
 let mapping  = null;                               // {field: headerIndex}
 let pendingMapFile = null;
@@ -589,6 +615,9 @@ function parseWeightsFile(file){
   reader.readAsArrayBuffer(file);
 }
 function renderWeights(){
+  $("lockBtn").textContent = unlocked ? "🔓 Editing on — lock" : "🔒 Locked";
+  $("lockBtn").title = unlocked ? "Lock again — reverts this browser to the shipped master" : "Read-only. Password needed to edit.";
+  $("editTools").style.display = unlocked ? "inline-flex" : "none";
   const q = $("wq").value.trim().toUpperCase();
   const body = $("weightsBody"); body.innerHTML="";
   const keys = Object.keys(weights).filter(k=>!q || k.includes(q)).sort();
@@ -596,16 +625,22 @@ function renderWeights(){
   for (const k of keys.slice(0,800)){
     const w = weights[k];
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><input class="sku-in" value="${escapeHtml(w.sku)}" data-k="${escapeHtml(k)}" data-f="sku"></td>
+    tr.innerHTML = unlocked ? `<td><input class="sku-in" value="${escapeHtml(w.sku)}" data-k="${escapeHtml(k)}" data-f="sku"></td>
       <td class="num"><input type="number" value="${w.dead||0}" data-k="${escapeHtml(k)}" data-f="dead"></td>
       <td class="num"><input type="number" value="${w.vol||0}" data-k="${escapeHtml(k)}" data-f="vol"></td>
       <td class="num">${fmt(Math.max(w.dead||0,w.vol||0))}</td>
-      <td><button class="btn small" data-del="${escapeHtml(k)}">✕</button></td>`;
+      <td><button class="btn small" data-del="${escapeHtml(k)}">✕</button></td>`
+    : `<td>${escapeHtml(w.sku)}</td>
+      <td class="num">${fmt(w.dead||0)}</td>
+      <td class="num">${fmt(w.vol||0)}</td>
+      <td class="num">${fmt(Math.max(w.dead||0,w.vol||0))}</td>
+      <td></td>`;
     frag.append(tr);
   }
   body.append(frag);
-  $("weightsCount").textContent = `${keys.length.toLocaleString()} SKUs` + (keys.length>800?" (showing first 800 — use the filter)":"") + (q?` matching “${q}”`:"");
+  $("weightsCount").textContent = `${keys.length.toLocaleString()} SKUs` + (unlocked?"":" · 🔒 read-only") + (keys.length>800?" (showing first 800 — use the filter)":"") + (q?` matching “${q}”`:"");
 }
+$("lockBtn").onclick = ()=> unlocked ? lockAgain() : tryUnlock();
 $("weightsBody").addEventListener("change", e=>{
   const k = e.target.dataset.k, f = e.target.dataset.f;
   if (!k || !weights[k]) return;
@@ -620,18 +655,19 @@ $("weightsBody").addEventListener("click", e=>{
   if (k){ delete weights[k]; save("dlv_weights", weights); renderWeights(); recompute(); }
 });
 $("addSkuBtn").onclick = ()=>{
+  if (!unlocked) return tryUnlock();
   const sku = prompt("SKU / style code:"); if (!sku) return;
   weights[skuKey(sku)] = {sku:sku.trim(), dead:0, vol:0};
   save("dlv_weights", weights); renderWeights();
 };
-$("clearWeightsBtn").onclick = ()=>{ if(confirm("Delete ALL stored SKU weights?")){ weights={}; save("dlv_weights",weights); renderWeights(); recompute(); } };
+$("clearWeightsBtn").onclick = ()=>{ if(!unlocked) return tryUnlock(); if(confirm("Delete ALL stored SKU weights? (Lock again to restore the shipped master)")){ weights={}; save("dlv_weights",weights); renderWeights(); recompute(); } };
 $("exportWeightsBtn").onclick = ()=>{
   const rows = Object.values(weights).map(w=>({SKU:w.sku, "Dead weight (g)":w.dead, "Volumetric weight (g)":w.vol, "Chargeable (g)":Math.max(w.dead||0,w.vol||0)}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "weights");
   XLSX.writeFile(wb, "sku-standard-weights.xlsx");
 };
-$("importWeightsBtn").onclick = ()=>$("weightsFile").click();
+$("importWeightsBtn").onclick = ()=>{ if(!unlocked) return tryUnlock(); $("weightsFile").click(); };
 $("weightsFile").onchange = e=>{ [...e.target.files].forEach(parseWeightsFile); e.target.value=""; };
 $("wq").oninput = renderWeights;
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
