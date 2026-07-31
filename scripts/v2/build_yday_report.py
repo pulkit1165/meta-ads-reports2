@@ -132,11 +132,14 @@ def render_png(out: dict, out_png: str):
 
     def sgn(v, suff='%'):
         return '–' if v is None else f"{'+' if v > 0 else ''}{v}{suff}"
-    H2 = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS']
+    H2 = ['Website', 'Sales', 'Orders', 'Spend', 'Spent %', 'ROAS']
     def v2(r):
         v = r['vs_prev']
+        sp, spp = r.get('spent_pct'), r.get('spent_pct_prev')
+        spent = (f"{spp:.0f}% > {sp:.0f}%" if sp is not None and spp is not None
+                 else f"{sp:.0f}%" if sp is not None else '–')
         return [label(r), sgn(v['sales_pct']), sgn(v['orders_pct']),
-                sgn(v['spend_pct']), sgn(v['roas_delta'], '')]
+                sgn(v['spend_pct']), spent, sgn(v['roas_delta'], '')]
 
     pad = 22 * SC
     def colw(hdrs, vals_fn):
@@ -249,6 +252,10 @@ def main():
         print(f'yday_report: {yday} not frozen yet — skipping')
         return
     budgets = budget_split(args.snap_db, yday)
+    budgets_prev = budget_split(args.snap_db, prev)
+
+    def spent_pct(spend, alloc):
+        return round(spend / alloc * 100, 1) if alloc else None
 
     rows = []
     tot = {'sales': 0.0, 'orders': 0, 'spend': 0.0, 'alloc': 0.0, 'closed': 0.0, 'live_10pm': 0.0}
@@ -258,17 +265,23 @@ def main():
         if not y:
             continue
         b = budgets.get(p, {'alloc': 0, 'closed': 0, 'live_10pm': 0})
+        bp = budgets_prev.get(p, {'alloc': 0})
         pv = fp.get(p, {})
+        sp_y = spent_pct(y['spend'], b['alloc'])
+        sp_p = spent_pct(pv.get('spend') or 0, bp['alloc'])
         rows.append({
             'portal': p,
             'sales': round(y['sales']), 'orders': y['orders'],
             'spend': round(y['spend']), 'roas': y['roas'],
             'budget_alloc': round(b['alloc']), 'budget_closed': round(b['closed']),
             'live_10pm': round(b['live_10pm']),
+            'spent_pct': sp_y, 'spent_pct_prev': sp_p,
             'vs_prev': {
                 'sales_pct': pct(y['sales'], pv.get('sales') or 0),
                 'orders_pct': pct(y['orders'], pv.get('orders') or 0),
                 'spend_pct': pct(y['spend'], pv.get('spend') or 0),
+                'spent_pct_delta': (round(sp_y - sp_p, 1)
+                                    if sp_y is not None and sp_p is not None else None),
                 'roas_delta': (round(y['roas'] - pv['roas'], 2)
                                if y['roas'] is not None and pv.get('roas') is not None else None),
             },
@@ -279,8 +292,11 @@ def main():
             tot[k] += b[k]
         for k in ('sales', 'orders', 'spend'):
             ptot[k] += pv.get(k) or 0
+        ptot['alloc'] = ptot.get('alloc', 0) + bp['alloc']
     all_roas = round(tot['sales'] / tot['spend'], 2) if tot['spend'] else None
     prev_roas = round(ptot['sales'] / ptot['spend'], 2) if ptot['spend'] else None
+    all_sp = spent_pct(tot['spend'], tot['alloc'])
+    prev_sp = spent_pct(ptot['spend'], ptot.get('alloc', 0))
     out = {
         'day': yday, 'prev_day': prev,
         'built_at': now.isoformat(timespec='seconds'),
@@ -289,9 +305,12 @@ def main():
                 'spend': round(tot['spend']), 'roas': all_roas,
                 'budget_alloc': round(tot['alloc']), 'budget_closed': round(tot['closed']),
                 'live_10pm': round(tot['live_10pm']),
+                'spent_pct': all_sp, 'spent_pct_prev': prev_sp,
                 'vs_prev': {'sales_pct': pct(tot['sales'], ptot['sales']),
                             'orders_pct': pct(tot['orders'], ptot['orders']),
                             'spend_pct': pct(tot['spend'], ptot['spend']),
+                            'spent_pct_delta': (round(all_sp - prev_sp, 1)
+                                                if all_sp is not None and prev_sp is not None else None),
                             'roas_delta': (round(all_roas - prev_roas, 2)
                                            if all_roas is not None and prev_roas is not None else None)}},
     }
