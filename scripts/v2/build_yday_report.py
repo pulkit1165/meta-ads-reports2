@@ -82,6 +82,154 @@ def pct(new, old):
     return round((new - old) / old * 100, 1) if old else None
 
 
+def render_png(out: dict, out_png: str):
+    """Branded card in the wa_table style — main table + day-over-day card."""
+    from PIL import Image, ImageDraw, ImageFont
+    SC = 2
+    CREAM, CARD, GOLD, GOLD_D = '#F6F0E4', '#FFFFFF', '#C9964B', '#8a6a33'
+    INK, INK2, LINE = '#2A2320', '#7a6f5e', '#e9e0cf'
+    OK, WARN, BAD = '#0f7a38', '#9a6a00', '#c43c3b'
+    NAMES = {'SM': 'Studd Muffyn', 'SML': 'SM Life', 'NBP': 'Nuskhe by Paras'}
+
+    def sans(sz, bold=False):
+        sz = int(sz * SC)
+        for path in (('/System/Library/Fonts/Supplemental/Arial Bold.ttf' if bold
+                      else '/System/Library/Fonts/Supplemental/Arial.ttf'),
+                     ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold
+                      else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')):
+            try:
+                return ImageFont.truetype(path, sz)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    def serif(sz, bold=False):
+        sz = int(sz * SC)
+        for path in (('/System/Library/Fonts/Supplemental/Georgia Bold.ttf' if bold
+                      else '/System/Library/Fonts/Supplemental/Georgia.ttf'),
+                     ('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf' if bold
+                      else '/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf')):
+            try:
+                return ImageFont.truetype(path, sz)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    probe = ImageDraw.Draw(Image.new('RGB', (8, 8)))
+    f_c, f_cb = sans(16), sans(16, True)
+
+    allrows = out['rows'] + [dict(out['all'], portal='ALL')]
+    def label(r):
+        return 'All' if r['portal'] == 'ALL' else NAMES.get(r['portal'], r['portal'])
+
+    H1 = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Budget', 'Closed', 'Live @10PM']
+    def v1(r):
+        return [label(r), f"Rs {r['sales']:,}", f"{r['orders']}", f"Rs {r['spend']:,}",
+                f"{r['roas'] if r['roas'] is not None else '-'}",
+                f"Rs {r['budget_alloc']:,}", f"Rs {r['budget_closed']:,}",
+                f"Rs {r['live_10pm']:,}"]
+
+    def sgn(v, suff='%'):
+        return '–' if v is None else f"{'+' if v > 0 else ''}{v}{suff}"
+    H2 = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS']
+    def v2(r):
+        v = r['vs_prev']
+        return [label(r), sgn(v['sales_pct']), sgn(v['orders_pct']),
+                sgn(v['spend_pct']), sgn(v['roas_delta'], '')]
+
+    pad = 22 * SC
+    def colw(hdrs, vals_fn):
+        ws = []
+        for i, h in enumerate(hdrs):
+            w = probe.textlength(h, font=sans(15, True))
+            for r in allrows:
+                w = max(w, probe.textlength(vals_fn(r)[i], font=f_cb))
+            ws.append(int(w) + pad)
+        return ws
+    w1, w2 = colw(H1, v1), colw(H2, v2)
+    M, P = 18 * SC, 16 * SC
+    rowh, headh = 40 * SC, 36 * SC
+    table_w = max(sum(w1), sum(w2))
+    if sum(w2) < table_w:                      # stretch comparison cols to match
+        extra = (table_w - sum(w2)) // len(w2)
+        w2 = [w + extra for w in w2]
+        w2[-1] += table_w - sum(w2)
+    W = table_w + 2 * (M + P)
+    top_band = 74 * SC
+    card1_h = headh + rowh * len(allrows) + 2 * P
+    card2_h = headh + rowh * len(allrows) + 2 * P + 30 * SC
+    H = top_band + card1_h + 14 * SC + card2_h + 30 * SC
+
+    img = Image.new('RGB', (W, H), CREAM)
+    d = ImageDraw.Draw(img)
+    ty, cx = 20 * SC, W // 2
+    title = 'NTN  YESTERDAY  FINAL'
+    tw = probe.textlength(title, font=serif(21, True))
+    d.text((cx, ty + 10 * SC), title, font=serif(21, True), fill=GOLD_D, anchor='mm')
+    dia = 4 * SC
+    for sx in (cx - tw / 2 - 26 * SC, cx + tw / 2 + 26 * SC):
+        d.polygon([(sx, ty + 10 * SC - dia), (sx + dia, ty + 10 * SC),
+                   (sx, ty + 10 * SC + dia), (sx - dia, ty + 10 * SC)], fill=GOLD)
+        rx = 60 * SC
+        x0 = sx - rx - 8 * SC if sx < cx else sx + 8 * SC
+        d.rectangle([x0, ty + 10 * SC, x0 + rx, ty + 10 * SC + SC], fill=GOLD)
+    dd = datetime.strptime(out['day'], '%Y-%m-%d')
+    pd = datetime.strptime(out['prev_day'], '%Y-%m-%d')
+    d.text((cx, ty + 34 * SC), f"{dd.strftime('%-d %b')} full day · budgets from hourly snapshots",
+           font=sans(13), fill=INK2, anchor='mm')
+
+    def draw_table(y0, hdrs, wds, vals_fn, delta_cols=False, note=None):
+        x0 = M
+        d.rounded_rectangle([x0, y0, W - M, y0 + headh + rowh * len(allrows) + 2 * P],
+                            radius=10 * SC, fill=CARD, outline=GOLD, width=SC)
+        y = y0 + P
+        x = x0 + P
+        for hname, w in zip(hdrs, wds):
+            anc = 'lm' if hname == 'Website' else 'rm'
+            tx = x if hname == 'Website' else x + w - 8 * SC
+            d.text((tx, y + headh // 2), hname.upper(), font=sans(12, True), fill=GOLD_D, anchor=anc)
+            x += w
+        y += headh
+        d.rectangle([x0 + P, y, W - M - P, y + SC], fill=LINE)
+        for r in allrows:
+            vals = vals_fn(r)
+            bold = r['portal'] == 'ALL'
+            if bold:
+                d.rounded_rectangle([x0 + P // 2, y + 3 * SC, W - M - P // 2, y + rowh],
+                                    radius=6 * SC, fill='#F6EFD9')
+            x = x0 + P
+            ymid = y + rowh // 2 + 2 * SC
+            for hname, w, val in zip(hdrs, wds, vals):
+                if hname == 'ROAS' and not delta_cols:
+                    rv = r['roas']
+                    col = OK if (rv or 0) >= 1.6 else WARN if (rv or 0) >= 1.0 else BAD
+                    txt = f"{rv}" if rv is not None else '-'
+                    tw2 = probe.textlength(txt, font=f_cb)
+                    xr = x + w - 8 * SC
+                    d.rounded_rectangle([xr - tw2 - 16 * SC, ymid - 11 * SC, xr, ymid + 11 * SC],
+                                        radius=11 * SC, fill=col)
+                    d.text((xr - 8 * SC, ymid), txt, font=f_cb, fill='#ffffff', anchor='rm')
+                else:
+                    fill = INK
+                    if delta_cols and hname != 'Website':
+                        fill = OK if val.startswith('+') else BAD if val.startswith('-') else INK2
+                    anc = 'lm' if hname == 'Website' else 'rm'
+                    tx = x if hname == 'Website' else x + w - 8 * SC
+                    d.text((tx, ymid), str(val), font=(f_cb if bold else f_c), fill=fill, anchor=anc)
+                x += w
+            y += rowh
+        return y + P
+
+    y_end = draw_table(top_band, H1, w1, v1)
+    d.text((M + 4 * SC, y_end + 16 * SC),
+           f"VS {pd.strftime('%-d %b').upper()}  ·  day over day", font=sans(13, True), fill=GOLD_D, anchor='lm')
+    draw_table(y_end + 30 * SC, H2, w2, v2, delta_cols=True)
+    d.text((cx, H - 14 * SC), 'Sales: Shopify final  ·  Spend: Meta final (Ads Manager)  ·  frozen at 1 AM',
+           font=sans(11), fill=INK2, anchor='mm')
+    img.save(out_png)
+    print(f'wrote {out_png}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--snap-db', default='state/camp_snapshots.db')
@@ -148,6 +296,10 @@ def main():
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, indent=1))
+    try:
+        render_png(out, str(Path(args.out).with_suffix('.png')))
+    except Exception as e:
+        print(f'yday_report: PNG render failed ({e}) — JSON still written')
     print(f"wrote {args.out} — {yday} ALL Rs{out['all']['sales']:,}/Rs{out['all']['spend']:,} "
           f"R{out['all']['roas']} alloc Rs{out['all']['budget_alloc']:,} "
           f"closed Rs{out['all']['budget_closed']:,} live@10pm Rs{out['all']['live_10pm']:,}")

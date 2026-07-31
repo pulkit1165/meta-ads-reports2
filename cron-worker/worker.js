@@ -224,6 +224,7 @@ async function sendWaText(env, to, text) {
 }
 
 const YDAY_JSON = 'https://roas-live.vercel.app/yday_report.json';
+const YDAY_PNG  = 'https://roas-live.vercel.app/yday_report.png';
 
 async function ydayPush(env, only) {
   // Yesterday-final digest: sales / spend / ROAS / budget allocated vs closed vs
@@ -247,11 +248,24 @@ async function ydayPush(env, only) {
     `Spend ${INR(a.spend)} (${pcts(av.spend_pct)}) · ROAS ${a.roas ?? '-'} (${rds(av.roas_delta)})\n` +
     `Budget ${INR(a.budget_alloc)} → closed ${INR(a.budget_closed)} · live @10PM ${INR(a.live_10pm)}`;
   const out = [];
+  const caption = `📋 *Yesterday Final — ${d.day}* · Sales ${INR(a.sales)} / Spend ${INR(a.spend)} · ROAS ${a.roas ?? '-'}`;
   for (const [to, subs] of Object.entries(RECIPIENTS)) {
     if (only && to !== only) continue;
     if (!only && !subs.morning) continue;
-    const tr = await sendWaText(env, to, text);
-    out.push(`${to}:${tr.ok ? 'ok' : 'fail-' + tr.status}`);
+    let ok = false;
+    if (env.WHAPI_TOKEN) {
+      const ir = await fetch('https://gate.whapi.cloud/messages/image', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: to + '@s.whatsapp.net',
+          media: YDAY_PNG + '?t=' + Date.now(), caption }),
+      });
+      if (ir.ok) { out.push(`${to}:img`); ok = true; }
+    }
+    if (!ok) {
+      const tr = await sendWaText(env, to, text);
+      out.push(`${to}:${tr.ok ? 'text' : 'fail-' + tr.status}`);
+    }
   }
   return 'yday → ' + out.join(' ');
 }
