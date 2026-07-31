@@ -34,6 +34,9 @@ python3 scripts/v2/build_wa_table.py \
   --snap-db "$WORK/state/camp_snapshots.db" --ntn-db "$WORK/state/ntn.db" \
   --finals "$WORK/state/daily_finals.json" \
   --out-json roas-live/wa_table.json --out-png roas-live/wa_table.png
+python3 scripts/v2/build_yday_report.py \
+  --snap-db "$WORK/state/camp_snapshots.db" \
+  --finals "$WORK/state/daily_finals.json" --out roas-live/yday_report.json
 
 # Deploy with the PERMANENT API token (operator-created, no expiry) from the
 # workspace .env — NOT the CLI session token, which rotates and dies. Do NOT

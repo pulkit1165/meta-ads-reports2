@@ -24,6 +24,7 @@ const RECIPIENTS = {
   '918283901380': { morning: false, evening: false, hourly: true },
 };
 const WA_RECIPIENTS = Object.keys(RECIPIENTS);
+const PORTAL_LABELS = { SM: 'Studd Muffyn', SML: 'SM Life', NBP: 'Nuskhe by Paras' };
 const SUMMARY = 'https://roas-live.vercel.app/summary.json';
 const WA_TABLE = 'https://roas-live.vercel.app/wa_table.json';
 const WA_TABLE_PNG = 'https://roas-live.vercel.app/wa_table.png';
@@ -222,6 +223,39 @@ async function sendWaText(env, to, text) {
   });
 }
 
+const YDAY_JSON = 'https://roas-live.vercel.app/yday_report.json';
+
+async function ydayPush(env, only) {
+  // Yesterday-final digest: sales / spend / ROAS / budget allocated vs closed vs
+  // still-live-at-10PM, plus day-over-day deltas. Feed built by build_yday_report.py.
+  const r = await fetch(YDAY_JSON + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+  if (!r.ok) return 'yday_report fetch failed ' + r.status;
+  const d = await r.json();
+  const pcts = v => v == null ? '–' : (v > 0 ? '+' : '') + v + '%';
+  const rds  = v => v == null ? '–' : (v > 0 ? '+' : '') + v;
+  const block = x => {
+    const v = x.vs_prev || {};
+    return `*${PORTAL_LABELS[x.portal] || x.portal}*\n` +
+      `Sales ${INR(x.sales)} (${pcts(v.sales_pct)}) · ${x.orders} orders (${pcts(v.orders_pct)})\n` +
+      `Spend ${INR(x.spend)} (${pcts(v.spend_pct)}) · ROAS ${x.roas ?? '-'} (${rds(v.roas_delta)})\n` +
+      `Budget ${INR(x.budget_alloc)} → closed ${INR(x.budget_closed)} · live @10PM ${INR(x.live_10pm)}`;
+  };
+  const a = d.all, av = a.vs_prev || {};
+  const text = `📋 *Yesterday Final — ${d.day}* (vs ${d.prev_day})\n\n` +
+    d.rows.map(block).join('\n\n') + '\n\n' +
+    `*ALL* — Sales ${INR(a.sales)} (${pcts(av.sales_pct)}) · ${a.orders} orders (${pcts(av.orders_pct)})\n` +
+    `Spend ${INR(a.spend)} (${pcts(av.spend_pct)}) · ROAS ${a.roas ?? '-'} (${rds(av.roas_delta)})\n` +
+    `Budget ${INR(a.budget_alloc)} → closed ${INR(a.budget_closed)} · live @10PM ${INR(a.live_10pm)}`;
+  const out = [];
+  for (const [to, subs] of Object.entries(RECIPIENTS)) {
+    if (only && to !== only) continue;
+    if (!only && !subs.morning) continue;
+    const tr = await sendWaText(env, to, text);
+    out.push(`${to}:${tr.ok ? 'ok' : 'fail-' + tr.status}`);
+  }
+  return 'yday → ' + out.join(' ');
+}
+
 async function sendReport(env, to, rep) {
   if (env.WHAPI_TOKEN || env.WASSENGER_KEY) {
     const r = await sendWaText(env, to, rep.pretty);
@@ -326,6 +360,7 @@ export default {
         console.log(`[${ts}] ${await fn()}`);
       };
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
+      if (h === 8 && m < 15) await fire(`push:yday:${ymd}`, () => ydayPush(env));
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
       // Backstop only: if the :58-notify path failed and the table is fresh
       // (<25 min old), send at the :15 tick. Same dedupe key as notify-hourly.
@@ -437,6 +472,9 @@ export default {
       const out = await hourlyPush(env);
       return new Response(out, { headers: cors });
     }
+    if (url.pathname === '/test-yday') {
+      return new Response(await ydayPush(env, url.searchParams.get('to') || null), { headers: cors });
+    }
     if (url.pathname === '/test-hourly') {
       return new Response(await hourlyPush(env, url.searchParams.get('to') || null), { headers: cors });
     }
@@ -448,6 +486,19 @@ export default {
       try { return new Response(await liveReport(), { headers: cors }); }
       catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
+    if (url.pathname === '/wa-debug') {
+      const r = await fetch(WA_TABLE + '?t=' + Date.now(), {
+        cf: { cacheTtl: 0, cacheEverything: false },
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
+      const body = r.ok ? await r.json() : { err: r.status };
+      const hdrs = {};
+      for (const k of ['x-vercel-id', 'x-vercel-cache', 'age', 'last-modified', 'etag', 'date']) hdrs[k] = r.headers.get(k);
+      return new Response(JSON.stringify({
+        colo: request.cf?.colo, stamp: body.stamp, day: body.day,
+        data_through: body.data_through, built_at: body.built_at, vercel: hdrs,
+      }, null, 2), { headers: { ...cors, 'Content-Type': 'application/json' } });
+    }
     if (url.pathname === '/whapi-status') {
       try {
         const hdr = { 'Authorization': `Bearer ${env.WHAPI_TOKEN}` };
@@ -455,11 +506,17 @@ export default {
           fetch('https://gate.whapi.cloud/health', { headers: hdr }).then(r => r.json()).catch(e => ({ err: e.message })),
           fetch('https://gate.whapi.cloud/messages/list?count=100', { headers: hdr }).then(r => r.json()).catch(e => ({ err: e.message })),
         ]);
-        const chats = {};
+        const chats = {}; const recent = [];
         for (const msg of (m.messages || [])) {
-          if (msg.from_me) chats[msg.chat_id] = (chats[msg.chat_id] || 0) + 1;
+          if (!msg.from_me) continue;
+          chats[msg.chat_id] = (chats[msg.chat_id] || 0) + 1;
+          if (recent.length < 30) recent.push({
+            to: msg.chat_id, type: msg.type, at: new Date(msg.timestamp * 1000).toISOString(),
+            caption: ((msg.image?.caption || msg.text?.body || '')).slice(0, 60),
+            status: msg.status,
+          });
         }
-        return new Response(JSON.stringify({ health: h, sent_total: m.total, distinct_outbound_chats: Object.keys(chats).length, per_chat: chats }, null, 2),
+        return new Response(JSON.stringify({ health: h, sent_total: m.total, distinct_outbound_chats: Object.keys(chats).length, per_chat: chats, recent_outbound: recent }, null, 2),
           { headers: { ...cors, 'Content-Type': 'application/json' } });
       } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
