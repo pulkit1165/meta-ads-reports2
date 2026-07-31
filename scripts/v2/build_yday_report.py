@@ -122,12 +122,13 @@ def render_png(out: dict, out_png: str):
     def label(r):
         return 'All' if r['portal'] == 'ALL' else NAMES.get(r['portal'], r['portal'])
 
-    H1 = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Budget', 'Closed', 'Live @10PM']
+    H1 = ['Website', 'Sales', 'Orders', 'Budget', 'Spend', 'Spent %', 'ROAS', 'Closed', 'Live @10PM']
     def v1(r):
-        return [label(r), f"Rs {r['sales']:,}", f"{r['orders']}", f"Rs {r['spend']:,}",
+        spct = f"{r['spend'] / r['budget_alloc'] * 100:.0f}%" if r['budget_alloc'] else '-'
+        return [label(r), f"Rs {r['sales']:,}", f"{r['orders']}",
+                f"Rs {r['budget_alloc']:,}", f"Rs {r['spend']:,}", spct,
                 f"{r['roas'] if r['roas'] is not None else '-'}",
-                f"Rs {r['budget_alloc']:,}", f"Rs {r['budget_closed']:,}",
-                f"Rs {r['live_10pm']:,}"]
+                f"Rs {r['budget_closed']:,}", f"Rs {r['live_10pm']:,}"]
 
     def sgn(v, suff='%'):
         return '–' if v is None else f"{'+' if v > 0 else ''}{v}{suff}"
