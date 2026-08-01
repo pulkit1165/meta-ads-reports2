@@ -92,6 +92,9 @@ jobs:
           git show origin/camp-snapshots:daily_finals.json > state/daily_finals.json 2>/dev/null || echo '{}' > state/daily_finals.json
           python3 scripts/v2/wa_overlay_orders.py --ntn-db state/ntn.db
           python3 scripts/v2/build_wa_table.py             --snap-db "$DB" --ntn-db state/ntn.db --finals state/daily_finals.json             --out-json roas-live/wa_table.json --out-png roas-live/wa_table.png
+          # yday_report must ride EVERY roas-live deploy, else this hourly
+          # deploy wipes it off the site and the 8 AM send finds a 404.
+          python3 scripts/v2/build_yday_report.py             --snap-db "$DB" --finals state/daily_finals.json             --out roas-live/yday_report.json
 
       - name: Deploy table + notify Worker to send
         continue-on-error: true

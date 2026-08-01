@@ -230,7 +230,7 @@ async function ydayPush(env, only) {
   // Yesterday-final digest: sales / spend / ROAS / budget allocated vs closed vs
   // still-live-at-10PM, plus day-over-day deltas. Feed built by build_yday_report.py.
   const r = await fetch(YDAY_JSON + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
-  if (!r.ok) return 'yday_report fetch failed ' + r.status;
+  if (!r.ok) throw new Error('yday_report fetch failed ' + r.status);
   const d = await r.json();
   const pcts = v => v == null ? '–' : (v > 0 ? '+' : '') + v + '%';
   const rds  = v => v == null ? '–' : (v > 0 ? '+' : '') + v;
@@ -266,6 +266,9 @@ async function ydayPush(env, only) {
       const tr = await sendWaText(env, to, text);
       out.push(`${to}:${tr.ok ? 'text' : 'fail-' + tr.status}`);
     }
+  }
+  if (out.length && out.every(s => /fail/.test(s))) {
+    throw new Error('yday → all sends failed: ' + out.join(' '));
   }
   return 'yday → ' + out.join(' ');
 }
@@ -371,7 +374,14 @@ export default {
       const fire = async (key, fn) => {
         if (await env.WA_STATE.get(key)) return;
         await env.WA_STATE.put(key, '1', { expirationTtl: 172800 });
-        console.log(`[${ts}] ${await fn()}`);
+        try {
+          console.log(`[${ts}] ${await fn()}`);
+        } catch (e) {
+          // Send never happened — release the key so the next tick retries
+          // instead of silently skipping the whole day.
+          await env.WA_STATE.delete(key);
+          console.error(`[${ts}] ${key} failed, will retry: ${e.message}`);
+        }
       };
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
       if (h === 8 && m < 15) await fire(`push:yday:${ymd}`, () => ydayPush(env));
