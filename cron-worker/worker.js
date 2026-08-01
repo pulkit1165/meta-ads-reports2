@@ -395,7 +395,8 @@ export default {
             const tt = await tr.json();
             const age = Date.now() - Date.parse(tt.built_at);
             const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
-            if (age < 25 * 60000 && !(await env.WA_STATE.get(kvKey))) {
+            if (tt.day && tt.data_through &&
+                age < 25 * 60000 && !(await env.WA_STATE.get(kvKey))) {
               await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
               console.log(`[${ts}] backstop ${await hourlyPush(env)}`);
             }
@@ -489,7 +490,8 @@ export default {
       // Dedupe on the table's data_through stamp so retries can't double-send.
       const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
       if (!tr.ok) return new Response('table fetch fail', { headers: cors });
-      const tt = await tr.json();
+      const tt = await tr.json().catch(() => ({}));
+      if (!tt.day || !tt.data_through) return new Response('table malformed — not sending', { headers: cors });
       const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
       if (await env.WA_STATE.get(kvKey)) return new Response('already sent ' + tt.data_through, { headers: cors });
       await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
