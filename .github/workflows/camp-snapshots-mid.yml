@@ -1,0 +1,87 @@
+name: Mid-hour WhatsApp ROAS report (:28 IST capture, ~:33 send)
+
+# Half-hourly WhatsApp reporting: the main camp-snapshots flow captures the
+# clean :58 boundary; this one takes a THROWAWAY mid-hour capture at ~:28 IST
+# on a COPY of the snapshot DB (never saved back to the branch, so the hourly
+# matrix / closing analysis / kill-point data stay full-hour pure), builds the
+# same wa_table, deploys, and pokes the Worker to send. Result: report images
+# land ~:00 (through :58) and ~:33 (through :28) — every half hour.
+on:
+  schedule:
+    # :58 UTC = :28 IST. Worker also dispatches this (CRON_TO_WORKFLOW) since
+    # GitHub cron skips ~1/3 of ticks.
+    - cron: "58 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: camp-snapshots-mid
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  midreport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+      TZ: Asia/Kolkata
+      DB: state/camp_snapshots_mid.db
+      SNAP_BRANCH: camp-snapshots
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+
+      - name: Restore snapshot DB copy from branch
+        run: |
+          set -e
+          mkdir -p state
+          git fetch --depth=1 origin "$SNAP_BRANCH:refs/remotes/origin/$SNAP_BRANCH"
+          git show "origin/$SNAP_BRANCH:camp_snapshots.db.gz" | gunzip > "$DB"
+          echo "restored copy ($(du -h "$DB" | cut -f1))"
+
+      - name: Mid-hour capture on the copy (--force past the :58 gate)
+        run: python3 scripts/v2/camp_snapshot.py --db "$DB" --force
+
+      - name: Build + deploy wa_table, notify Worker
+        env:
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          SHOPIFY_STORE_URL: ${{ secrets.SHOPIFY_STORE_URL }}
+          SHOPIFY_ACCESS_TOKEN_NBP: ${{ secrets.SHOPIFY_ACCESS_TOKEN_NBP }}
+          SHOPIFY_STORE_URL_NBP: ${{ secrets.SHOPIFY_STORE_URL_NBP }}
+          SHOPIFY_ACCESS_TOKEN_SML: ${{ secrets.SHOPIFY_ACCESS_TOKEN_SML }}
+          SHOPIFY_STORE_URL_SML: ${{ secrets.SHOPIFY_STORE_URL_SML }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          pip install pillow requests -q
+          git fetch --depth=1 origin state:refs/remotes/origin/state || true
+          git show origin/state:ntn.db.gz | gunzip > state/ntn.db
+          git show "origin/$SNAP_BRANCH:daily_finals.json" > state/daily_finals.json 2>/dev/null || echo '{}' > state/daily_finals.json
+          python3 scripts/v2/wa_overlay_orders.py --ntn-db state/ntn.db
+          python3 scripts/v2/build_wa_table.py \
+            --snap-db "$DB" --ntn-db state/ntn.db --finals state/daily_finals.json \
+            --out-json roas-live/wa_table.json --out-png roas-live/wa_table.png
+          # ride-along rule: every roas-live deploy must carry yday_report
+          python3 scripts/v2/build_yday_report.py \
+            --snap-db "$DB" --finals state/daily_finals.json \
+            --out roas-live/yday_report.json
+          if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
+            export VERCEL_ORG_ID=team_AocNAz8F008iWPSLVvar2Xb5
+            export VERCEL_PROJECT_ID=prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB
+            STAGE=$(mktemp -d)
+            rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
+            for f in index.html summary.json status.json; do
+              curl -fsS --max-time 20 "https://roas-live.vercel.app/$f" -o "$STAGE/$f" || true
+            done
+            if [ -s "$STAGE/index.html" ]; then
+              npx --yes vercel@latest deploy "$STAGE" --prod --yes --token="$VERCEL_TOKEN"
+              curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
+            else
+              echo "live page unreachable — skipping deploy"
+            fi
+          fi

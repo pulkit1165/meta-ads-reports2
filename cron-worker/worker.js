@@ -33,7 +33,8 @@ const INR = n => '\u20B9' + Math.round(n).toLocaleString('en-IN');
 const CRON_TO_WORKFLOW = {
   '15 * * * *': 'v2-ingest.yml',
   '35 * * * *': 'today-live.yml',
-  '25 * * * *': 'camp-snapshots.yml',   // IST :55 — the :58 measurement dispatch
+  '25 * * * *': 'camp-snapshots.yml',      // IST :55 — the :58 measurement dispatch
+  '58 * * * *': 'camp-snapshots-mid.yml',  // IST :28 — mid-hour WA report capture
 };
 
 async function dispatchWorkflow(env, file) {
@@ -318,9 +319,12 @@ async function hourlyPush(env, only) {
   const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
   let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*\n` + t.rows.map(line).join('\n');
   if (t.hour_slice?.length) {
-    const hh = parseInt(t.data_through) - 1;
-    caption += `\n\n*Last hour (${String(hh).padStart(2,'0')}:00–${String(hh).padStart(2,'0')}:59):*\n` +
-      t.hour_slice.map(line).join('\n');
+    // :58 tables carry a full-hour slice; mid-hour (:28) tables carry the
+    // half hour since the last :58 capture.
+    const label = /:5\d$/.test(t.data_through || '')
+      ? `Last hour (${String(parseInt(t.data_through) - 1).padStart(2, '0')}:00–${String(parseInt(t.data_through) - 1).padStart(2, '0')}:59)`
+      : `Last 30 min (through ${t.data_through})`;
+    caption += `\n\n*${label}:*\n` + t.hour_slice.map(line).join('\n');
   }
   const out = [];
   for (const [to, subs] of Object.entries(RECIPIENTS)) {
@@ -386,9 +390,10 @@ export default {
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
       if (h === 8 && m < 15) await fire(`push:yday:${ymd}`, () => ydayPush(env));
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
-      // Backstop only: if the :58-notify path failed and the table is fresh
-      // (<25 min old), send at the :15 tick. Same dedupe key as notify-hourly.
-      if (m >= 15 && m < 30 && !(await env.WA_STATE.get('pause:hourly'))) {
+      // Backstop: if a notify (hourly :58 OR mid-hour :28) failed and the table
+      // is fresh (<25 min old), send at the next tick. Same dedupe key as
+      // notify-hourly, so double-sends can't happen.
+      if (m >= 15 && !(await env.WA_STATE.get('pause:hourly'))) {
         try {
           const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
           if (tr.ok) {
