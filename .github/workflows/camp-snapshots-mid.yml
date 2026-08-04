@@ -80,7 +80,18 @@ jobs:
             done
             if [ -s "$STAGE/index.html" ]; then
               npx --yes vercel@latest deploy "$STAGE" --prod --yes --token="$VERCEL_TOKEN"
-              curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
+              # Notify can race the alias flip / a stale edge and see the OLD
+              # table ("already sent HH:58") — the mid report would be silently
+              # lost (4 Aug 15:28 sheet). Retry until the worker sees OUR stamp.
+              WANT=$(python3 -c "import json;print(json.load(open('roas-live/wa_table.json'))['data_through'])")
+              for i in 1 2 3 4 5; do
+                OUT=$(curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200)
+                echo "notify[$i]: $OUT"
+                case "$OUT" in
+                  *"already sent $WANT"*|*img*|*fail*) break ;;
+                esac
+                sleep 20
+              done
             else
               echo "live page unreachable — skipping deploy"
             fi
