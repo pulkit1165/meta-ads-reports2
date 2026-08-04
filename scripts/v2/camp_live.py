@@ -181,14 +181,25 @@ def fetch_active_campaigns(token, account_ids=None, now=None):
                       and not (int(c.get('daily_budget') or 0) or int(c.get('lifetime_budget') or 0))]
         adset_daily, adset_life = {}, {}
         for cid in need_adset:
-            try:
-                for a in _paged(f"{cid}/adsets",
-                                {'effective_status': "['ACTIVE']",
-                                 'fields': 'daily_budget,lifetime_budget', 'limit': 200}, token):
-                    adset_daily[cid] = adset_daily.get(cid, 0) + int(a.get('daily_budget') or 0)
-                    adset_life[cid] = adset_life.get(cid, 0) + int(a.get('lifetime_budget') or 0)
-            except Exception:
-                pass
+            # A transient failure here used to record the campaign at budget=0
+            # for the hour, making BUDGET LIVE wobble by tens of thousands
+            # between reports (seen 4 Aug: NBP ±₹37k). Retry before giving up.
+            for attempt in range(3):
+                try:
+                    d_sum = l_sum = 0
+                    for a in _paged(f"{cid}/adsets",
+                                    {'effective_status': "['ACTIVE']",
+                                     'fields': 'daily_budget,lifetime_budget', 'limit': 200}, token):
+                        d_sum += int(a.get('daily_budget') or 0)
+                        l_sum += int(a.get('lifetime_budget') or 0)
+                    if d_sum or l_sum or attempt == 2:
+                        adset_daily[cid] = d_sum
+                        adset_life[cid] = l_sum
+                        break
+                except Exception:
+                    if attempt == 2:
+                        break
+                    time.sleep(2)
         for cid, c in cmeta.items():
             r = ins.get(cid, {})
             spend = float(r.get('spend') or 0)
