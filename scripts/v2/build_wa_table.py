@@ -217,9 +217,17 @@ def main():
         prev_ts, = scon.execute(
             "SELECT MAX(ts) FROM campaign_hourly_snapshots WHERE hour_slot=?", (prev,)).fetchone()
         def spend_at(slot):
+            # Carry-forward cumulative: a campaign paused mid-day drops out of
+            # later snapshots, but its day-spend must stay in the baseline —
+            # summing only the slot's rows made the next hour's delta absorb the
+            # whole account (6 Aug: SML "last hour" showed ₹50k of a ₹53k day).
+            # MAX(spend) per campaign across all slots up to `slot` == the same
+            # `running` logic portal_hourly uses for the dashboard.
             out = {}
             for name, sp in scon.execute(
-                    "SELECT account_name, SUM(spend) FROM campaign_hourly_snapshots WHERE hour_slot=? GROUP BY account_name", (slot,)):
+                    "SELECT account_name, MAX(COALESCE(spend,0)) AS sp "
+                    "FROM campaign_hourly_snapshots WHERE hour_slot LIKE ? AND hour_slot <= ? "
+                    "GROUP BY campaign_id, account_name", (day + '%', slot)):
                 pcode = ph.portal_of(name)
                 if pcode: out[pcode] = out.get(pcode, 0) + (sp or 0)
             return out
