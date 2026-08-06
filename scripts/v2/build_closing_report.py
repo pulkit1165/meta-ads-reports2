@@ -86,6 +86,35 @@ def audience_summary(cid, cache, token):
     return cache[cid]
 
 
+def block_of(name):
+    """Operator's audience blocks, from name markers. Ordered: exclusions first
+    (an 'exc 180dp' camp is prospecting, not a 180DP include)."""
+    n = (name or '').lower()
+    if re.search(r'(?<![a-z])(ex|exc)[_ ]?180', n) or re.search(r'180[_ ]?dp?[_ ]?exc', n):
+        return 'Exc 180DP'
+    if re.search(r'(?<![a-z])(ex|exc)[_ ]?30', n) or re.search(r'30[_ ]?dp?v?[_ ]?exc', n):
+        return 'Exc 30DP'
+    if re.search(r'imp_?exc|(?<![a-z])(ex|exc)[_ ]?\d+', n):
+        return 'Exc other'
+    if re.search(r'inc[_ ]?180|(?<![a-z])180[_ ]?dp', n):
+        return '180DP include'
+    if re.search(r'inc[_ ]?30|(?<![a-z])30[_ ]?dp', n):
+        return '30DP include'
+    if re.search(r'(?<![a-z])365', n):
+        return '365D include'
+    if re.search(r'visitor', n):
+        return 'Visitors'
+    if re.search(r'\d+d[_ ]?imp|imp_rtg|(?<![a-z])imp(?![a-z])', n):
+        return 'Impressions'
+    if re.search(r'\d+_?atc|(?<![a-z])atc(?![a-z])', n):
+        return 'ATC'
+    if re.search(r'retarget|(?<![a-z])rtg(?![a-z])', n):
+        return 'Retarget other'
+    if re.search(r'loose', n):
+        return 'Loose'
+    return 'Broad/other'
+
+
 _STOP = {'ntn', 'adv', 'web', 'wanda', 'sales', 'conv', 'loose', 'reel', 'clp', 'copy',
          'strong', 'v', 'high', 'potential', 'highpotential', 'brand', 'paras', 'single',
          'rtg', 'retarget', 'exc', 'ex', 'inc', 'imp', 'dp', 'atc', 'explorer'}
@@ -173,6 +202,7 @@ def main():
             'product': product_of(name) or product_fallback(name), 'spend': round(spend),
             'revenue': round(rev), 'roas': _roas(spend, rev), 'budget': round(budget),
             'status': 'Live' if st == 'Active' else 'Closed',
+            'block': block_of(name),
             'aud': audience_summary(cid, cache, token),
             'closed_by': ('Auto' if cid in kills_today else 'Manual') if st != 'Active' else '',
         })
@@ -246,13 +276,42 @@ def main():
                 f'<th>Closed by</th><th class="num">Spend</th><th class="cnum">ROAS</th></tr>'
                 f'</thead><tbody>{body}</tbody></table></div></details>')
 
+        # sales/retarget × live/closed split with ROAS for the portal head
+        def cell(kind, st):
+            n, sp, _, r = agg([c for c in pc if c['kind'] == kind and c['status'] == st])
+            return f'<b>{n}</b> · {inr(sp)} · R <b>{r if r is not None else "–"}</b>'
+        split = (f'<div class="splitgrid">'
+                 f'<div class="sg h"></div><div class="sg h">ACTIVE</div><div class="sg h">CLOSED</div>'
+                 f'<div class="sg l">Sales</div><div class="sg">{cell("sales","Live")}</div>'
+                 f'<div class="sg">{cell("sales","Closed")}</div>'
+                 f'<div class="sg l">Retarget</div><div class="sg">{cell("retarget","Live")}</div>'
+                 f'<div class="sg">{cell("retarget","Closed")}</div></div>')
+
+        # audience-block matrix: active vs closed per block with ROAS
+        blocks = {}
+        for c in pc:
+            blocks.setdefault(c['block'], []).append(c)
+        brows = []
+        for bname, bcs in sorted(blocks.items(), key=lambda kv: -sum(c['spend'] for c in kv[1])):
+            la = [c for c in bcs if c['status'] == 'Live']
+            ca = [c for c in bcs if c['status'] == 'Closed']
+            nla, spla, _, rla = agg(la)
+            nca, spca, _, rca = agg(ca)
+            brows.append(
+                f'<tr><td class="pname">{bname}</td>'
+                f'<td class="num">{nla or "–"}</td><td class="num">{inr(spla) if spla else "–"}</td>'
+                f'<td class="cnum">{chip(rla) if nla else "<span class=\"chip na\">–</span>"}</td>'
+                f'<td class="num">{nca or "–"}</td><td class="num">{inr(spca) if spca else "–"}</td>'
+                f'<td class="cnum">{chip(rca) if nca else "<span class=\"chip na\">–</span>"}</td></tr>')
+        block_tbl = (f'<div class="card blocktbl"><table><thead>'
+                     f'<tr><th>Audience block</th><th class="num">Active</th><th class="num">Spend</th>'
+                     f'<th class="cnum">ROAS</th><th class="num">Closed</th><th class="num">Spend</th>'
+                     f'<th class="cnum">ROAS</th></tr></thead><tbody>{"".join(brows)}</tbody></table></div>')
+
         sections.append(
             f'<h2>{pname} <span class="h2sub">({pcode})</span></h2>'
-            f'<div class="summline">'
-            f'<span>Closed: <b>{ncl}</b> · <b>{inr(spcl)}</b> · ROAS <b>{rcl if rcl is not None else "–"}</b></span>'
-            f'<span>Live: <b>{nlv}</b> · <b>{inr(splv)}</b> · ROAS <b>{rlv if rlv is not None else "–"}</b></span>'
-            f'<span>Live sales R <b>{sr if sr is not None else "–"}</b> ({inr(ssp)})</span>'
-            f'<span>Live retarget R <b>{rr if rr is not None else "–"}</b> ({inr(rsp)})</span></div>'
+            f'{split}'
+            f'{block_tbl}'
             f'<div class="prodlist">{"".join(rows_html)}</div>')
 
     n_cl, sp_cl, _, r_cl = agg([c for c in camps if c['status'] == 'Closed'])

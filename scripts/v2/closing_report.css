@@ -86,3 +86,11 @@ tr:last-child td { border-bottom:none; }
   details.prod summary { grid-template-columns:140px 1fr 60px 20px; }
   .bnum, .psp { display:none; } .grid2 { grid-template-columns:1fr; }
 }
+.splitgrid { display:grid; grid-template-columns:90px 1fr 1fr; gap:1px; background:var(--line);
+  border:1px solid var(--gold); border-radius:10px; overflow:hidden; margin:0 0 10px;
+  font-size:13px; }
+.sg { background:var(--card); padding:8px 12px; font-variant-numeric:tabular-nums; }
+.sg.h { background:var(--band); color:var(--goldd); font-size:10.5px; font-weight:700;
+  letter-spacing:.08em; }
+.sg.l { font-weight:600; }
+.blocktbl { margin:0 0 12px; padding:4px 0; }
