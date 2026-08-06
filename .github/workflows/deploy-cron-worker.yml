@@ -3,12 +3,12 @@ name: Deploy Cron Pinger Worker
 # Auto-deploys the Cloudflare Worker that pings the today-live workflow
 # every hour at IST :50. See cron-worker/README.md for setup details.
 
+# MANUAL-ONLY since 6 Aug 2026: the repo migration (meta-ads-reports2) never got
+# the CLOUDFLARE_API_TOKEN + WORKFLOW_DISPATCH_PAT secrets, so every push-triggered
+# run failed and emailed the operator. Worker deploys happen from the operator's
+# Mac via `wrangler deploy` (OAuth). To re-enable CI deploys: create a Cloudflare
+# API token (Workers Scripts:Edit), add both secrets, restore the push trigger.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'cron-worker/**'
-      - '.github/workflows/deploy-cron-worker.yml'
   workflow_dispatch:
 
 permissions:
