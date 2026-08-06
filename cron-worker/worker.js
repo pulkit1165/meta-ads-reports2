@@ -15,13 +15,13 @@ const REF  = 'main';
 const PAGE = 'https://roas-live.vercel.app/';
 // Per-person report subscriptions — edit + redeploy to change who gets what.
 const RECIPIENTS = {
-  '919517744959': { morning: true, evening: true, hourly: true, yday: true },   // Pulkit
-  '919815610890': { morning: true, evening: true, hourly: false, yday: true },
-  '919988048804': { morning: false, evening: false, hourly: true, yday: true },
-  '919915868288': { morning: false, evening: false, hourly: true, yday: true },
-  '919988090074': { morning: false, evening: false, hourly: true, yday: true },
-  '919592573796': { morning: false, evening: false, hourly: true, yday: true },
-  '918283901380': { morning: false, evening: false, hourly: true, yday: true },
+  '919517744959': { morning: true, evening: true, hourly: true, yday: true, closing: true },   // Pulkit
+  '919815610890': { morning: true, evening: true, hourly: false, yday: true, closing: true },
+  '919988048804': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  '919915868288': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  '919988090074': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  '919592573796': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  '918283901380': { morning: false, evening: false, hourly: true, yday: true, closing: true },
 };
 const WA_RECIPIENTS = Object.keys(RECIPIENTS);
 const PORTAL_LABELS = { SM: 'Studd Muffyn', SML: 'SM Life', NBP: 'Nuskhe by Paras' };
@@ -237,7 +237,7 @@ async function closingDocPush(env, only, dataThrough) {
   const out = [];
   for (const [to, subs] of Object.entries(RECIPIENTS)) {
     if (only && to !== only) continue;
-    if (!only && !subs.hourly) continue;
+    if (!only && !subs.closing) continue;
     const r = await fetch('https://gate.whapi.cloud/messages/document', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
