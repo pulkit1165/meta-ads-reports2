@@ -86,6 +86,23 @@ def audience_summary(cid, cache, token):
     return cache[cid]
 
 
+_STOP = {'ntn', 'adv', 'web', 'wanda', 'sales', 'conv', 'loose', 'reel', 'clp', 'copy',
+         'strong', 'v', 'high', 'potential', 'highpotential', 'brand', 'paras', 'single',
+         'rtg', 'retarget', 'exc', 'ex', 'inc', 'imp', 'dp', 'atc', 'explorer'}
+
+
+def product_fallback(name):
+    """When product_of() has no match, derive a readable label from the name:
+    prefer the NTN sku code, else the first meaningful words."""
+    m = re.search(r'ntn ?_?(\d{3,4})', (name or '').lower())
+    code = f'NTN{m.group(1)}' if m else ''
+    words = [w for w in re.split(r'[^a-zA-Z]+', name or '')
+             if len(w) > 2 and w.lower() not in _STOP and not w.isdigit()][:3]
+    label = ' '.join(words).lower()
+    if code and label: return f'{code} {label}'
+    return code or label or 'unclassified'
+
+
 def inr(n): return 'Rs {:,}'.format(round(n))
 def _roas(sp, rv): return round(rv / sp, 2) if sp else None
 
@@ -153,7 +170,7 @@ def main():
         st = status.get(cid, 'Paused')
         camps.append({
             'id': cid, 'name': name, 'portal': p, 'kind': classify(name),
-            'product': product_of(name) or '—', 'spend': round(spend),
+            'product': product_of(name) or product_fallback(name), 'spend': round(spend),
             'revenue': round(rev), 'roas': _roas(spend, rev), 'budget': round(budget),
             'status': 'Live' if st == 'Active' else 'Closed',
             'aud': audience_summary(cid, cache, token),

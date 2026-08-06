@@ -40,6 +40,8 @@ python3 scripts/v2/build_yday_report.py \
 gh api -H 'Accept: application/vnd.github.raw' \
   'repos/pulkit1165/meta-ads-reports2/contents/closing_aud_cache.json?ref=camp-snapshots' \
   > "$WORK/state/closing_aud_cache.json" 2>/dev/null || echo '{}' > "$WORK/state/closing_aud_cache.json"
+# Audience lookups for campaigns not yet cached need the Meta token.
+export META_ACCESS_TOKEN="${META_ACCESS_TOKEN:-$(grep -m1 '^META_ACCESS_TOKEN=' "$HOME/.openclaw/workspace/.env" | cut -d= -f2)}"
 python3 scripts/v2/build_closing_report.py \
   --snap-db "$WORK/state/camp_snapshots.db" --aud-cache "$WORK/state/closing_aud_cache.json" \
   --kills "$WORK/state/auto_close_kills.json" --out roas-live/closing.html || true
