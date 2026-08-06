@@ -226,6 +226,29 @@ async function sendWaText(env, to, text) {
 
 const YDAY_JSON = 'https://roas-live.vercel.app/yday_report.json';
 const YDAY_PNG  = 'https://roas-live.vercel.app/yday_report.png';
+const CLOSING_HTML = 'https://roas-live.vercel.app/closing.html';
+
+async function closingDocPush(env, only, dataThrough) {
+  // Interactive closing report as a WhatsApp DOCUMENT — opening it in the
+  // phone browser gives the tap-to-expand product breakdown (budget, audience,
+  // closed-by). Follows the hourly image; deduped separately by data stamp.
+  const caption = `📂 Closing Report — tap to open (through ${dataThrough || 'now'} IST). ` +
+    `Per portal: closed vs live camps by product; tap a product for budgets, audiences, ROAS.`;
+  const out = [];
+  for (const [to, subs] of Object.entries(RECIPIENTS)) {
+    if (only && to !== only) continue;
+    if (!only && !subs.hourly) continue;
+    const r = await fetch('https://gate.whapi.cloud/messages/document', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: to + '@s.whatsapp.net',
+        media: CLOSING_HTML + '?t=' + Date.now(),
+        filename: 'NTN_Closing_Report.html', caption }),
+    });
+    out.push(`${to}:${r.ok ? 'doc' : 'doc-fail-' + r.status}`);
+  }
+  return 'closing → ' + out.join(' ');
+}
 
 async function ydayPush(env, only) {
   // Yesterday-final digest: sales / spend / ROAS / budget allocated vs closed vs
@@ -404,6 +427,13 @@ export default {
                 age < 25 * 60000 && !(await env.WA_STATE.get(kvKey))) {
               await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
               console.log(`[${ts}] backstop ${await hourlyPush(env)}`);
+              if (env.WHAPI_TOKEN && /:58$/.test(tt.data_through)) {
+                const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
+                if (!(await env.WA_STATE.get(dk))) {
+                  await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
+                  console.log(`[${ts}] ${await closingDocPush(env, null, tt.data_through)}`);
+                }
+              }
             }
           }
         } catch (e) { console.error('hourly backstop err', e.message); }
@@ -500,8 +530,21 @@ export default {
       const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
       if (await env.WA_STATE.get(kvKey)) return new Response('already sent ' + tt.data_through, { headers: cors });
       await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
-      const out = await hourlyPush(env);
+      let out = await hourlyPush(env);
+      // Full-hour cadence only (:58 stamps): follow the image with the
+      // interactive closing-report document.
+      if (env.WHAPI_TOKEN && /:58$/.test(tt.data_through || '')) {
+        const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
+        if (!(await env.WA_STATE.get(dk))) {
+          await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
+          out += ' | ' + await closingDocPush(env, null, tt.data_through);
+        }
+      }
       return new Response(out, { headers: cors });
+    }
+    if (url.pathname === '/test-closing') {
+      return new Response(await closingDocPush(env, url.searchParams.get('to') || null,
+        url.searchParams.get('through') || ''), { headers: cors });
     }
     if (url.pathname === '/test-yday') {
       return new Response(await ydayPush(env, url.searchParams.get('to') || null), { headers: cors });

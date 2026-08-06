@@ -413,6 +413,10 @@ jobs:
           python3 scripts/v2/build_yday_report.py \
             --snap-db "$SNAP_DB" --finals "$FINALS" \
             --out roas-live/yday_report.json
+          git show origin/camp-snapshots:closing_aud_cache.json > state/closing_aud_cache.json 2>/dev/null || echo '{}' > state/closing_aud_cache.json
+          python3 scripts/v2/build_closing_report.py \
+            --snap-db "$SNAP_DB" --aud-cache state/closing_aud_cache.json \
+            --kills state/auto_close_kills.json --out roas-live/closing.html || true
 
       - name: Deploy page to Vercel
         id: vercel_deploy

@@ -37,6 +37,12 @@ python3 scripts/v2/build_wa_table.py \
 python3 scripts/v2/build_yday_report.py \
   --snap-db "$WORK/state/camp_snapshots.db" \
   --finals "$WORK/state/daily_finals.json" --out roas-live/yday_report.json
+gh api -H 'Accept: application/vnd.github.raw' \
+  'repos/pulkit1165/meta-ads-reports2/contents/closing_aud_cache.json?ref=camp-snapshots' \
+  > "$WORK/state/closing_aud_cache.json" 2>/dev/null || echo '{}' > "$WORK/state/closing_aud_cache.json"
+python3 scripts/v2/build_closing_report.py \
+  --snap-db "$WORK/state/camp_snapshots.db" --aud-cache "$WORK/state/closing_aud_cache.json" \
+  --kills "$WORK/state/auto_close_kills.json" --out roas-live/closing.html || true
 
 # Never regress the WhatsApp table: the mid-hour (:28) pipeline deploys tables
 # this agent can't rebuild (its captures are throwaway). If the live table is

@@ -95,6 +95,11 @@ jobs:
           # yday_report must ride EVERY roas-live deploy, else this hourly
           # deploy wipes it off the site and the 8 AM send finds a 404.
           python3 scripts/v2/build_yday_report.py             --snap-db "$DB" --finals state/daily_finals.json             --out roas-live/yday_report.json
+          # Interactive closing report (WhatsApp document push). Audience cache
+          # lives on this branch so we only hit Meta for NEW campaigns.
+          git show origin/camp-snapshots:closing_aud_cache.json > state/closing_aud_cache.json 2>/dev/null || echo '{}' > state/closing_aud_cache.json
+          git show origin/state:auto_close_kills.json > state/auto_close_kills.json 2>/dev/null || true
+          python3 scripts/v2/build_closing_report.py             --snap-db "$DB" --aud-cache state/closing_aud_cache.json             --kills state/auto_close_kills.json --out roas-live/closing.html
 
       - name: Deploy table + notify Worker to send
         continue-on-error: true
@@ -149,6 +154,7 @@ jobs:
           fi
           gzip -c "$DB" > "$WT/camp_snapshots.db.gz"
           mkdir -p "$WT/live-roas"; cp live-roas/index.html "$WT/live-roas/index.html"
+          [ -s state/closing_aud_cache.json ] && cp state/closing_aud_cache.json "$WT/" || true
           cd "$WT"; git add -A
           if git diff --staged --quiet; then echo "no change"; exit 0; fi
           git commit -m "camp-snapshots: $(date -u +%FT%TZ)"

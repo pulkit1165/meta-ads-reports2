@@ -72,6 +72,9 @@ jobs:
             --out roas-live/yday_report.json
           if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
             export VERCEL_ORG_ID=team_AocNAz8F008iWPSLVvar2Xb5
+            git show origin/camp-snapshots:closing_aud_cache.json > state/closing_aud_cache.json 2>/dev/null || echo '{}' > state/closing_aud_cache.json
+            git show origin/state:auto_close_kills.json > state/auto_close_kills.json 2>/dev/null || true
+            python3 scripts/v2/build_closing_report.py               --snap-db state/camp_snapshots_mid.db --aud-cache state/closing_aud_cache.json               --kills state/auto_close_kills.json --out roas-live/closing.html || true
             export VERCEL_PROJECT_ID=prj_9k4XP9HZFUWINYpbPAYEe2OtRZOB
             STAGE=$(mktemp -d)
             rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
