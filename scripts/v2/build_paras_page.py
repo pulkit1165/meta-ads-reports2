@@ -79,15 +79,22 @@ h1{font-size:20px;margin:0 0 2px;color:#3a2d1f}
 .watch{display:inline-block;margin-top:12px;background:#1877f2;color:#fff;text-decoration:none;
        padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600}
 .foot{font-size:11px;color:#9a8d7b;text-align:center;margin-top:24px;line-height:1.7}
+.cols{display:flex;gap:18px;align-items:flex-start}
+.cols .main{flex:1;min-width:0}
+#smtwrap{flex:0 0 300px;width:300px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;scrollbar-width:thin}
+#smtwrap .blocks{grid-template-columns:1fr 1fr}
+#smtwrap .grid{grid-template-columns:1fr}
+@media(max-width:900px){.cols{flex-direction:column}#smtwrap{position:static;width:100%;flex:1 1 auto;max-height:none}#smtwrap .grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}}
 @media(max-width:560px){.grid{grid-template-columns:repeat(auto-fill,minmax(46%,1fr))}}
 """
 
 CAT_COLOR = {'Skin': '#c2410c', 'Hair': '#0d9488', 'Jewellery': '#a16207',
              'Crystals': '#7c3aed', 'Crystal Home Decor': '#be123c',
-             'Offer': '#0a7d3c', 'Others': '#64748b'}
+             'Offer': '#0a7d3c', 'Others': '#64748b', 'SMT': '#1d4ed8'}
 
 JS = """
 const P = __PAYLOAD__;
+const S = __SMT__;
 const CC = __CATCOLOR__;
 let f = {cat:'', q:'', roas:0, sort:'spend'};
 const rupee = n => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -125,12 +132,12 @@ function render(){
   document.getElementById('count').textContent = vids.length+' videos'
      + (f.cat?' · '+f.cat:'') + (f.roas?' · ROAS ≥ '+f.roas:'');
   if(!vids.length){ document.getElementById('grid').innerHTML='<div class="empty">No videos match.</div>'; return; }
-  document.getElementById('grid').innerHTML = vids.map((v,i)=>card(v,P.videos.indexOf(v))).join('');
+  document.getElementById('grid').innerHTML = vids.map((v,i)=>card(v,P.videos.indexOf(v),'P')).join('');
 }
-function card(v,idx){
+function card(v,idx,src){
   const thumb = v.thumb ? `style="background-image:url('${v.thumb}')"` : '';
   const win = (l,r)=>`<div><div class="l">${l}</div><div class="n ${rclass(r)}">${r?r.toFixed(2):'—'}</div></div>`;
-  return `<div class="card" onclick="detail(${idx})">
+  return `<div class="card" onclick="detail(${idx},'${src||'P'}')">
     <div class="thumb" ${thumb}>
       <div class="cat" style="background:${CC[v.category]||'#64748b'}">${v.category}</div>
       <div class="roas ${rclass(v.roas)}">${v.roas.toFixed(2)}</div>
@@ -144,8 +151,8 @@ function card(v,idx){
       <div class="win">${win('1d',v.roas_1d)}${win('3d',v.roas_3d)}${win('7d',v.roas_7d)}</div>
     </div></div>`;
 }
-function detail(idx){
-  const v=P.videos[idx];
+function detail(idx,src){
+  const v=(src==='S'?S:P).videos[idx];
   const rows=v.deployments.map(d=>`<tr><td>${esc(d.campaign||'')}</td><td>${d.account||''}</td>
     <td>${d.survived??'—'}d</td><td>${d.status||''}</td><td>${rupee(d.spend)}</td>
     <td class="${rclass(d.roas)}">${d.roas.toFixed(2)}</td></tr>`).join('');
@@ -163,6 +170,19 @@ function detail(idx){
 function closeM(){ document.getElementById('modal').classList.remove('on'); }
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
+function smt(){
+  const w=document.getElementById('smtwrap');
+  if(!S || !S.videos || !S.videos.length){ if(w) w.style.display='none'; return; }
+  const t=S.totals;
+  document.getElementById('smtblocks').innerHTML =
+    block('SMT videos', t.videos.toLocaleString('en-IN'), S.since+' → '+(S.until||'today'))
+   +block('Spend', rupee(t.spend), '')
+   +block('Revenue', rupee(t.revenue), '')
+   +block('Blended ROAS', t.roas.toFixed(2), '');
+  const vids=[...S.videos].sort((a,b)=>b.spend-a.spend);
+  document.getElementById('smtgrid').innerHTML = vids.map(v=>card(v,S.videos.indexOf(v),'S')).join('');
+}
+smt();
 document.getElementById('q').oninput = e=>{ f.q=e.target.value; render(); };
 document.getElementById('roas').onchange = e=>{ f.roas=parseFloat(e.target.value)||0; summary(); render(); };
 document.getElementById('sort').onchange = e=>{ f.sort=e.target.value; render(); };
@@ -174,11 +194,14 @@ summary(); render();
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', default='antariksh/paras_videos.json')
+    ap.add_argument('--smt', default='antariksh/smt_videos.json')
     ap.add_argument('--out', default='antariksh/paras-videos.html')
     args = ap.parse_args()
 
     payload = json.loads(Path(args.data).read_text())
+    smt = json.loads(Path(args.smt).read_text()) if Path(args.smt).exists() else None
     js = (JS.replace('__PAYLOAD__', json.dumps(payload, default=str))
+            .replace('__SMT__', json.dumps(smt, default=str))
             .replace('__CATCOLOR__', json.dumps(CAT_COLOR)))
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -187,6 +210,14 @@ def main():
 <h1>Paras Video Report</h1>
 <div class="sub">Every Paras video creative on Meta ads · {payload['since']} → {payload['until'] or 'today'} · click a video to watch and see its campaign breakdown</div>
 <div class="blocks" id="blocks"></div>
+<div class="cols">
+<div id="smtwrap" style="background:#fff8ec;border:1.5px solid #e8d9bd;border-radius:14px;padding:16px 16px 18px">
+  <h2 style="font-size:16px;margin:0 0 2px;color:#3a2d1f">Social Media Creatives</h2>
+  <div class="sub" style="margin-bottom:12px">SMT-tagged videos (title contains “SMT”) · last 7 days</div>
+  <div class="blocks" id="smtblocks" style="margin-bottom:12px"></div>
+  <div class="grid" id="smtgrid"></div>
+</div>
+<div class="main">
 <div class="cats" id="cats"></div>
 <div class="bar">
   <input id="q" placeholder="Search product / video name…">
@@ -195,6 +226,8 @@ def main():
 </div>
 <div class="count" id="count"></div>
 <div class="grid" id="grid"></div>
+</div>
+</div>
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
 <div class="foot">ROAS 1d/3d/7d = first N days since the video launched · Tries = distinct campaigns it delivered in · Meta pixel-attributed</div>
 </div><script>{js}</script></body></html>"""

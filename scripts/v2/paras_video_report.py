@@ -164,15 +164,18 @@ def batch_ids(ids, fields, token):
     return out
 
 
+MATCH = 'paras'  # ad-name tag to select creatives; overridden by --match
+
+
 def fetch_paras_ads(aid: str, token: str, since: str) -> list[dict]:
-    """Paras-tagged ads created since `since`, with resolved video_id."""
+    """Tag-matched ads created since `since`, with resolved video_id."""
     flt = json.dumps([{'field': 'ad.created_time', 'operator': 'GREATER_THAN', 'value': since}])
     ads = paged(f'{aid}/ads', token, limit=100, filtering=flt,
                 fields='name,campaign_id,adset_id,created_time,status,effective_status,'
                        'creative{video_id,object_story_spec,asset_feed_spec}')
     out = []
     for a in ads:
-        if 'paras' not in (a.get('name') or '').lower():
+        if MATCH not in (a.get('name') or '').lower():
             continue
         vid = video_id_of(a.get('creative') or {})
         if not vid:
@@ -239,12 +242,15 @@ def roas(rev, spend):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--match', default='paras', help="ad-name substring tag (case-insensitive)")
     ap.add_argument('--since', default='2026-06-26')
     ap.add_argument('--until', default=datetime.now(IST).strftime('%Y-%m-%d'))
     ap.add_argument('--accounts', nargs='*', default=None,
                     help='act_ ids to limit to (default: all configured)')
     ap.add_argument('--out', default=str(Path.home() / 'Downloads' / 'paras_video_report.xlsx'))
     args = ap.parse_args()
+    global MATCH
+    MATCH = args.match.lower()
     token = os.environ['META_ACCESS_TOKEN']
 
     accts = {v: k for k, v in configured_accounts().items()}
@@ -272,7 +278,7 @@ def main():
                          'creative{video_id,object_story_spec,asset_feed_spec}', token)
         acct_ads = []
         for ad_id, m in meta.items():
-            if not isinstance(m, dict) or 'paras' not in (m.get('name') or '').lower():
+            if not isinstance(m, dict) or MATCH not in (m.get('name') or '').lower():
                 continue
             vid = video_id_of(m.get('creative') or {})
             if not vid:
