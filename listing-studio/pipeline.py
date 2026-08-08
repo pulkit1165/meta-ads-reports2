@@ -350,7 +350,15 @@ def _run_claude(slug: str, prompt: str, timeout: int = 1800, model: str | None =
     except FileNotFoundError:
         return False, "claude CLI not found (set CLAUDE_BIN)"
     if proc.returncode != 0:
-        return False, f"claude exit {proc.returncode}: {(proc.stderr or '')[-300:]}"
+        # On failure the reason is usually in the JSON on stdout (quota limits,
+        # api errors), not stderr — surface both so the dashboard shows WHY.
+        detail = (proc.stderr or '').strip()[-300:]
+        if not detail:
+            try:
+                detail = str(json.loads(proc.stdout).get('result', ''))[:300]
+            except Exception:
+                detail = (proc.stdout or '')[:300]
+        return False, f"claude exit {proc.returncode}: {detail}"
     try:
         text = str(json.loads(proc.stdout).get("result", "")).strip()
     except json.JSONDecodeError:
