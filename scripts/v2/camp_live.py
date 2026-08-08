@@ -180,10 +180,16 @@ def fetch_active_campaigns(token, account_ids=None, now=None):
                       if cid in ins
                       and not (int(c.get('daily_budget') or 0) or int(c.get('lifetime_budget') or 0))]
         adset_daily, adset_life = {}, {}
+        rate_limited = False
         for cid in need_adset:
             # A transient failure here used to record the campaign at budget=0
             # for the hour, making BUDGET LIVE wobble by tens of thousands
-            # between reports (seen 4 Aug: NBP ±₹37k). Retry before giving up.
+            # between reports (seen 4 Aug: NBP ±₹37k). Retry before giving up —
+            # but NEVER retry a rate-limit: hammering a throttled ad account
+            # 3x per campaign is what keeps it throttled (seen 8 Aug: SM
+            # Fragrance stuck on "too many calls", killing hourly snapshots).
+            if rate_limited:
+                break
             for attempt in range(3):
                 try:
                     d_sum = l_sum = 0
@@ -196,7 +202,10 @@ def fetch_active_campaigns(token, account_ids=None, now=None):
                         adset_daily[cid] = d_sum
                         adset_life[cid] = l_sum
                         break
-                except Exception:
+                except Exception as e:
+                    if 'too many calls' in str(e).lower() or '"code":17' in str(e):
+                        rate_limited = True
+                        break
                     if attempt == 2:
                         break
                     time.sleep(2)
