@@ -466,6 +466,9 @@ HTML = r"""<!doctype html>
       <div class="item" data-go="r4"><span class="ic">4</span> Profit Contribution</div>
       <div class="item" data-go="r6"><span class="ic">6</span> Budget In Hand</div>
       <div class="item" data-go="r9"><span class="ic">9</span> Decision Board</div>
+      <div class="grp">Creatives</div>
+      <a class="item" href="paras-videos.html" style="text-decoration:none;color:inherit;display:flex"><span class="ic">&#9654;</span> Paras Video Report</a>
+      <a class="item" href="paras-videos.html#smtwrap" style="text-decoration:none;color:inherit;display:flex"><span class="ic">&#128248;</span> Social Media Creatives</a>
     </nav>
     <div class="side-foot" id="foot">loading...</div>
   </aside>
