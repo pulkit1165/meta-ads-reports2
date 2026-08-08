@@ -137,10 +137,12 @@ function render(){
 function card(v,idx,src){
   const thumb = v.thumb ? `style="background-image:url('${v.thumb}')"` : '';
   const win = (l,r)=>`<div><div class="l">${l}</div><div class="n ${rclass(r)}">${r?r.toFixed(2):'—'}</div></div>`;
+  const badge = v.not_deployed ? `<div class="roas" style="color:#b07a00">NOT LIVE</div>`
+                               : `<div class="roas ${rclass(v.roas)}">${v.roas.toFixed(2)}</div>`;
   return `<div class="card" onclick="detail(${idx},'${src||'P'}')">
     <div class="thumb" ${thumb}>
       <div class="cat" style="background:${CC[v.category]||'#64748b'}">${v.category}</div>
-      <div class="roas ${rclass(v.roas)}">${v.roas.toFixed(2)}</div>
+      ${badge}
       <div class="play"><span>▶</span></div>
     </div>
     <div class="body">
@@ -180,6 +182,8 @@ function smt(){
    +block('Revenue', rupee(t.revenue), '')
    +block('Blended ROAS', t.roas.toFixed(2), '');
   const vids=[...S.videos].sort((a,b)=>b.spend-a.spend);
+  const nd=vids.filter(v=>v.not_deployed).length;
+  document.getElementById('smtnote').textContent = nd ? nd+' of '+vids.length+' videos have never been used in an ad — awaiting deployment by media buyers.' : '';
   document.getElementById('smtgrid').innerHTML = vids.map(v=>card(v,S.videos.indexOf(v),'S')).join('');
 }
 smt();
@@ -215,6 +219,7 @@ def main():
   <h2 style="font-size:16px;margin:0 0 2px;color:#3a2d1f">Social Media Creatives</h2>
   <div class="sub" style="margin-bottom:12px">SMT-tagged videos (title contains “SMT”) · last 7 days</div>
   <div class="blocks" id="smtblocks" style="margin-bottom:12px"></div>
+  <div id="smtnote" style="font-size:12px;color:#b07a00;font-weight:600;margin-bottom:10px"></div>
   <div class="grid" id="smtgrid"></div>
 </div>
 <div class="main">
