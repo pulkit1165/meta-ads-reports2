@@ -232,6 +232,10 @@ async function closingDocPush(env, only, dataThrough) {
   // Interactive closing report as a WhatsApp DOCUMENT — opening it in the
   // phone browser gives the tap-to-expand product breakdown (budget, audience,
   // closed-by). Follows the hourly image; deduped separately by data stamp.
+  // Never burn a send-slot on a missing file: an earlier build bug 404'd
+  // closing.html for days while dedupe keys kept getting set (11 Aug).
+  const head = await fetch(CLOSING_HTML + '?t=' + Date.now(), { method: 'HEAD', cf: { cacheTtl: 0 } });
+  if (!head.ok) throw new Error('closing.html HTTP ' + head.status + ' — not sending');
   const caption = `📂 Closing Report — tap to open (through ${dataThrough || 'now'} IST). ` +
     `Per portal: closed vs live camps by product; tap a product for budgets, audiences, ROAS.`;
   const out = [];
@@ -431,7 +435,12 @@ export default {
                 const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
                 if (!(await env.WA_STATE.get(dk))) {
                   await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
-                  console.log(`[${ts}] ${await closingDocPush(env, null, tt.data_through)}`);
+                  try {
+                    console.log(`[${ts}] ${await closingDocPush(env, null, tt.data_through)}`);
+                  } catch (e) {
+                    await env.WA_STATE.delete(dk);
+                    console.error(`[${ts}] closingdoc deferred: ${e.message}`);
+                  }
                 }
               }
             }
@@ -537,7 +546,12 @@ export default {
         const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
         if (!(await env.WA_STATE.get(dk))) {
           await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
-          out += ' | ' + await closingDocPush(env, null, tt.data_through);
+          try {
+            out += ' | ' + await closingDocPush(env, null, tt.data_through);
+          } catch (e) {
+            await env.WA_STATE.delete(dk);   // retry next tick
+            out += ' | closingdoc deferred: ' + e.message;
+          }
         }
       }
       return new Response(out, { headers: cors });

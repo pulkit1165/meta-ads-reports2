@@ -297,12 +297,14 @@ def main():
             ca = [c for c in bcs if c['status'] == 'Closed']
             nla, spla, _, rla = agg(la)
             nca, spca, _, rca = agg(ca)
+            na_chip = '<span class="chip na">–</span>'   # no backslashes in
+            # f-string expressions — SyntaxError on Python < 3.12 (GHA is 3.11)
             brows.append(
                 f'<tr><td class="pname">{bname}</td>'
                 f'<td class="num">{nla or "–"}</td><td class="num">{inr(spla) if spla else "–"}</td>'
-                f'<td class="cnum">{chip(rla) if nla else "<span class=\"chip na\">–</span>"}</td>'
+                f'<td class="cnum">{chip(rla) if nla else na_chip}</td>'
                 f'<td class="num">{nca or "–"}</td><td class="num">{inr(spca) if spca else "–"}</td>'
-                f'<td class="cnum">{chip(rca) if nca else "<span class=\"chip na\">–</span>"}</td></tr>')
+                f'<td class="cnum">{chip(rca) if nca else na_chip}</td></tr>')
         block_tbl = (f'<div class="card blocktbl"><table><thead>'
                      f'<tr><th>Audience block</th><th class="num">Active</th><th class="num">Spend</th>'
                      f'<th class="cnum">ROAS</th><th class="num">Closed</th><th class="num">Spend</th>'
