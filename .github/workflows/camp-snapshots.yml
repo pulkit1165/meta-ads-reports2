@@ -100,6 +100,9 @@ jobs:
           git show origin/camp-snapshots:closing_aud_cache.json > state/closing_aud_cache.json 2>/dev/null || echo '{}' > state/closing_aud_cache.json
           git show origin/state:auto_close_kills.json > state/auto_close_kills.json 2>/dev/null || true
           python3 scripts/v2/build_closing_report.py             --snap-db "$DB" --aud-cache state/closing_aud_cache.json             --kills state/auto_close_kills.json --out roas-live/closing.html
+          # Subscription dispatch schedule (sheet sync + due-today feed for
+          # the worker's 9:30 AM WhatsApp reminder)
+          GOOGLE_SERVICE_ACCOUNT_FILE=google-service-account.json             python3 scripts/v2/sub_dispatch_tracker.py roas-live/sub_dispatch.json || true
 
       - name: Deploy table + notify Worker to send
         continue-on-error: true

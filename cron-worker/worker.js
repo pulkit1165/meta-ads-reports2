@@ -227,6 +227,30 @@ async function sendWaText(env, to, text) {
 const YDAY_JSON = 'https://roas-live.vercel.app/yday_report.json';
 const YDAY_PNG  = 'https://roas-live.vercel.app/yday_report.png';
 const CLOSING_HTML = 'https://roas-live.vercel.app/closing.html';
+const SUB_DISPATCH = 'https://roas-live.vercel.app/sub_dispatch.json';
+
+async function dispatchReminderPush(env, only) {
+  // Daily 9:30 AM: which subscription bottles (month 2/3 of prepaid plans)
+  // must ship today. Feed built by sub_dispatch_tracker.py; ops marks rows
+  // DONE in the '📦 Sub Dispatches' sheet tab to silence them.
+  const r = await fetch(SUB_DISPATCH + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+  if (!r.ok) throw new Error('sub_dispatch.json HTTP ' + r.status);
+  const d = await r.json();
+  if (!d.due_count) return 'dispatch reminder: nothing due';
+  const lines = d.due.map(x =>
+    `• ${x.order} ${x.customer} (${x.city}) — ${x.product} · dispatch ${x.dispatch} · due ${x.due}` +
+    (x.phone ? ` · ${x.phone}` : ''));
+  const text = `📦 *Subscription dispatches due — ${d.due_count}*\n` +
+    `(prepaid plans: ship this month's bottle, then mark DONE in "📦 Sub Dispatches" tab)\n\n` +
+    lines.join('\n');
+  const out = [];
+  for (const to of ['919517744959', '919815610890']) {
+    if (only && to !== only) continue;
+    const tr = await sendWaText(env, to, text);
+    out.push(`${to}:${tr.ok ? 'ok' : 'fail-' + tr.status}`);
+  }
+  return 'dispatch reminder → ' + out.join(' ');
+}
 
 async function closingDocPush(env, only, dataThrough) {
   // Interactive closing report as a WhatsApp DOCUMENT — opening it in the
@@ -416,6 +440,7 @@ export default {
       };
       if (h === 9 && m < 15) await fire(`push:morning:${ymd}`, () => pushReport(env, 'morning'));
       if (h === 8 && m < 15) await fire(`push:yday:${ymd}`, () => ydayPush(env));
+      if (h === 9 && m >= 30 && m < 45) await fire(`push:dispatch:${ymd}`, () => dispatchReminderPush(env));
       if (h === 20 && m < 15) await fire(`push:evening:${ymd}`, () => pushReport(env, 'evening'));
       // Backstop: if a notify (hourly :58 OR mid-hour :28) failed and the table
       // is fresh (<25 min old), send at the next tick. Same dedupe key as
@@ -555,6 +580,11 @@ export default {
         }
       }
       return new Response(out, { headers: cors });
+    }
+    if (url.pathname === '/test-dispatch') {
+      try {
+        return new Response(await dispatchReminderPush(env, url.searchParams.get('to') || null), { headers: cors });
+      } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
     if (url.pathname === '/test-closing') {
       return new Response(await closingDocPush(env, url.searchParams.get('to') || null,
