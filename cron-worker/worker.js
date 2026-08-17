@@ -586,6 +586,32 @@ export default {
         return new Response(await dispatchReminderPush(env, url.searchParams.get('to') || null), { headers: cors });
       } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
+    if (url.pathname === '/send-doc') {
+      // One-off document blast to the closing-report recipients.
+      // /send-doc?key=…&url=<public pdf>&name=<filename>&caption=<text>[&to=<single>]
+      if (url.searchParams.get('key') !== 'ntnhourly2026') {
+        return new Response('nope', { status: 403, headers: cors });
+      }
+      const src = url.searchParams.get('url');
+      if (!src) return new Response('missing url', { status: 400, headers: cors });
+      const head = await fetch(src, { method: 'HEAD' });
+      if (!head.ok) return new Response('source HTTP ' + head.status, { status: 400, headers: cors });
+      const name = url.searchParams.get('name') || 'document.pdf';
+      const caption = url.searchParams.get('caption') || '';
+      const only = url.searchParams.get('to');
+      const out = [];
+      for (const [to, subs] of Object.entries(RECIPIENTS)) {
+        if (only && to !== only) continue;
+        if (!only && !subs.closing) continue;
+        const r = await fetch('https://gate.whapi.cloud/messages/document', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: to + '@s.whatsapp.net', media: src, filename: name, caption }),
+        });
+        out.push(`${to}:${r.ok ? 'sent' : 'fail-' + r.status}`);
+      }
+      return new Response('send-doc → ' + out.join(' '), { headers: cors });
+    }
     if (url.pathname === '/test-closing') {
       return new Response(await closingDocPush(env, url.searchParams.get('to') || null,
         url.searchParams.get('through') || ''), { headers: cors });
