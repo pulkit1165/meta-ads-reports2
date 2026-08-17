@@ -213,9 +213,21 @@ def main():
     data_through = max_ts[11:16] if max_ts else None
     hour_slice = []
     if len(snap_hours) >= 2:
-        cur, prev = snap_hours[-1], snap_hours[-2]
-        prev_ts, = scon.execute(
-            "SELECT MAX(ts) FROM campaign_hourly_snapshots WHERE hour_slot=?", (prev,)).fetchone()
+        cur = snap_hours[-1]
+        # Baseline must be ~an hour back. A delayed mid-run can capture minutes
+        # after the :58 capture (17 Aug: 11:02 after 10:58) — diffing against
+        # the immediately-previous slot made the "last hour" a 4-minute window
+        # showing Rs0 sales. Pick the newest slot at least 50 min older.
+        slot_ts = dict(scon.execute(
+            "SELECT hour_slot, MAX(ts) FROM campaign_hourly_snapshots "
+            "WHERE hour_slot LIKE ? GROUP BY hour_slot", (day + '%',)).fetchall())
+        cur_dt = datetime.fromisoformat(slot_ts[cur])
+        prev = snap_hours[-2]
+        for cand in reversed(snap_hours[:-1]):
+            if (cur_dt - datetime.fromisoformat(slot_ts[cand])).total_seconds() >= 50 * 60:
+                prev = cand
+                break
+        prev_ts = slot_ts[prev]
         def spend_at(slot):
             # Carry-forward cumulative: a campaign paused mid-day drops out of
             # later snapshots, but its day-spend must stay in the baseline —
