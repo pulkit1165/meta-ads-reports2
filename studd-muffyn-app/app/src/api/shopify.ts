@@ -137,6 +137,34 @@ export async function startCheckoutUrl(
   return shopifyFallback;
 }
 
+/** Merge the live catalog (all current products, straight from Shopify) over
+ * the bundled snapshot. Called once at app start — makes brand-new products
+ * searchable immediately without shipping a new build. */
+export async function refreshCatalogFromCloud(): Promise<number> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    const r = await fetch(`${APP_API}/api/catalog`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return 0;
+    const j = await r.json();
+    if (!Array.isArray(j?.products) || j.products.length < 50) return 0;
+    let added = 0;
+    for (const raw of j.products as Product[]) {
+      if (!byHandle.has(raw.handle)) added++;
+      byHandle.set(raw.handle, raw);
+    }
+    // rebuild the searchable list, keeping bundled order first
+    const merged = new Map<string, Product>();
+    for (const p of catalog.products) merged.set(p.handle, byHandle.get(p.handle) ?? p);
+    for (const p of j.products as Product[]) if (!merged.has(p.handle)) merged.set(p.handle, p);
+    catalog.products = [...merged.values()];
+    return added;
+  } catch {
+    return 0;
+  }
+}
+
 // ---- lightweight client-side search -------------------------------------
 
 export function searchProducts(query: string, limit = 30): Product[] {

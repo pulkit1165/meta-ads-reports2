@@ -3,7 +3,11 @@
 // Served as static JSON from the app's Vercel deployment.
 import { useEffect, useState } from 'react';
 
-const EXTRAS_BASE = 'https://studd-muffyn-app.vercel.app/extras';
+const APP_API = 'https://studd-muffyn-app.vercel.app';
+const EXTRAS_BASE = `${APP_API}/extras`;
+// Live endpoint reads the real product page on demand; the static snapshot
+// under /extras is the offline/last-resort fallback.
+const LIVE_EXTRAS = `${APP_API}/api/extras`;
 
 export interface Review {
   score: number;
@@ -55,21 +59,25 @@ export function useProductExtras(handle?: string): ProductExtras | null {
     }
     let alive = true;
     (async () => {
-      try {
+      const load = async (url: string, ms: number) => {
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 7000);
-        const r = await fetch(`${EXTRAS_BASE}/${handle}.json`, { signal: ctrl.signal });
-        clearTimeout(t);
-        if (!r.ok) {
-          cache.set(handle, null);
-          return;
+        const t = setTimeout(() => ctrl.abort(), ms);
+        try {
+          const r = await fetch(url, { signal: ctrl.signal });
+          if (!r.ok) return null;
+          return (await r.json()) as ProductExtras;
+        } catch {
+          return null;
+        } finally {
+          clearTimeout(t);
         }
-        const j = (await r.json()) as ProductExtras;
-        cache.set(handle, j);
-        if (alive) setExtras(j);
-      } catch {
-        cache.set(handle, null);
-      }
+      };
+      // live first (always current), static snapshot as fallback
+      const j =
+        (await load(`${LIVE_EXTRAS}?handle=${encodeURIComponent(handle)}`, 9000)) ??
+        (await load(`${EXTRAS_BASE}/${handle}.json`, 7000));
+      cache.set(handle, j);
+      if (alive && j) setExtras(j);
     })();
     return () => {
       alive = false;

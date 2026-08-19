@@ -1,0 +1,97 @@
+name: Studd Muffyn app — refresh content
+
+# Replaces the LaunchAgent that used to run on the operator's Mac.
+# Most app content is already live on demand (/api/catalog, /api/extras,
+# /api/home-config). This job refreshes the pre-built snapshot that supplies
+# the bits the raw pages don't expose: star ratings and the per-card
+# Amazon / Flipkart / Myntra links.
+#
+# Run it manually any time: Actions -> this workflow -> "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full re-scrape of every product (slow, ~45 min)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '30 4 * * *'    # 10:00 IST daily — new products + card links
+    - cron: '30 16 * * 0'   # 22:00 IST Sunday — full ratings/reviews refresh
+
+concurrency:
+  group: studd-muffyn-app-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install tooling
+        working-directory: studd-muffyn-app/data
+        run: |
+          npm install playwright@1.49.1 --no-save --silent
+          npx playwright install --with-deps chromium
+
+      - name: Refresh catalog
+        working-directory: studd-muffyn-app/data
+        run: |
+          node refresh_products.mjs
+          node build_catalog.mjs
+
+      - name: Scrape product extras
+        working-directory: studd-muffyn-app/data
+        env:
+          FULL: ${{ github.event.inputs.full }}
+          IS_SUNDAY_FULL: ${{ github.event.schedule == '30 16 * * 0' }}
+        run: |
+          if [ "$FULL" = "true" ] || [ "$IS_SUNDAY_FULL" = "true" ]; then
+            echo "full re-scrape"
+            node scrape_extras.mjs --force
+          else
+            echo "incremental (new products only)"
+            node scrape_extras.mjs
+          fi
+          node scrape_card_links.mjs || true
+          node build_index.mjs
+
+      - name: Deploy to Vercel
+        working-directory: studd-muffyn-app/app
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npm install --legacy-peer-deps --silent
+          npx expo export --platform web --output-dir dist
+          mkdir -p dist/assets/vendorfonts dist/api dist/extras
+          cp -r dist/assets/node_modules/* dist/assets/vendorfonts/
+          rm -rf dist/assets/node_modules
+          sed -i 's|assets/node_modules|assets/vendorfonts|g' dist/_expo/static/js/web/*.js
+          cp api/*.js dist/api/
+          cp web/*.html dist/
+          cp ../data/extras/*.json dist/extras/ 2>/dev/null || true
+          cp ../data/extras-index.json dist/extras/index.json
+          node -e "require('fs').writeFileSync('dist/vercel.json', JSON.stringify({rewrites:[{source:'/((?!api/).*)',destination:'/index.html'}]},null,2))"
+          cp -r .vercel-link-backup dist/.vercel
+          cd dist && npx vercel deploy --prod --yes --token "$VERCEL_TOKEN"
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name  "meta-ads-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add studd-muffyn-app/data studd-muffyn-app/app/src/data/catalog.json
+          if git diff --cached --quiet; then
+            echo "no data changes"
+          else
+            git commit -m "studd-muffyn-app: automated content refresh [skip ci]"
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
+          fi

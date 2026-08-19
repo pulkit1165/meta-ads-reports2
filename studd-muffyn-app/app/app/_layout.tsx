@@ -4,8 +4,14 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { colors, SCREEN_W } from '../src/theme';
+import { refreshCatalogFromCloud } from '../src/api/shopify';
 
 function AppStack() {
+  // pull the current product list once per launch so new launches are
+  // searchable straight away (falls back silently to the bundled snapshot)
+  React.useEffect(() => {
+    refreshCatalogFromCloud();
+  }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
