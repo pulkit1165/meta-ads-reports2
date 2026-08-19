@@ -82,6 +82,32 @@ def rcolor(v):
     return BAD, BAD_BG
 
 
+# ---------- Shopify truth (same source as the hourly wa_table image) -------
+# ROAS shown at portal/total level must be Shopify sales / Meta spend, never
+# pixel — pixel over-reports and the operator reads the headline number.
+WA_TABLE = "https://roas-live.vercel.app/wa_table.json"
+PORTAL_OF = {"Studd Muffyn": "SM", "SM Life": "SML", "Nuskhe by Paras": "NBP"}
+
+
+def shopify_rows():
+    import urllib.request, time
+    try:
+        with urllib.request.urlopen(WA_TABLE + "?t=" + str(int(time.time())), timeout=45) as r:
+            d = json.loads(r.read().decode())
+    except Exception as e:
+        print("wa_table unavailable (%s) — falling back to Meta-attributed ROAS" % e, file=sys.stderr)
+        return {}, ""
+    out = {}
+    for row in d.get("rows", []):
+        p = PORTAL_OF.get(row.get("website"))
+        if p:
+            out[p] = {"sales": float(row.get("sales") or 0), "orders": int(row.get("orders") or 0),
+                      "spend": float(row.get("spend") or 0)}
+    return out, d.get("data_through", "")
+
+
+SHOP, SHOP_THROUGH = shopify_rows()
+
 # ---------- data ----------
 blob = json.load(open(SP / "full.json"))
 C, A = blob["campaigns"], blob["adsets"]
@@ -201,7 +227,15 @@ cw = (W - PAD * 2) / 4
 kpi(PAD, cw, "allocated today", money(T["alloc"]), f"{T['n']} campaigns")
 kpi(PAD + cw, cw, "spent", money(T["spend"]),
     f"{T['spend']/T['alloc']*100 if T['alloc'] else 0:.0f}% of allocation")
-kpi(PAD + cw * 2, cw, "roas", f"{T['roas']:.2f}", money(T["rev"]) + " revenue", rcolor(T["roas"])[0])
+shop_sales = sum(v["sales"] for v in SHOP.values())
+shop_spend = sum(v["spend"] for v in SHOP.values())
+shop_roas = shop_sales / shop_spend if shop_spend else 0
+if SHOP:
+    kpi(PAD + cw * 2, cw, "roas (shopify)", f"{shop_roas:.2f}",
+        money(shop_sales) + f" sales · pixel {T['roas']:.2f}", rcolor(shop_roas)[0])
+else:
+    kpi(PAD + cw * 2, cw, "roas (meta pixel)", f"{T['roas']:.2f}",
+        money(T["rev"]) + " attributed", rcolor(T["roas"])[0])
 kpi(PAD + cw * 3, cw, "budget closed", money(S_["alloc"]),
     f"{len(shut)} camps @ {S_['roas']:.2f} roas", BAD)
 y += KPI_H + 24
@@ -267,19 +301,31 @@ d.text((PAD + 6, y + 1), msg, font=F["sm"], fill=WARN)
 y += 44
 
 # ---------- portal ----------
-section("Portal-wise")
-rp = [[p, str(a["n"]), money(a["alloc"]),
-       f"{a['spend']/a['alloc']*100 if a['alloc'] else 0:.0f}%", money(a["spend"]),
-       roas_cell(a["roas"]), roas_cell(a["roas_on"]), roas_cell(a["roas_off"]), money(a["alloc_off"])]
-      for p, a in rows_portal]
-rp.append([("ALL", INK, None), str(T["n"]), money(T["alloc"]),
-           f"{T['spend']/T['alloc']*100 if T['alloc'] else 0:.0f}%", money(T["spend"]),
-           roas_cell(T["roas"]), roas_cell(L["roas"]), roas_cell(S_["roas"]), money(S_["alloc"])])
-table([("Portal", 132), ("Camps", 92), ("Allocated", 132), ("Used", 92), ("Spend", 132),
-       ("ROAS", 106), ("Active", 106), ("Closed", 106), ("Cut", 114)], rp)
+section("Portal-wise", "— ROAS is Shopify sales / Meta spend" if SHOP else "")
+rp = []
+for p, a in rows_portal:
+    sh = SHOP.get(p, {})
+    sr = (sh.get("sales", 0) / sh["spend"]) if sh.get("spend") else 0
+    rp.append([p, str(a["n"]), money(a["alloc"]), money(a["spend"]),
+               money(sh.get("sales", 0)) if sh else "-",
+               roas_cell(sr) if sh else ("-", INK3, None),
+               (f"{T and a['roas']:.2f}", INK3, None),
+               money(a["alloc_off"]), roas_cell(a["roas_off"])])
+rp.append([("ALL", INK, None), str(T["n"]), money(T["alloc"]), money(T["spend"]),
+           money(shop_sales) if SHOP else "-",
+           roas_cell(shop_roas) if SHOP else ("-", INK3, None),
+           (f"{T['roas']:.2f}", INK3, None),
+           money(S_["alloc"]), roas_cell(S_["roas"])])
+table([("Portal", 118), ("Camps", 84), ("Allocated", 124), ("Spend", 124),
+       ("Shopify sales", 138), ("ROAS", 104), ("pixel", 84), ("Budget cut", 124), ("Closed ROAS", 112)], rp)
+if SHOP:
+    d.text((PAD, y - 8), f"Shopify sales through {SHOP_THROUGH} IST, same feed as the hourly ROAS image — "
+                         "the pixel column is Meta's own claim and runs lower intraday.",
+           font=F["tiny"], fill=INK3)
+    y += 20
 
 # ---------- age ----------
-section("By campaign age", "— budget and what it returned")
+section("By campaign age", "— budget and what it returned · Meta-attributed")
 table([("Days running", 208), ("Camps", 96), ("Allocated", 138), ("Spend", 138),
        ("ROAS", 108), ("Active", 108), ("Closed", 108), ("Budget cut", 108)],
       [[f"{lbl}  ({a['n_on']}L/{a['n_off']}C)", str(a["n"]), money(a["alloc"]), money(a["spend"]),
@@ -295,7 +341,7 @@ table([("Type", 208), ("Camps", 96), ("Allocated", 138), ("Spend", 138),
        for k, a in rows_intent])
 
 # ---------- blocks ----------
-section("Audience blocks", "— from campaign naming")
+section("Audience blocks", "— campaign naming · ROAS is Meta-attributed (Shopify has no campaign attribution)")
 table([("Block", 268), ("Camps", 86), ("Age", 74), ("Allocated", 132), ("Spend", 128),
        ("ROAS", 104), ("Active", 104), ("Closed", 104)],
       [[b, str(a["n"]), f"{a['age']}d", money(a["alloc"]), money(a["spend"]),
@@ -303,7 +349,7 @@ table([("Block", 268), ("Camps", 86), ("Age", 74), ("Allocated", 132), ("Spend",
        for b, a in rows_block])
 
 # ---------- audiences ----------
-section("Top audiences", "— real custom-audience names, ex: = excluded")
+section("Top audiences", "— custom-audience names · Meta-attributed · ex: = excluded")
 table([("Audience", 512), ("Sets", 80), ("Spend", 150), ("Revenue", 150), ("ROAS", 120)],
       [[k.replace("⊘", "ex:")[:52], str(a["n"]), money(a["spend"]), money(a["rev"]),
         roas_cell(a["roas"])] for k, a in rows_aud])
@@ -320,8 +366,9 @@ table([("Campaign", 512), ("Days", 80), ("Budget cut", 150), ("Spent", 150), ("R
        for c in rows_close])
 
 d.line([PAD, H - 52, W - PAD, H - 52], fill=LINE, width=1)
-foot = ("Meta pixel attribution (omni_purchase only) · campaign spend reconciles to each ad account "
-        "total · partial-day ROAS understates")
+foot = ("Portal ROAS = Shopify sales / Meta spend (matches the hourly ROAS image). Campaign, block "
+        "and audience ROAS are Meta-attributed (omni_purchase) because Shopify carries no campaign "
+        "attribution. Spend reconciles to each ad account total. Partial-day ROAS understates.")
 d.text((PAD, H - 40), foot, font=F["tiny"], fill=INK3)
 
 out = SP / "report.png"

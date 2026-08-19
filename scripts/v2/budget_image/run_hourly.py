@@ -57,11 +57,34 @@ def caption():
     ba, s, roas = f(uni)
     _, _, roas_on = f(live)
     bc, sc, roas_off = f(shut)
+
+    # Headline ROAS must be Shopify sales / Meta spend — the same feed the hourly
+    # ROAS image uses — so the two messages never disagree. Pixel is secondary.
+    shop = ""
+    try:
+        import time, urllib.request
+        with urllib.request.urlopen(
+                "https://roas-live.vercel.app/wa_table.json?t=" + str(int(time.time())),
+                timeout=45) as r:
+            d = json.loads(r.read().decode())
+        sales = sum(float(x.get("sales") or 0) for x in d.get("rows", [])
+                    if x.get("website") != "All")
+        spend = sum(float(x.get("spend") or 0) for x in d.get("rows", [])
+                    if x.get("website") != "All")
+        if spend:
+            shop = (f"ROAS {sales/spend:.2f} (Shopify Rs {sales/1e5:.2f}L "
+                    f"through {d.get('data_through', '')}) · pixel {roas:.2f}")
+    except Exception:
+        pass
+    if not shop:
+        shop = f"ROAS {roas:.2f} (Meta-attributed)"
+
     now = datetime.now(IST).strftime("%d %b %I:%M %p")
     return (f"Budget & closing · {now} IST\n"
-            f"Allocated Rs {ba/1e5:.2f}L · spent Rs {s/1e5:.2f}L ({s/ba*100 if ba else 0:.0f}%) · ROAS {roas:.2f}\n"
-            f"Running: ROAS {roas_on:.2f} | Closed today: Rs {bc/1e5:.2f}L @ {roas_off:.2f} "
-            f"({len(shut)} camps)")
+            f"Allocated Rs {ba/1e5:.2f}L · spent Rs {s/1e5:.2f}L ({s/ba*100 if ba else 0:.0f}%)\n"
+            f"{shop}\n"
+            f"Closed today: Rs {bc/1e5:.2f}L @ {roas_off:.2f} pixel ({len(shut)} camps) · "
+            f"still running {roas_on:.2f}")
 
 
 def main():
