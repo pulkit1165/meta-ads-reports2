@@ -612,6 +612,39 @@ export default {
       }
       return new Response('send-doc → ' + out.join(' '), { headers: cors });
     }
+    if (url.pathname === '/send-image') {
+      // Push an arbitrary public image to the hourly subscribers (or one number).
+      // /send-image?key=…&url=<public png>&caption=<text>[&to=<single>][&flag=hourly]
+      // Whapi fetches the URL server-side, so it must be publicly reachable.
+      if (url.searchParams.get('key') !== 'ntnhourly2026') {
+        return new Response('nope', { status: 403, headers: cors });
+      }
+      const src = url.searchParams.get('url');
+      if (!src) return new Response('missing url', { status: 400, headers: cors });
+      const head = await fetch(src, { method: 'HEAD' });
+      if (!head.ok) return new Response('source HTTP ' + head.status, { status: 400, headers: cors });
+      const caption = url.searchParams.get('caption') || '';
+      const only = url.searchParams.get('to');
+      const flag = url.searchParams.get('flag') || 'hourly';
+      const bust = src + (src.includes('?') ? '&' : '?') + 't=' + Date.now();
+      const out = [];
+      for (const [to, subs] of Object.entries(RECIPIENTS)) {
+        if (only && to !== only) continue;
+        if (!only && !subs[flag]) continue;
+        let ok = false;
+        for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+          const ir = await fetch('https://gate.whapi.cloud/messages/image', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: to + '@s.whatsapp.net', media: bust, caption }),
+          });
+          if (ir.ok) { out.push(`${to}:sent`); ok = true; break; }
+          if (attempt === 1) out.push(`${to}:fail-${ir.status}`);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+      return new Response('send-image → ' + out.join(' '), { headers: cors });
+    }
     if (url.pathname === '/test-closing') {
       return new Response(await closingDocPush(env, url.searchParams.get('to') || null,
         url.searchParams.get('through') || ''), { headers: cors });

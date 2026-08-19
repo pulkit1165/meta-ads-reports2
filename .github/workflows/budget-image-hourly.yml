@@ -1,0 +1,71 @@
+name: Hourly budget + closing image to WhatsApp
+
+# Pulls today's allocation/spend for every ad account, renders one long PNG
+# (Pillow — no browser needed) and sends it to WA_REPORT_RECIPIENTS.
+#
+# Delivery runs through the Cloudflare worker (meta-ads-cron-pinger) because the
+# Whapi token lives only there as a worker secret. The image is published to the
+# public `report-images` branch first — Whapi fetches media server-side, so it
+# needs a reachable URL. Recipients are the `hourly: true` entries in the
+# worker's RECIPIENTS map, not a secret here.
+on:
+  schedule:
+    - cron: "5 * * * *"          # hourly, 5 past — after camp-snapshots settle
+  workflow_dispatch:
+    inputs:
+      no_send:
+        description: "Render only, do not send to WhatsApp"
+        type: boolean
+        default: false
+      to:
+        description: "Override recipients (comma-separated, no +)"
+        type: string
+        default: ""
+
+concurrency:
+  group: budget-image
+  cancel-in-progress: false
+
+permissions:
+  contents: write          # publish_image.py force-pushes the report-images branch
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: Asia/Kolkata
+      META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+      WORKER_KEY: ${{ secrets.WORKER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+
+      - name: Load ad-account ids
+        run: grep -E '^[A-Z][A-Z0-9_]*=' config/accounts.env >> "$GITHUB_ENV"
+
+      - name: Install deps
+        run: pip install pillow requests
+
+      - name: Git identity for the image branch
+        run: |
+          git config user.name  "meta-ads-bot"
+          git config user.email "meta-ads-bot@users.noreply.github.com"
+
+      - name: Run report
+        run: |
+          python3 scripts/v2/budget_image/run_hourly.py \
+            ${{ inputs.no_send && '--no-send' || '' }} \
+            ${{ inputs.to && format('--to {0}', inputs.to) || '' }}
+
+      - name: Keep the image as an artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-report-${{ github.run_id }}
+          path: scripts/v2/budget_image/report.png
+          retention-days: 7
+          if-no-files-found: warn
