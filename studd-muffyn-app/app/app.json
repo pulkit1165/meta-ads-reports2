@@ -8,8 +8,11 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.studdmuffinn.shopifyapp",
-      "buildNumber": "5.0.0"
+      "bundleIdentifier": "com.StuddMuffyn.ShopifyApp",
+      "buildNumber": "5.0.3",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -39,6 +42,19 @@
       "backgroundColor": "#0B0B0D",
       "resizeMode": "contain",
       "image": "./assets/splash-logo.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9cc32f92-0f1c-4b0d-b532-a28bdab9aab8"
+      }
+    },
+    "owner": "nature-touch-nutritiom",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/9cc32f92-0f1c-4b0d-b532-a28bdab9aab8"
     }
   }
 }

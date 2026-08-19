@@ -27,6 +27,20 @@ export default function CollectionScreen() {
   const { handle } = useLocalSearchParams<{ handle: string }>();
   const router = useRouter();
   const collection = getCollection(handle!);
+  const [liveTitle, setLiveTitle] = useState<string | null>(null);
+  useEffect(() => {
+    if (collection?.title) return;
+    let alive = true;
+    fetch(`https://studdmuffyn.com/collections/${handle}.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => alive && j?.collection?.title && setLiveTitle(j.collection.title))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [handle]);
+  const prettyTitle =
+    collection?.title ?? liveTitle ?? (handle || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   const [products, setProducts] = useState<Product[]>(() => collectionProducts(handle!));
   const [loading, setLoading] = useState(products.length === 0);
   const [sort, setSort] = useState<Sort>('featured');
@@ -84,7 +98,7 @@ export default function CollectionScreen() {
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={s.title} numberOfLines={1}>
-            {collection?.title ?? handle}
+            {prettyTitle}
           </Text>
           <Text style={s.count}>{shown.length} products</Text>
         </View>

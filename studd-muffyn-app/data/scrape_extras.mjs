@@ -45,15 +45,47 @@ const strip = (s) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-const SECTION_HEADINGS = [
-  'Product Description', 'Key Highlights', 'Product Details', 'Hero Ingredients',
-  'Product Benefits', 'How to Use', 'How To Use', 'FAQ', 'Frequently Asked Questions',
-];
+function sectionText(seg, stripHeading) {
+  let t = strip(
+    seg
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+  );
+  if (stripHeading && t.startsWith(stripHeading)) t = t.slice(stripHeading.length).trim();
+  return t.slice(0, 4000);
+}
+
+function sectionImages(seg, limit = 8) {
+  const out = [];
+  const seen = new Set();
+  const re = /(?:srcset|data-srcset|src|data-src)="([^"]*\/cdn\/shop\/[^"]*)"/g;
+  let m;
+  while ((m = re.exec(seg)) && out.length < limit) {
+    let u = m[1].split(',')[0].trim().split(' ')[0];
+    if (u.startsWith('//')) u = 'https:' + u;
+    const base = u.split('?')[0];
+    if (!/\.(jpe?g|png|webp)$/i.test(base) || seen.has(base)) continue;
+    seen.add(base);
+    const v = (u.match(/[?&]v=(\d+)/) || [])[1];
+    const file = base.split('/').pop().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const tag = (seg.match(new RegExp('<img[^>]*' + file + '[^>]*>', 'i')) || [])[0] || '';
+    const w = +((tag.match(/\bwidth="(\d+)"/) || [])[1] || 0);
+    const hh = +((tag.match(/\bheight="(\d+)"/) || [])[1] || 0);
+    out.push({ url: `${base}?${v ? `v=${v}&` : ''}width=1000`, aspect: w && hh ? Math.round((w / hh) * 100) / 100 : null });
+  }
+  return out;
+}
+
+function firstHeading(seg) {
+  const m = seg.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/);
+  return m ? strip(m[1]).slice(0, 80) : '';
+}
 
 function parseExtras(html, handle) {
-  // reviews
+  // reviews (whole page — widget position varies)
   const reviews = [];
-  const revRe = /<div class="jdgm-rev jdgm[^"]*"([\s\S]{0,4000}?)(?=<div class="jdgm-rev jdgm|jdgm-rev-widg__footer|$)/g;
+  const revRe = /<div class="jdgm-rev jdgm[^"]*"([\s\S]{0,6000}?)(?=<div class="jdgm-rev jdgm|jdgm-rev-widg__footer|$)/g;
   let m;
   while ((m = revRe.exec(html)) && reviews.length < 12) {
     const b = m[1];
@@ -79,28 +111,68 @@ function parseExtras(html, handle) {
       .slice(0, 6);
   }
 
-  // theme detail sections
-  const sections = [];
-  for (const head of SECTION_HEADINGS) {
-    const hi = html.search(new RegExp(`<h[1-4][^>]*>\\s*(?:<[^>]+>\\s*)*${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
-    if (hi === -1) continue;
-    let seg = html.slice(hi, hi + 20000);
-    seg = seg.replace(/^<h[1-4][^>]*>[\s\S]*?<\/h[1-4]>/, '');
-    // stop at the next known heading
-    let cut = seg.length;
-    for (const other of SECTION_HEADINGS) {
-      if (other === head) continue;
-      const oi = seg.search(new RegExp(`<h[1-4][^>]*>\\s*(?:<[^>]+>\\s*)*${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
-      if (oi > -1 && oi < cut) cut = oi;
+  // ---- full PDP template mirror: every section, in page order ----
+  const pdpSections = [];
+  const parts = html.split(/(?=<[a-z-]+[^>]+id="shopify-section-template--\d+__)/).slice(1);
+  for (const p of parts) {
+    const name = (p.match(/id="shopify-section-template--\d+__([a-zA-Z0-9_-]+)"/) || [])[1] || '';
+    const cut = p.indexOf('jdgm-widget');
+    const seg = cut > -1 ? p.slice(0, cut) : p;
+    if (name === 'main' || name.startsWith('tracking_order')) continue;
+
+    if (name.startsWith('collapsible_row_list')) {
+      const items = [];
+      const chunks = seg.split(/(?=collapsible-row-list-item__label)/).slice(1);
+      for (const c of chunks) {
+        const heading = strip((c.match(/collapsible-row-list-item__heading[^>]*>\s*([\s\S]*?)<\/span>/) || [, ''])[1]);
+        if (!heading) continue;
+        const text = sectionText(c, heading);
+        if (text.length > 20) items.push({ heading, text });
+      }
+      if (items.length) pdpSections.push({ type: 'accordions', items });
+    } else if (name.startsWith('multi_column')) {
+      const heading = firstHeading(seg);
+      const text = sectionText(seg, heading);
+      if (text.length > 30) pdpSections.push({ type: 'textBlock', heading: heading || 'Details', text });
+    } else if (name.startsWith('media_with_content')) {
+      const heading = firstHeading(seg);
+      const text = sectionText(seg, heading);
+      const imgs = sectionImages(seg, 2);
+      if (text.length > 30 || imgs.length)
+        pdpSections.push({ type: 'mediaBlock', heading: heading || '', text, image: imgs[0] || null });
+    } else if (name.startsWith('promotion_grid') || name.startsWith('scrolling_content')) {
+      const heading = firstHeading(seg);
+      const imgs = sectionImages(seg, 8);
+      if (imgs.length) pdpSections.push({ type: 'imageStrip', heading, images: imgs });
+    } else if (name.startsWith('featured_collection')) {
+      const heading = firstHeading(seg) || 'You may also like';
+      const coll = (seg.match(/href="[^"]*\/collections\/([a-z0-9-]+)/) || [])[1] || null;
+      const prods = [...new Set([...seg.matchAll(/\/products\/([a-z0-9-]+)/g)].map((x) => x[1]))]
+        .filter((h) => h !== handle)
+        .slice(0, 10);
+      if (coll || prods.length) pdpSections.push({ type: 'rail', heading, collection: coll, products: prods });
+    } else {
+      // unknown custom section: keep whatever meaningful content it has
+      const heading = firstHeading(seg);
+      const text = sectionText(seg, heading);
+      const imgs = sectionImages(seg, 6);
+      if (text.length > 60) pdpSections.push({ type: 'textBlock', heading: heading || '', text });
+      else if (imgs.length >= 2) pdpSections.push({ type: 'imageStrip', heading, images: imgs });
     }
-    const jd = seg.indexOf('jdgm-widget');
-    if (jd > -1 && jd < cut) cut = jd;
-    const text = strip(seg.slice(0, cut)).slice(0, 4000);
-    if (text.length > 40 && !sections.find((s) => s.heading.toLowerCase() === head.toLowerCase()))
-      sections.push({ heading: head, text });
   }
 
-  return { handle, rating, reviewCount, reviews, pairsWith, sections, scrapedAt: new Date().toISOString() };
+  // legacy flat sections (kept for backwards compatibility with older app builds)
+  const sections = [];
+  for (const s of pdpSections) {
+    if (s.type === 'accordions') for (const it of s.items) sections.push(it);
+    else if ((s.type === 'textBlock' || s.type === 'mediaBlock') && s.text && s.heading)
+      sections.push({ heading: s.heading, text: s.text });
+  }
+
+  // marketplace links are extracted in-page (DOM) by the worker — see below.
+  const marketplaces = {};
+
+  return { handle, rating, reviewCount, reviews, pairsWith, sections, pdpSections, marketplaces, scrapedAt: new Date().toISOString() };
 }
 
 const todo = handles.filter((h) => FORCE || !fs.existsSync(path.join(OUT, h + '.json'))).slice(0, LIMIT);
@@ -121,12 +193,49 @@ async function worker(queue) {
   while ((h = queue.shift())) {
     try {
       await page.goto(`https://studdmuffyn.com/products/${h}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      // nudge lazy widgets (reviews) into rendering
+      // nudge lazy widgets (reviews, marketplace buttons) into rendering
       await page.mouse.wheel(0, 4000).catch(() => {});
       await page.waitForSelector('div.jdgm-rev', { timeout: 6000 }).catch(() => {});
+      await page.waitForSelector('text=Also Available On', { timeout: 4000 }).catch(() => {});
       await page.waitForTimeout(800);
       const html = await page.content();
       const extras = parseExtras(html, h);
+      // marketplace links via DOM: only from THIS product's own
+      // "Also Available On" block (never a recommendation card's)
+      extras.marketplaces = await page.evaluate((selfHandle) => {
+        const out = {};
+        const leaves = [...document.querySelectorAll('span,div,p,h1,h2,h3,h4,strong,b')].filter(
+          (el) => el.children.length === 0 && /also available on/i.test(el.textContent || '')
+        );
+        for (const leaf of leaves) {
+          // the product's own block lives in the MAIN product section —
+          // recommendation cards live in featured_collection sections
+          const sec = leaf.closest('[id*="shopify-section-template"]');
+          if (!sec || !/__main\b/.test(sec.id || '')) continue;
+          let c = leaf;
+          for (let i = 0; i < 6 && c; i++) {
+            const links = [...c.querySelectorAll('a[href*="amazon."],a[href*="flipkart.com"],a[href*="myntra.com"]')];
+            if (links.length) {
+              const foreign = [...c.querySelectorAll('a[href*="/products/"]')].some((a) => {
+                const m = (a.getAttribute('href') || '').match(/\/products\/([a-z0-9-]+)/);
+                return m && m[1] !== selfHandle;
+              });
+              if (!foreign) {
+                for (const a of links) {
+                  const u = a.href;
+                  if (/amazon\./i.test(u) && !out.amazon) out.amazon = u;
+                  else if (/flipkart\.com/i.test(u) && !out.flipkart) out.flipkart = u;
+                  else if (/myntra\.com/i.test(u) && !out.myntra) out.myntra = u;
+                }
+                return out;
+              }
+              break; // container is another product's card — try next leaf
+            }
+            c = c.parentElement;
+          }
+        }
+        return out;
+      }, h).catch(() => ({}));
       fs.writeFileSync(path.join(OUT, h + '.json'), JSON.stringify(extras));
       done++;
       if (done % 20 === 0) console.log(`progress ${done}/${todo.length} (fail ${fail})`);
@@ -149,7 +258,13 @@ for (const f of fs.readdirSync(OUT)) {
   if (!f.endsWith('.json')) continue;
   try {
     const j = JSON.parse(fs.readFileSync(path.join(OUT, f)));
-    if (j.reviewCount) index[j.handle] = { r: j.rating, n: j.reviewCount };
+    const e = {};
+    if (j.reviewCount) { e.r = j.rating; e.n = j.reviewCount; }
+    const mk = j.marketplaces || {};
+    if (mk.amazon) e.a = mk.amazon;
+    if (mk.flipkart) e.f = mk.flipkart;
+    if (mk.myntra) e.m = mk.myntra;
+    if (Object.keys(e).length) index[j.handle] = e;
   } catch {}
 }
 fs.writeFileSync(path.join(DATA, 'extras-index.json'), JSON.stringify(index));

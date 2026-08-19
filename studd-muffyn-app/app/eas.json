@@ -1,16 +1,25 @@
 {
-  "cli": { "appVersionSource": "local" },
+  "cli": {
+    "appVersionSource": "local"
+  },
   "build": {
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "channel": "production"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "preview"
     }
   },
   "submit": {
     "production": {
-      "ios": { "ascAppId": "1597059141" }
+      "ios": {
+        "ascAppId": "1597059141",
+        "ascApiKeyPath": "./credentials/AuthKey_485W9438M3.p8",
+        "ascApiKeyId": "485W9438M3",
+        "ascApiKeyIssuerId": "0e0ce657-801b-4c95-b81f-aa982d5a505f"
+      }
     }
   }
 }

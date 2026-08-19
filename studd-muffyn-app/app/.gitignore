@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+.vercel
+
+# secrets — never commit (EAS token, Apple ASC key)
+.eas-token
+credentials/
+*.p8

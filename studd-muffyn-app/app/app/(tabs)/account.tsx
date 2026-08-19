@@ -20,6 +20,7 @@ const ROWS: { icon: any; label: string; url?: string; route?: string }[] = [
   { icon: 'star-outline', label: 'Media Coverage', url: `${BASE}/pages/products-rating-by-experts` },
   { icon: 'reader-outline', label: 'Blog', url: `${BASE}/blogs/paraskenuskhe-blog` },
   { icon: 'call-outline', label: 'Contact Us', url: `${BASE}/pages/contact-test` },
+  { icon: 'trash-outline', label: 'Delete Account', url: `${BASE}/pages/delete-account` },
 ];
 
 export default function Account() {

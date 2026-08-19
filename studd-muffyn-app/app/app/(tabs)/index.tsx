@@ -17,6 +17,7 @@ import {
   OfferCards,
   ProductRail,
   PurposeGrid,
+  SectionTitle,
 } from '../../src/components/HomeSections';
 import { getProduct } from '../../src/api/shopify';
 import { Onboarding } from '../../src/components/Onboarding';
@@ -76,8 +77,19 @@ export default function Home() {
               return <LogoStrip key={i} images={sec.images} height={sec.height} />;
             case 'imageBanner':
               return <ImageBanner key={i} image={sec.image} url={sec.url} aspect={sec.aspect} />;
+            case 'sectionTitle':
+              return <SectionTitle key={i} text={sec.text} />;
             case 'categoryGrid':
-              return <CategoryGrid key={i} title={sec.title} items={sec.items} aspect={sec.aspect} showLabel={sec.showLabel !== false} />;
+              return (
+                <CategoryGrid
+                  key={i}
+                  title={sec.title}
+                  items={sec.items}
+                  aspect={sec.aspect}
+                  showLabel={sec.showLabel !== false}
+                  labelMode={sec.labelMode}
+                />
+              );
             case 'productRail':
               return <ProductRail key={i} title={sec.title} subtitle={sec.subtitle} handle={sec.handle} />;
             case 'offerCards':

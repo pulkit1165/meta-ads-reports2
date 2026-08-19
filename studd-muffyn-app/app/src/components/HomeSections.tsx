@@ -22,6 +22,39 @@ import { SectionHeader } from './ui';
 
 const W = SCREEN_W;
 
+// Image that sizes itself to the image's true proportions once loaded —
+// parser-provided aspect is only the placeholder, so banners never crop.
+export function AutoImage({
+  uri,
+  initialAspect = 2,
+  style,
+  rounded,
+}: {
+  uri: string;
+  initialAspect?: number;
+  style?: any;
+  rounded?: number;
+}) {
+  const [aspect, setAspect] = useState(initialAspect);
+  return (
+    <Image
+      source={{ uri }}
+      style={[{ width: '100%', aspectRatio: aspect, backgroundColor: colors.surface, borderRadius: rounded ?? 0 }, style]}
+      contentFit="cover"
+      transition={250}
+      onLoad={(e) => {
+        const src = (e as any)?.source;
+        if (src?.width && src?.height) setAspect(src.width / src.height);
+      }}
+    />
+  );
+}
+
+// Ornamental centered heading, site-style: ✦ CRYSTAL DECOR ✦
+export function SectionTitle({ text }: { text: string }) {
+  return <Text style={s.ornTitle}>✦  {text.toUpperCase()}  ✦</Text>;
+}
+
 export function goTo(router: ReturnType<typeof useRouter>, url: string) {
   const m = url.match(/\/collections\/([a-z0-9-]+)/);
   if (m) return router.push(`/collection/${m[1]}`);
@@ -88,13 +121,15 @@ export function Hero({ slides, aspect = 1.705 }: { slides: { image: string; url:
 }
 
 // --- top offer-tile row (site's scrollable shop-by-offer tiles) --------------
-export function IconRow({ items }: { items: { image: string; title?: string; handle: string }[] }) {
+export function IconRow({ items }: { items: { image: string; title?: string; handle: string; aspect?: number | null }[] }) {
   const router = useRouter();
+  const a = items[0]?.aspect || 1.84;
+  const tileW = a < 1.2 ? 96 : 148; // small square/portrait tiles ~4 across like the site
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.iconRow}>
       {items.map((it) => (
-        <Pressable key={it.handle} style={s.iconItem} onPress={() => router.push(`/collection/${it.handle}`)}>
-          <View style={s.iconTile}>
+        <Pressable key={it.handle} style={{ width: tileW, alignItems: 'center' }} onPress={() => router.push(`/collection/${it.handle}`)}>
+          <View style={[s.iconTile, { width: tileW, aspectRatio: it.aspect || a }]}>
             <Image source={{ uri: it.image }} style={{ flex: 1 }} contentFit="cover" transition={200} />
           </View>
           {it.title ? (
@@ -150,12 +185,7 @@ export function ImageBanner({ image, url, aspect = 1 }: { image: string; url?: s
   const router = useRouter();
   return (
     <Pressable disabled={!url} onPress={() => url && goTo(router, url)} style={{ marginTop: 26 }}>
-      <Image
-        source={{ uri: image }}
-        style={{ width: W, aspectRatio: aspect, backgroundColor: colors.surface }}
-        contentFit="cover"
-        transition={300}
-      />
+      <AutoImage uri={image} initialAspect={aspect} style={{ width: W }} />
     </Pressable>
   );
 }
@@ -222,25 +252,38 @@ export function CategoryGrid({
   items,
   aspect = 1.5,
   showLabel = true,
+  labelMode,
 }: {
   title?: string;
-  items: { title: string; handle: string; image?: string }[];
+  items: { title: string; handle: string; image?: string; aspect?: number }[];
   aspect?: number;
   showLabel?: boolean;
+  labelMode?: 'overlay' | 'below' | 'none';
 }) {
   const router = useRouter();
+  const mode = labelMode ?? (showLabel ? 'overlay' : 'none');
   return (
     <View>
       {title ? <SectionHeader title={title} /> : null}
       <View style={s.grid}>
         {items.map((it) => (
-          <Pressable key={it.handle} style={[s.catTile, { aspectRatio: aspect }]} onPress={() => router.push(`/collection/${it.handle}`)}>
-            <Image source={{ uri: it.image ?? tileImage(it.handle) }} style={s.catImage} contentFit="cover" transition={250} />
-            {showLabel && (
-              <>
-                <LinearGradient colors={darkGradient} style={StyleSheet.absoluteFill} />
-                <Text style={s.catLabel}>{it.title}</Text>
-              </>
+          <Pressable key={it.handle} style={s.catCell} onPress={() => router.push(`/collection/${it.handle}`)}>
+            <View style={{ borderRadius: radius.md, overflow: 'hidden' }}>
+              <AutoImage uri={it.image ?? tileImage(it.handle) ?? ''} initialAspect={it.aspect || aspect} />
+              {mode === 'overlay' && (
+                <>
+                  <LinearGradient colors={darkGradient} style={StyleSheet.absoluteFill} />
+                  <Text style={s.catLabel}>{it.title}</Text>
+                </>
+              )}
+            </View>
+            {mode === 'below' && (
+              <View style={s.catBelow}>
+                <Text style={s.catBelowTitle}>{it.title}</Text>
+                <View style={s.shopNowChip}>
+                  <Text style={s.shopNowText}>SHOP NOW</Text>
+                </View>
+              </View>
             )}
           </Pressable>
         ))}
@@ -328,8 +371,6 @@ const s = StyleSheet.create({
   iconRow: { paddingHorizontal: 14, gap: 10, paddingVertical: 12 },
   iconItem: { width: 148, alignItems: 'center' },
   iconTile: {
-    width: 148,
-    aspectRatio: 1.84,
     borderRadius: radius.sm,
     overflow: 'hidden',
     borderWidth: 1,
@@ -344,15 +385,29 @@ const s = StyleSheet.create({
     gap: 12,
     marginTop: 4,
   },
-  catTile: {
+  catCell: {
     width: Math.floor((W - 54) / 2),
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-    justifyContent: 'flex-end',
   },
-  catImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  catLabel: { ...t.display, color: '#fff', fontSize: 16, padding: 12 },
+  catLabel: { ...t.display, color: '#fff', fontSize: 16, padding: 12, position: 'absolute', bottom: 0 },
+  catBelow: { alignItems: 'center', paddingVertical: 10, gap: 6 },
+  catBelowTitle: { ...t.display, color: colors.text, fontSize: 16 },
+  shopNowChip: {
+    borderWidth: 1,
+    borderColor: colors.text,
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  shopNowText: { color: colors.text, fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  ornTitle: {
+    ...t.display,
+    color: colors.goldDeep,
+    fontSize: 17,
+    letterSpacing: 2.5,
+    textAlign: 'center',
+    marginTop: 34,
+    marginBottom: 2,
+  },
   purposeChip: {
     borderWidth: 1,
     borderColor: colors.gold,

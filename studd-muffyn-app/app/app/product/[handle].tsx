@@ -24,7 +24,8 @@ import {
   startCheckoutUrl,
 } from '../../src/api/shopify';
 import { parseDescription } from '../../src/api/html';
-import { useProductExtras } from '../../src/api/extras';
+import { PdpSection, useProductExtras } from '../../src/api/extras';
+import { collectionProducts } from '../../src/api/shopify';
 import type { Product, Variant } from '../../src/api/types';
 import { ProductRail } from '../../src/components/HomeSections';
 import { Badge, GoldButton } from '../../src/components/ui';
@@ -55,6 +56,72 @@ function Accordion({ heading, text, initiallyOpen }: { heading: string; text: st
       )}
     </View>
   );
+}
+
+// Renders one website-PDP section in its original page order.
+function PdpSectionView({ sec, selfHandle }: { sec: PdpSection; selfHandle: string }) {
+  if (sec.type === 'accordions' && sec.items?.length) {
+    return (
+      <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
+        {sec.items.map((b, i) => (
+          <Accordion key={i} heading={b.heading} text={b.text} initiallyOpen={i === 0} />
+        ))}
+      </View>
+    );
+  }
+  if (sec.type === 'textBlock' && sec.text) {
+    return (
+      <View style={{ paddingHorizontal: 20, marginTop: 26 }}>
+        {sec.heading ? <Text style={s.pdpHead}>{sec.heading}</Text> : null}
+        <Text style={s.pdpText}>{sec.text}</Text>
+      </View>
+    );
+  }
+  if (sec.type === 'mediaBlock') {
+    return (
+      <View style={{ marginTop: 26 }}>
+        {sec.heading ? <Text style={[s.pdpHead, { paddingHorizontal: 20 }]}>{sec.heading}</Text> : null}
+        {sec.text ? <Text style={[s.pdpText, { paddingHorizontal: 20 }]}>{sec.text}</Text> : null}
+        {sec.image ? (
+          <Image
+            source={{ uri: sec.image.url }}
+            style={{ width: W, aspectRatio: sec.image.aspect || 1, marginTop: 14, backgroundColor: colors.surface }}
+            contentFit="cover"
+            transition={250}
+          />
+        ) : null}
+      </View>
+    );
+  }
+  if (sec.type === 'imageStrip' && sec.images?.length) {
+    const a = sec.images[0].aspect || 1;
+    const h = a >= 2 ? Math.round((W - 40) / a) : 250;
+    return (
+      <View style={{ marginTop: 26 }}>
+        {sec.heading ? <Text style={[s.pdpHead, { paddingHorizontal: 20, marginBottom: 12 }]}>{sec.heading}</Text> : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
+          {sec.images.map((im, i) => (
+            <Image
+              key={i}
+              source={{ uri: im.url }}
+              style={{ height: h, aspectRatio: im.aspect || a || 1, borderRadius: radius.md, backgroundColor: colors.surface }}
+              contentFit="cover"
+              transition={250}
+            />
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
+  if (sec.type === 'rail') {
+    const fromHandles = (sec.products ?? []).map((h) => getProduct(h)).filter(Boolean) as Product[];
+    const fromCollection = sec.collection ? collectionProducts(sec.collection).filter((p) => p.handle !== selfHandle) : [];
+    const items = fromHandles.length ? fromHandles : fromCollection;
+    if (items.length) return <ProductRail title={sec.heading || 'You may also like'} products={items.slice(0, 10)} />;
+    if (sec.collection) return <ProductRail title={sec.heading || 'You may also like'} handle={sec.collection} />;
+    return null;
+  }
+  return null;
 }
 
 export default function ProductScreen() {
@@ -237,15 +304,45 @@ export default function ProductScreen() {
           ))}
         </View>
 
+        {/* also available on marketplaces */}
+        {extras?.marketplaces && Object.keys(extras.marketplaces).length > 0 && (
+          <View style={{ paddingHorizontal: 20, marginTop: 18 }}>
+            <Text style={s.mktLabel}>ALSO AVAILABLE ON</Text>
+            <View style={s.mktRow}>
+              {extras.marketplaces.amazon ? (
+                <Pressable style={s.mktBtn} onPress={() => WebBrowser.openBrowserAsync(extras.marketplaces!.amazon!)}>
+                  <Text style={s.mktText}>amazon</Text>
+                </Pressable>
+              ) : null}
+              {extras.marketplaces.flipkart ? (
+                <Pressable style={s.mktBtn} onPress={() => WebBrowser.openBrowserAsync(extras.marketplaces!.flipkart!)}>
+                  <Text style={[s.mktText, { color: '#2874f0' }]}>Flipkart</Text>
+                </Pressable>
+              ) : null}
+              {extras.marketplaces.myntra ? (
+                <Pressable style={s.mktBtn} onPress={() => WebBrowser.openBrowserAsync(extras.marketplaces!.myntra!)}>
+                  <Text style={[s.mktText, { color: '#e83f80' }]}>Myntra</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        )}
+
         {/* description */}
         {intro?.text ? (
           <Text style={s.intro}>{intro.text}</Text>
         ) : null}
-        <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
-          {sections.map((b, i) => (
-            <Accordion key={i} heading={b.heading!} text={b.text} initiallyOpen={i === 0} />
-          ))}
-        </View>
+
+        {extras?.pdpSections?.length ? (
+          // full website-PDP mirror, sections in original page order
+          extras.pdpSections.map((sec, i) => <PdpSectionView key={i} sec={sec} selfHandle={product.handle} />)
+        ) : (
+          <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
+            {sections.map((b, i) => (
+              <Accordion key={i} heading={b.heading!} text={b.text} initiallyOpen={i === 0} />
+            ))}
+          </View>
+        )}
 
         {pairsProducts.length > 0 && (
           <ProductRail title="Pairs well with" products={pairsProducts} />
@@ -271,7 +368,7 @@ export default function ProductScreen() {
           </View>
         )}
 
-        {recommendations.length > 0 && (
+        {!extras?.pdpSections?.some((x) => x.type === 'rail') && recommendations.length > 0 && (
           <ProductRail title="You may also like" products={recommendations} />
         )}
       </ScrollView>
@@ -312,6 +409,20 @@ const s = StyleSheet.create({
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   stars: { color: '#ffcb42', fontSize: 15, letterSpacing: 1 },
   ratingText: { color: colors.textDim, fontSize: 12.5, fontWeight: '600' },
+  mktLabel: { color: colors.textFaint, fontSize: 10.5, fontWeight: '800', letterSpacing: 1.2 },
+  mktRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  mktBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  mktText: { fontSize: 13.5, fontWeight: '800', color: '#f90' },
+  pdpHead: { ...t.display, color: colors.text, fontSize: 21 },
+  pdpText: { color: colors.textDim, fontSize: 13.5, lineHeight: 21, marginTop: 8 },
   revHead: { ...t.display, color: colors.text, fontSize: 22 },
   revSummary: { color: colors.textDim, fontSize: 13, marginTop: 6, marginBottom: 14 },
   revCard: {
