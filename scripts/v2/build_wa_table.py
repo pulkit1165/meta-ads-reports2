@@ -29,7 +29,7 @@ def yesterday_roas(finals_path, yday):
         return {}
 
 
-def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
+def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_label=None):
     """Branded report card — Studd Muffyn cream/gold. Template drawn in code,
     numbers overlaid each hour (pixel-exact, no AI drift)."""
     from PIL import Image, ImageDraw, ImageFont
@@ -173,7 +173,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None):
         # stretch mini table to full width for symmetry
         stretch = (table_w - sum(mw)) // len(mw)
         mw = [w + stretch for w in mw]
-        d.text((M + P, y2 + 12 * SC), f'LAST HOUR  ·  window ending {data_through} IST',
+        d.text((M + P, y2 + 12 * SC), window_label or f'LAST HOUR  ·  window ending {data_through} IST',
                font=sans(13, True), fill=GOLD_D, anchor='lm')
         draw_table(y2 + 26 * SC, mheads, mw, hour_slice, mvals)
 
@@ -214,20 +214,21 @@ def main():
     hour_slice = []
     if len(snap_hours) >= 2:
         cur = snap_hours[-1]
-        # Baseline must be ~an hour back. A delayed mid-run can capture minutes
-        # after the :58 capture (17 Aug: 11:02 after 10:58) — diffing against
-        # the immediately-previous slot made the "last hour" a 4-minute window
-        # showing Rs0 sales. Pick the newest slot at least 50 min older.
+        # Baseline = the capture CLOSEST to one hour back (min 25 min away so a
+        # near-duplicate capture can't make a 4-minute window — 17 Aug).
+        # "Newest slot >=50 min old" was wrong: with a missing snapshot (22 Aug
+        # had no 09:00) an 11:28 mid-run rejected the 30-min-old 10:58 capture
+        # and reached back to 08:58, reporting 2.5 hours as "last hour".
         slot_ts = dict(scon.execute(
             "SELECT hour_slot, MAX(ts) FROM campaign_hourly_snapshots "
             "WHERE hour_slot LIKE ? GROUP BY hour_slot", (day + '%',)).fetchall())
         cur_dt = datetime.fromisoformat(slot_ts[cur])
-        prev = snap_hours[-2]
-        for cand in reversed(snap_hours[:-1]):
-            if (cur_dt - datetime.fromisoformat(slot_ts[cand])).total_seconds() >= 50 * 60:
-                prev = cand
-                break
+        def _age(c):
+            return (cur_dt - datetime.fromisoformat(slot_ts[c])).total_seconds() / 60.0
+        cands = [c for c in snap_hours[:-1] if _age(c) >= 25]
+        prev = min(cands, key=lambda c: abs(_age(c) - 60)) if cands else snap_hours[-2]
         prev_ts = slot_ts[prev]
+        window_min = int(round(_age(prev)))
         def spend_at(slot):
             # Carry-forward cumulative: a campaign paused mid-day drops out of
             # later snapshots, but its day-spend must stay in the baseline —
@@ -283,13 +284,28 @@ def main():
             'closed': round(t.get('closed_budget', 0)),
             'products': t.get('products', 0),
         })
+    # The slice card must state the window it actually measured, not assume 1h.
+    if hour_slice:
+        if 50 <= window_min <= 75:
+            window_label = f'LAST HOUR  ·  window ending {data_through} IST'
+        elif window_min < 50:
+            window_label = f'LAST {window_min} MIN  ·  {w_start}–{w_end} IST'
+        else:
+            _h, _m = divmod(window_min, 60)
+            _d = f'{_h}H {_m}M' if _m else f'{_h}H'
+            window_label = f'LAST {_d}  ·  {w_start}–{w_end} IST  (snapshot gap)'
+    else:
+        window_label = None
+
     stamp = (f'{now.strftime("%d %b")} · data through {data_through} IST'
              if data_through else now.strftime('%d %b, %H:%M IST'))
     json.dump({'built_at': now.isoformat(timespec='seconds'), 'stamp': stamp,
                'day': day, 'data_through': data_through,
+               'window_minutes': (window_min if hour_slice else None),
+               'window_label': window_label,
                'hour_slice': hour_slice, 'rows': out_rows},
               open(args.out_json, 'w'), indent=1)
-    render_png(out_rows, args.out_png, stamp, hour_slice, data_through)
+    render_png(out_rows, args.out_png, stamp, hour_slice, data_through, window_label)
     print(f'wrote {args.out_json} + {args.out_png} — ALL roas {out_rows[-1]["roas"]}')
 
 

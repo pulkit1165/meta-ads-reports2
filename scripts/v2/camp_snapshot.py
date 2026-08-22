@@ -105,7 +105,17 @@ def main():
 
     now = datetime.now(IST)
     ts = now.isoformat(timespec='seconds')
-    hour_slot = now.strftime('%Y-%m-%d %H:00')
+    # The :58 boundary this run measures (the previous one if we're before :58).
+    if now.minute >= 58:
+        boundary = now.replace(minute=58, second=0, microsecond=0)
+    else:
+        boundary = (now - timedelta(hours=1)).replace(minute=58, second=0, microsecond=0)
+    # Stamp the slot of the BOUNDARY measured, not the wall clock. A run landing
+    # at 10:00:05 measures the 09:58 boundary; stamping it "10:00" lost that
+    # hour outright once the 10:58 run replaced the row (22 Aug: no 09:00 slot,
+    # which then made the WA "last hour" span 2.5h). --force (mid-hour capture)
+    # keeps wall-clock so it still gets its own fresh slot.
+    hour_slot = (now if args.force else boundary).strftime('%Y-%m-%d %H:00')
 
     # ONE measurement per hour, taken at the first run at/after :00 — so each
     # hour row holds the COMPLETE previous hour, stamped right when it turns.
@@ -123,10 +133,7 @@ def main():
         # the capture that defines hour H is the first run at/after H:58 (the
         # Worker dispatches at :55 IST to land here). A run before :58 still
         # pulls if the PREVIOUS :58 boundary was never captured (backstop).
-        if now.minute >= 58:
-            mark = now.replace(minute=58, second=0, microsecond=0)
-        else:
-            mark = (now - timedelta(hours=1)).replace(minute=58, second=0, microsecond=0)
+        mark = boundary
         if prev and datetime.fromisoformat(prev) >= mark:
             print(f"boundary {mark:%H:%M} already captured at {prev} — skipping "
                   f"(use --force to overwrite)")

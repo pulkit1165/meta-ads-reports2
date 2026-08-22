@@ -370,11 +370,15 @@ async function hourlyPush(env, only) {
   const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
   let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*\n` + t.rows.map(line).join('\n');
   if (t.hour_slice?.length) {
-    // :58 tables carry a full-hour slice; mid-hour (:28) tables carry the
-    // half hour since the last :58 capture.
-    const label = /:5\d$/.test(t.data_through || '')
-      ? `Last hour (${String(parseInt(t.data_through) - 1).padStart(2, '0')}:00–${String(parseInt(t.data_through) - 1).padStart(2, '0')}:59)`
-      : `Last 30 min (through ${t.data_through})`;
+    // Trust the builder's window label — the slice is NOT always an hour or
+    // 30 min: a missing snapshot widens it (22 Aug sent a 2.5h window, 289
+    // orders, captioned "Last hour"). Fall back to the old guess only if the
+    // table predates window_label.
+    const label = t.window_label
+      ? t.window_label.replace(/\s{2,}/g, ' ')
+      : (/:5\d$/.test(t.data_through || '')
+          ? `Last hour (${String(parseInt(t.data_through) - 1).padStart(2, '0')}:00–${String(parseInt(t.data_through) - 1).padStart(2, '0')}:59)`
+          : `Last 30 min (through ${t.data_through})`);
     caption += `\n\n*${label}:*\n` + t.hour_slice.map(line).join('\n');
   }
   const out = [];
