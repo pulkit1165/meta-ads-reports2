@@ -67,135 +67,160 @@ def next_update(now, last_pull=None):
 
 CSS = """
 *{box-sizing:border-box}
-body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1b2733;
-     margin:0;background:#eef1f6}
-.wrap{max-width:1040px;margin:0 auto;padding:18px 14px 50px}
+body{font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#101828;
+     margin:0;background:#f6f7fb;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:20px 18px 56px}
 .bar{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;justify-content:space-between;
-     padding:4px 4px 16px}
-.bar h1{font-size:17px;margin:0;color:#12355b;font-weight:700}
-.stamp{font-size:12px;color:#64748b}
-.stamp b{color:#1b2733}
-.nxt{display:block;color:#94a0ad;font-size:11px;margin-top:3px}
+     padding:6px 2px 18px}
+.bar h1{font-size:19px;margin:0;color:#101828;font-weight:800;letter-spacing:-.01em}
+.stamp{font-size:12px;color:#667085}
+.stamp b{color:#101828}
+.nxt{display:block;color:#98a2b3;font-size:11px;margin-top:3px}
 @media(min-width:641px){.stamp{text-align:right}}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#0a7d3c;margin-right:5px}
-.card{background:#fff;border-radius:10px;padding:18px 20px;margin-bottom:14px;
-      box-shadow:0 1px 3px rgba(16,32,56,.09)}
-.hero{text-align:center;padding:24px 20px 20px}
-.roas{font-size:46px;font-weight:700;color:#12355b;line-height:1}
-.roas span{font-size:17px;font-weight:600;color:#7a8798;margin-left:6px}
-.sub{font-size:13px;color:#5a6b7d;margin-top:9px}
-.vs{font-size:12px;color:#8a97a5;margin-top:7px}
-h2{font-size:12px;margin:0 0 12px;color:#7a8798;font-weight:700;
-   text-transform:uppercase;letter-spacing:.07em}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th{color:#8a97a5;text-align:right;padding:0 6px 8px;font-weight:600;font-size:11px;
-   text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e6ecf3;white-space:nowrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#12b76a;margin-right:5px}
+.card{background:#fff;border:1px solid #e8ecf3;border-radius:14px;padding:20px 22px;margin-bottom:16px;
+      box-shadow:0 1px 2px rgba(16,24,40,.04)}
+/* KPI tiles (hero) */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:#fff;border:1px solid #e8ecf3;border-radius:14px;padding:16px 18px;
+     box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.kpi .kl{font-size:12px;color:#667085;font-weight:600}
+.kpi .kv{font-size:26px;font-weight:800;color:#101828;margin-top:6px;letter-spacing:-.02em;
+         font-variant-numeric:tabular-nums}
+.kpi .ks{font-size:11.5px;color:#98a2b3;margin-top:5px;line-height:1.45}
+.kpi.lead{background:#101828;border-color:#101828}
+.kpi.lead .kl{color:#98a2b3}
+.kpi.lead .kv{color:#fff;font-size:30px}
+.kpi.lead .ks{color:#8b93a7}
+.delta{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:3px}
+.delta.up{background:#ecfdf3;color:#067647}
+.delta.dn{background:#fef3f2;color:#b42318}
+.delta.mut{background:#f2f4f7;color:#667085}
+.hero{text-align:center;padding:26px 20px 22px}
+.roas{font-size:44px;font-weight:800;color:#101828;line-height:1;letter-spacing:-.02em}
+.roas span{font-size:16px;font-weight:600;color:#98a2b3;margin-left:6px}
+.sub{font-size:13px;color:#475467;margin-top:10px}
+.vs{font-size:12px;color:#98a2b3;margin-top:7px}
+h2{font-size:13.5px;margin:0 0 14px;color:#101828;font-weight:700;letter-spacing:0;text-transform:none}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th{color:#98a2b3;text-align:right;padding:0 8px 9px;font-weight:600;font-size:10.5px;
+   text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #eaecf0;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
-td{padding:9px 6px;border-bottom:1px solid #f0f3f7;text-align:right;white-space:nowrap}
+td{padding:11px 8px;border-bottom:1px solid #f2f4f7;text-align:right;white-space:nowrap;color:#344054}
+tr:hover td{background:#f9fafb}
 tr:last-child td{border-bottom:none}
-.site{font-weight:600}
+.site{font-weight:600;color:#101828}
 .pdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;
       vertical-align:1px}
-tr.prow td:first-child{border-left:3px solid transparent;padding-left:10px}
+tr.prow td:first-child{border-left:3px solid transparent;padding-left:12px}
 tr.p-SM  td:first-child{border-left-color:#4f46e5}
 tr.p-SML td:first-child{border-left-color:#0d9488}
 tr.p-NBP td:first-child{border-left-color:#d97706}
-.chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;
-      border-radius:10px;margin-right:6px;color:#fff}
+.chip{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;
+      border-radius:999px;margin-right:6px;color:#fff}
 .c-SM{background:#4f46e5}.c-SML{background:#0d9488}.c-NBP{background:#d97706}
 .hsum{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.hlabel{font-weight:700;color:#12355b;min-width:64px}
-.asof{font-size:11px;color:#94a0ad;margin-left:2px}
-.tot td{font-weight:700;color:#12355b;border-top:2px solid #dde4ee;border-bottom:none}
-.up{color:#0a7d3c;font-weight:600}.dn{color:#c0392b;font-weight:600}.mut{color:#aab4c0}
-.big{font-weight:700;font-size:15px}
+.hlabel{font-weight:700;color:#101828;min-width:64px}
+.asof{font-size:11px;color:#98a2b3;margin-left:2px}
+.tot td{font-weight:700;color:#101828;border-top:2px solid #eaecf0;border-bottom:none;background:#fcfcfd}
+.up{color:#067647;font-weight:600}.dn{color:#b42318;font-weight:600}.mut{color:#98a2b3}
+.big{font-weight:700;font-size:14.5px;color:#101828}
 .scroll{overflow-x:auto}
-.now td{background:#f2f7ff}
-.gap td{color:#aab4c0;font-style:italic}
-.sub2{display:block;font-size:10px;color:#9aa6b2;font-weight:400;margin-top:2px}
+.now td{background:#f5f8ff}
+.gap td{color:#98a2b3;font-style:italic}
+.sub2{display:block;font-size:10px;color:#98a2b3;font-weight:400;margin-top:2px}
 /* ROAS predictor */
-.pred .row{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
-.pred label{font-size:11px;color:#7a8798;font-weight:600;text-transform:uppercase;
-            letter-spacing:.05em;display:block;margin-bottom:4px}
+.pred .row{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.pred label{font-size:11px;color:#667085;font-weight:600;text-transform:uppercase;
+            letter-spacing:.05em;display:block;margin-bottom:5px}
 .pred .fld{flex:1 1 130px;min-width:120px}
-.pred input{width:100%;padding:8px 10px;border:1px solid #d7dfe9;border-radius:8px;
-            font-size:15px;font-weight:600;color:#12355b;background:#fbfcfe}
-.pred input:focus{outline:2px solid #4f46e5;border-color:#4f46e5}
-.pchip{display:inline-block;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;
-       border-radius:14px;border:1.5px solid #d7dfe9;color:#5a6b7d;margin-right:6px;background:#fff}
+.pred .fld input{width:100%;padding:9px 12px;border:1px solid #d0d5dd;border-radius:10px;
+            font-size:15px;font-weight:600;color:#101828;background:#fff;
+            font-variant-numeric:tabular-nums}
+.pred .fld input:focus{outline:2px solid #a4bcfd;border-color:#4f46e5}
+#p_list input[type=checkbox]{width:15px;height:15px;flex:0 0 auto;margin:0;accent-color:#4f46e5}
+#p_list label{text-transform:none;letter-spacing:0;color:#344054;font-weight:500}
+#p_find{background:#fff}
+.pchip{display:inline-block;cursor:pointer;font-size:12px;font-weight:700;padding:6px 14px;
+       border-radius:999px;border:1.5px solid #d0d5dd;color:#475467;margin-right:6px;background:#fff}
+.pchip:hover{border-color:#98a2b3}
 .pchip.on{color:#fff;border-color:transparent}
-.pverd{border-radius:10px;padding:12px 14px;margin-top:6px;font-size:14px;font-weight:600}
-.pv-yes{background:#e8f7ee;color:#0a7d3c}.pv-no{background:#fdecea;color:#c0392b}
-.pv-warn{background:#fff6e5;color:#9a6b00}
-.pgrid{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
-.pbox{flex:1 1 150px;min-width:140px;background:#f7f9fc;border-radius:9px;padding:10px 12px}
-.pbox b{display:block;font-size:19px;color:#12355b;margin-top:2px}
-.pbox span{font-size:11px;color:#7a8798;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-.pnote{font-size:11.5px;color:#8a97a5;margin-top:10px;line-height:1.5}
-details{margin-top:10px;border-top:1px solid #f0f3f7;padding-top:10px}
+.pverd{border-radius:12px;padding:13px 16px;margin-top:8px;font-size:14px;font-weight:600;line-height:1.5}
+.pv-yes{background:#ecfdf3;color:#067647}.pv-no{background:#fef3f2;color:#b42318}
+.pv-warn{background:#fffaeb;color:#93370d}
+.pgrid{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+.pbox{flex:1 1 150px;min-width:140px;background:#f9fafb;border:1px solid #eef1f6;border-radius:12px;padding:12px 14px}
+.pbox b{display:block;font-size:22px;color:#101828;margin-top:3px;letter-spacing:-.01em;
+        font-variant-numeric:tabular-nums}
+.pbox span{font-size:10.5px;color:#667085;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.pnote{font-size:11.5px;color:#98a2b3;margin-top:12px;line-height:1.55}
+details{margin-top:10px;border-top:1px solid #f2f4f7;padding-top:10px}
 details:first-of-type{border-top:none}
-summary{cursor:pointer;font-size:13px;font-weight:600;color:#12355b;padding:6px 0;
-        list-style:none;display:flex;justify-content:space-between;gap:12px}
+summary{cursor:pointer;font-size:13px;font-weight:600;color:#101828;padding:7px 2px;
+        list-style:none;display:flex;justify-content:space-between;gap:12px;border-radius:8px}
+summary:hover{background:#f9fafb}
 summary::-webkit-details-marker{display:none}
-summary::after{content:'\25be';color:#aab4c0;font-size:11px}
+summary::after{content:'\25be';color:#98a2b3;font-size:11px}
 details[open] summary::after{content:'\25b4'}
-summary .m{font-weight:400;color:#7a8798;font-size:12px}
-.run{color:#0a7d3c;font-weight:700}
+summary .m{font-weight:400;color:#667085;font-size:12px}
+.run{color:#067647;font-weight:700}
 .badge{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.06em;
-       padding:3px 9px;border-radius:11px;margin-right:8px;vertical-align:1px}
-.badge.live{background:#e3f5e9;color:#0a7d3c}
-.badge.warnb{background:#fff2d4;color:#8a6100}
-.badge.dead{background:#fdeae7;color:#b03024}
-#age{font-size:12px;color:#5a6b7d}
-.dot.stale{background:#e08a00}
-.warn{color:#b06800;font-weight:600;font-size:11px}
+       padding:3px 10px;border-radius:999px;margin-right:8px;vertical-align:1px}
+.badge.live{background:#ecfdf3;color:#067647}
+.badge.warnb{background:#fffaeb;color:#93370d}
+.badge.dead{background:#fef3f2;color:#b42318}
+#age{font-size:12px;color:#475467}
+.dot.stale{background:#f79009}
+.warn{color:#93370d;font-weight:600;font-size:11px}
 .pulse{animation:pl 1.1s ease-in-out infinite}
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.35}}
-.act{padding:10px 0;border-bottom:1px solid #f0f3f7}
+.act{padding:11px 0;border-bottom:1px solid #f2f4f7}
 .act:last-child{border-bottom:none}
-.nm{font-size:13px;font-weight:600}
-.dt{font-size:12px;color:#7a8798;margin-top:3px}
-.tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;
+.nm{font-size:13px;font-weight:600;color:#101828}
+.dt{font-size:12px;color:#667085;margin-top:3px}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;
      letter-spacing:.05em;margin-right:7px}
-.t-pause{background:#fdeae7;color:#b03024}
-.t-review{background:#fff2d4;color:#8a6100}
-.t-watch{background:#eef3f9;color:#4a6580}
-.ok{font-size:13px;color:#0a7d3c;font-weight:600}
-.foot{font-size:11px;color:#94a0ad;text-align:center;line-height:1.7;padding:6px 8px 0}
+.t-pause{background:#fef3f2;color:#b42318}
+.t-review{background:#fffaeb;color:#93370d}
+.t-watch{background:#eff4fb;color:#3e5a7d}
+.ok{font-size:13px;color:#067647;font-weight:600}
+.foot{font-size:11px;color:#98a2b3;text-align:center;line-height:1.7;padding:8px 8px 0}
 /* ── left sidebar shell ── */
-.shell{display:flex;max-width:1246px;margin:0 auto;align-items:flex-start}
-.side{width:238px;flex:0 0 238px;background:#0f2440;color:#c7d3e2;padding:18px 14px 26px;
-      display:flex;flex-direction:column;gap:16px;position:sticky;top:0;height:100vh;overflow-y:auto}
-.side .brand{font-size:14px;font-weight:800;color:#fff;padding:2px 8px 12px;border-bottom:1px solid #1d3557}
+.shell{display:flex;max-width:1330px;margin:0 auto;align-items:flex-start}
+.side{width:242px;flex:0 0 242px;background:#fff;color:#344054;padding:20px 14px 26px;
+      display:flex;flex-direction:column;gap:16px;position:sticky;top:0;height:100vh;overflow-y:auto;
+      border-right:1px solid #e8ecf3}
+.side .brand{font-size:14.5px;font-weight:800;color:#101828;padding:2px 10px 14px;border-bottom:1px solid #eaecf0}
 .navsec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
-        color:#6f83a0;padding:0 8px;margin:2px 0 4px}
-a.nav{display:block;color:#cdd8e6;text-decoration:none;font-size:13px;padding:8px 10px;border-radius:7px}
-a.nav:hover{background:#1b355a;color:#fff}
-a.nav.active{background:#1b355a;color:#fff;font-weight:600}
+        color:#98a2b3;padding:0 10px;margin:2px 0 4px}
+a.nav{display:block;color:#344054;text-decoration:none;font-size:13px;padding:9px 12px;border-radius:9px;font-weight:500}
+a.nav:hover{background:#f4f6fb;color:#101828}
+a.nav.active{background:#eef1ff;color:#4338ca;font-weight:700}
 .reports{border:none}
 .reports>summary{display:none}
 .rlist{display:flex;flex-direction:column;gap:2px;margin-top:2px}
-a.ritem{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:#cdd8e6;
-        text-decoration:none;font-size:12.5px;padding:8px 10px;border-radius:7px}
-a.ritem:hover{background:#1b355a;color:#fff}
+a.ritem{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:#344054;
+        text-decoration:none;font-size:12.5px;padding:8px 12px;border-radius:9px}
+a.ritem:hover{background:#f4f6fb;color:#101828}
 a.ritem .rd{font-weight:600}
-a.ritem .rr{font-size:11px;color:#8ea3c2;font-variant-numeric:tabular-nums}
-a.ritem.top{background:#12365f}
-a.ritem.top .rr{color:#7fd6a0}
-.rnone{font-size:12px;color:#6f83a0;padding:6px 8px;line-height:1.5}
-.main{flex:1;min-width:0;max-width:1040px;padding:18px 20px 50px}
+a.ritem .rr{font-size:11px;color:#98a2b3;font-variant-numeric:tabular-nums}
+a.ritem.top{background:#eef7f1}
+a.ritem.top .rr{color:#067647}
+.rnone{font-size:12px;color:#98a2b3;padding:6px 10px;line-height:1.5}
+.main{flex:1;min-width:0;max-width:1088px;padding:20px 22px 52px}
 @media(max-width:900px){
   .shell{flex-direction:column}
-  .side{width:auto;flex:none;position:static;height:auto;padding:12px 12px;gap:10px}
+  .side{width:auto;flex:none;position:static;height:auto;padding:12px 12px;gap:10px;border-right:none;
+        border-bottom:1px solid #e8ecf3}
   .side .brand{border-bottom:none;padding-bottom:2px}
   .navsec.hidem{display:none}
   a.nav{display:none}
-  .reports>summary{display:block;cursor:pointer;font-size:13px;font-weight:700;color:#fff;
-        padding:9px 11px;background:#1b355a;border-radius:7px;list-style:none}
+  .reports>summary{display:block;cursor:pointer;font-size:13px;font-weight:700;color:#101828;
+        padding:9px 12px;background:#f2f4f7;border-radius:9px;list-style:none}
   .reports>summary::-webkit-details-marker{display:none}
   .rlist{max-height:44vh;overflow-y:auto;margin-top:6px}
   .main{padding:14px 12px 40px;max-width:none}
-  .roas{font-size:38px}.card{padding:14px}
+  .roas{font-size:36px}.card{padding:15px}.kpi .kv{font-size:22px}.kpi.lead .kv{font-size:24px}
 }
 """
 
@@ -430,29 +455,39 @@ def main():
          f'<span class="nxt" id="chk">checking\u2026</span>'
          f'<span class="nxt" id="nxt">Next update ~{nxt_txt}</span></div></div>']
 
-    # hero
-    h.append('<div class="card hero">')
-    h.append(f'<div class="roas">{a["roas"]:.2f}<span>blended ROAS</span></div>')
-    # "sales till HH:MM" — the cutoff lives in the hero because the operator
+    # hero — KPI tile row. PRESENTATION ONLY: exactly the same values the old
+    # single hero card showed, laid out as stat tiles (Aug 2026 restyle).
+    # "sales till HH:MM" — the cutoff stays visible because the operator
     # compares this number against a live Shopify report; without the time it
     # reads as wrong whenever the pipeline is a few minutes behind (26 Jul).
     till = f' till {sdt:%H:%M}' if snap_ts else ''
-    h.append(f'<div class="sub">{rupee(a["rev"])} sales{till} on {rupee(a["spend"])} spend '
-             f'&nbsp;&middot;&nbsp; {a["orders"]:,} orders &nbsp;&middot;&nbsp; '
-             f'{a["products"]} products live</div>')
-    h.append(f'<div class="vs">{rupee(a.get("active_budget", 0))} budget live '
-             f'&nbsp;&middot;&nbsp; {rupee(a.get("budget_left", 0))} left to spend '
-             f'({a.get("budget_left_pct", 0):.0f}%) '
-             f'&nbsp;&middot;&nbsp; {a.get("active_spent_pct", 0):.0f}% of active budget spent '
-             f'&nbsp;&middot;&nbsp; {a.get("spent_pct", 0):.0f}% of day budget spent '
-             f'&nbsp;&middot;&nbsp; {rupee(a.get("closed_budget", 0))} closed so far</div>')
     if yday:
         y = yday['ALL']
         d = a['roas'] - y['roas']
         cls = 'up' if d > 0 else 'dn' if d < 0 else 'mut'
-        h.append(f'<div class="vs">vs yesterday {y["roas"]:.2f} '
-                 f'<span class="{cls}">{d:+.2f}</span></div>')
-    h.append(f'<div class="vs">{day}</div></div>')
+        delta_chip = f'<span class="delta {cls}">{d:+.2f}</span>'
+        delta_sub = f'vs yesterday {y["roas"]:.2f}'
+    else:
+        delta_chip, delta_sub = '', ''
+    lead_sub = ' &middot; '.join(x for x in (delta_sub, f'data{till}' if till else '') if x)
+    h.append('<div class="kpis">')
+    h.append(f'<div class="kpi lead"><div class="kl">Blended ROAS &middot; {day}</div>'
+             f'<div class="kv">{a["roas"]:.2f}{delta_chip}</div>'
+             f'<div class="ks">{lead_sub}</div></div>')
+    h.append(f'<div class="kpi"><div class="kl">Sales</div>'
+             f'<div class="kv">{rupee(a["rev"])}</div>'
+             f'<div class="ks">{a["orders"]:,} orders &middot; {a["products"]} products live</div></div>')
+    h.append(f'<div class="kpi"><div class="kl">Spend</div>'
+             f'<div class="kv">{rupee(a["spend"])}</div>'
+             f'<div class="ks">{rupee(a.get("closed_budget", 0))} closed so far</div></div>')
+    h.append(f'<div class="kpi"><div class="kl">Budget live</div>'
+             f'<div class="kv">{rupee(a.get("active_budget", 0))}</div>'
+             f'<div class="ks">{a.get("active_spent_pct", 0):.0f}% of active spent &middot; '
+             f'{a.get("spent_pct", 0):.0f}% of day budget spent</div></div>')
+    h.append(f'<div class="kpi"><div class="kl">Budget left</div>'
+             f'<div class="kv">{rupee(a.get("budget_left", 0))}</div>'
+             f'<div class="ks">{a.get("budget_left_pct", 0):.0f}% of live budget still to spend</div></div>')
+    h.append('</div>')
 
     # (The products-report downloads live in the left sidebar — see sidebar_html.)
 
