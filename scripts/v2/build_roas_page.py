@@ -173,6 +173,9 @@ tr.p-NBP td:first-child{border-left-color:#d97706}
         font-variant-numeric:tabular-nums}
 .pbox span{font-size:10.5px;color:var(--mut2);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .pnote{font-size:11.5px;color:var(--mut);margin-top:12px;line-height:1.55}
+.pformula{background:var(--pbox);border:1px solid var(--line2);border-radius:12px;
+          padding:10px 14px;margin:2px 0 10px;font-size:12px;color:var(--sec);line-height:1.7}
+.pformula b{color:var(--ink)}
 details{margin-top:10px;border-top:1px solid var(--line2);padding-top:10px}
 details:first-of-type{border-top:none}
 summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);padding:7px 2px;
@@ -580,6 +583,13 @@ def main():
                         'cal': round(a['rev'] / sum(pixel_rev.values()), 3)
                                if sum(pixel_rev.values()) else 1.0}
         h.append('<div class="card pred"><h2>ROAS predictor &mdash; close which camps to hit target?</h2>')
+        h.append('<div class="pformula">'
+                 '<div><b>Forward ROAS</b> = &Sigma;(kept camp&rsquo;s today-ROAS &times; its budget left) '
+                 '&divide; &Sigma;(budget left) &nbsp;&times;&nbsp; Shopify&divide;pixel calibration</div>'
+                 '<div><b>Future spend</b> = budget left of kept camps &times; share of hours remaining</div>'
+                 '<div><b>Projected close</b> = (sales so far + Forward ROAS &times; future spend) '
+                 '&divide; (spend so far + future spend)</div>'
+                 '</div>')
         h.append('<div id="pchips">'
                  + ''.join(f'<span class="pchip" data-p="{p}" '
                            f'data-c="{PORTAL_COLOR.get(p, "#12355b")}">'
