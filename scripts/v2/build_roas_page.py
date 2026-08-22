@@ -113,6 +113,25 @@ tr.p-NBP td:first-child{border-left-color:#d97706}
 .now td{background:#f2f7ff}
 .gap td{color:#aab4c0;font-style:italic}
 .sub2{display:block;font-size:10px;color:#9aa6b2;font-weight:400;margin-top:2px}
+/* ROAS predictor */
+.pred .row{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.pred label{font-size:11px;color:#7a8798;font-weight:600;text-transform:uppercase;
+            letter-spacing:.05em;display:block;margin-bottom:4px}
+.pred .fld{flex:1 1 130px;min-width:120px}
+.pred input{width:100%;padding:8px 10px;border:1px solid #d7dfe9;border-radius:8px;
+            font-size:15px;font-weight:600;color:#12355b;background:#fbfcfe}
+.pred input:focus{outline:2px solid #4f46e5;border-color:#4f46e5}
+.pchip{display:inline-block;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;
+       border-radius:14px;border:1.5px solid #d7dfe9;color:#5a6b7d;margin-right:6px;background:#fff}
+.pchip.on{color:#fff;border-color:transparent}
+.pverd{border-radius:10px;padding:12px 14px;margin-top:6px;font-size:14px;font-weight:600}
+.pv-yes{background:#e8f7ee;color:#0a7d3c}.pv-no{background:#fdecea;color:#c0392b}
+.pv-warn{background:#fff6e5;color:#9a6b00}
+.pgrid{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.pbox{flex:1 1 150px;min-width:140px;background:#f7f9fc;border-radius:9px;padding:10px 12px}
+.pbox b{display:block;font-size:19px;color:#12355b;margin-top:2px}
+.pbox span{font-size:11px;color:#7a8798;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.pnote{font-size:11.5px;color:#8a97a5;margin-top:10px;line-height:1.5}
 details{margin-top:10px;border-top:1px solid #f0f3f7;padding-top:10px}
 details:first-of-type{border-top:none}
 summary{cursor:pointer;font-size:13px;font-weight:600;color:#12355b;padding:6px 0;
@@ -464,6 +483,128 @@ def main():
                  f'<td>{rupee(a["closed_budget"])}</td>'
                  f'<td>{a["products"]}</td></tr>')
         h.append('</table></div></div>')
+
+    # ── ROAS predictor: will today hit the target, and how much closing? ──
+    if tot:
+        hours_auto = round(max(0.1, 24 - (sdt.hour + sdt.minute / 60)), 1) if snap_ts else 12.0
+        pdata = {}
+        marg_n = {}
+        for p in PORTALS:
+            t = tot[p]
+            # forward ROAS default = the last 3 measured hours' blended ROAS —
+            # what the money is doing RIGHT NOW, not the whole day's average.
+            recent = [r for r in sorted(prows, key=lambda r: r['slot'])
+                      if r['portal'] == p and r['has_snap'] and r['ad_spend'] > 0][-3:]
+            ms, mr = sum(r['ad_spend'] for r in recent), sum(r['shopify_sale'] for r in recent)
+            pdata[p] = {'rev': round(t['rev']), 'spend': round(t['spend']),
+                        'bleft': round(t['budget_left']), 'abud': round(t['active_budget']),
+                        'marg': round(mr / ms, 2) if ms else round(t['roas'], 2)}
+            marg_n[p] = (mr, ms)
+        all_mr = sum(v[0] for v in marg_n.values()); all_ms = sum(v[1] for v in marg_n.values())
+        pdata['ALL'] = {'rev': round(a['rev']), 'spend': round(a['spend']),
+                        'bleft': round(a['budget_left']), 'abud': round(a['active_budget']),
+                        'marg': round(all_mr / all_ms, 2) if all_ms else round(a['roas'], 2)}
+        h.append('<div class="card pred"><h2>ROAS predictor &mdash; will today hit target?</h2>')
+        h.append('<div id="pchips">'
+                 + ''.join(f'<span class="pchip" data-p="{p}" '
+                           f'data-c="{PORTAL_COLOR.get(p, "#12355b")}">'
+                           f'{WEBSITE.get(p, "All")}</span>'
+                           for p in ('ALL',) + PORTALS) + '</div>')
+        h.append('<div class="row">'
+                 '<div class="fld"><label>Target ROAS</label>'
+                 '<input id="p_target" type="number" step="0.05" value="1.30"></div>'
+                 '<div class="fld"><label>Hours left today</label>'
+                 f'<input id="p_hours" type="number" step="0.5" value="{hours_auto}"></div>'
+                 '<div class="fld"><label>Forward ROAS (rest of day)</label>'
+                 '<input id="p_marg" type="number" step="0.05"></div>'
+                 '<div class="fld"><label>Closing &mdash; daily budget to pause (&#8377;)</label>'
+                 '<input id="p_close" type="number" step="1000" value="0"></div>'
+                 '</div>')
+        h.append('<div id="p_out"></div>')
+        h.append(f'<div class="pnote">Auto-filled from the latest snapshot ({data_txt}). '
+                 'Model: campaigns spend their remaining budget by midnight, scaled by the '
+                 'hours you leave them on; money spent from now on earns the Forward ROAS '
+                 '(defaults to the last 3 measured hours). Closing a campaign saves only its '
+                 'UNSPENT share &mdash; spend already gone is sunk. The required-closing line '
+                 'solves for the most future spend today can afford and still average out to '
+                 'target.</div>')
+        h.append(f'<script>var PRED={json.dumps(pdata)};var PRED_HA={hours_auto};</script>')
+        h.append("""<script>
+(function(){
+ var cur='ALL';
+ var rs=function(n){return '\\u20B9'+Math.round(n).toLocaleString('en-IN');};
+ function el(id){return document.getElementById(id);}
+ function paint(){
+  document.querySelectorAll('.pchip').forEach(function(c){
+    var on=c.dataset.p===cur; c.classList.toggle('on',on);
+    c.style.background=on?c.dataset.c:'#fff';});
+ }
+ function calc(){
+  var d=PRED[cur];
+  var T=parseFloat(el('p_target').value)||0;
+  var H=Math.max(0,parseFloat(el('p_hours').value)||0);
+  var r=parseFloat(el('p_marg').value); if(isNaN(r)) r=d.marg;
+  var C=Math.max(0,parseFloat(el('p_close').value)||0);
+  var hs=Math.min(1,PRED_HA>0?H/PRED_HA:1);          // fraction of remaining runway kept
+  var unspent=d.abud>0?d.bleft/d.abud:0;             // avg unspent share of a live budget
+  var sf=d.bleft*hs;                                 // future spend, no action
+  var avoided=Math.min(sf,C*unspent*hs);             // what your closing actually saves
+  var sfC=sf-avoided;
+  var endS0=d.spend+sf,  endR0=endS0>0?(d.rev+r*sf)/endS0:0;
+  var endS1=d.spend+sfC, endR1=endS1>0?(d.rev+r*sfC)/endS1:0;
+  var out='';
+  out+='<div class="pgrid">'
+   +'<div class="pbox"><span>Now</span><b>'+(d.spend>0?(d.rev/d.spend).toFixed(2):'-')+'</b>'
+   +rs(d.rev)+' / '+rs(d.spend)+'</div>'
+   +'<div class="pbox"><span>No action &rarr; end of day</span><b>'+endR0.toFixed(2)+'</b>'
+   +'+'+rs(sf)+' spend to come</div>'
+   +'<div class="pbox"><span>With your closing</span><b>'+endR1.toFixed(2)+'</b>'
+   +'closing '+rs(C)+' saves '+rs(avoided)+'</div></div>';
+  var verdict='';
+  if(endR1>=T){
+    verdict='<div class="pverd pv-yes">&#10003; Reaches target '+T.toFixed(2)
+      +(C>0?' with this closing':' \\u2014 no closing needed')+'. Projected close: '+endR1.toFixed(2)+'</div>';
+  } else if(r>=T){
+    verdict='<div class="pverd pv-warn">&#9888; Below target, but closing will NOT help: forward ROAS ('
+      +r.toFixed(2)+') is already &ge; target \\u2014 every rupee you keep spending pulls the day UP. '
+      +'The drag is money already spent. Projected close: '+endR1.toFixed(2)+'</div>';
+  } else {
+    var xmax=(d.rev-T*d.spend)/(T-r);                // max future spend the target can absorb
+    if(xmax<0){
+      verdict='<div class="pverd pv-no">&#10007; Target '+T.toFixed(2)+' is OUT OF REACH today \\u2014 '
+        +'even closing everything ends at '+(d.spend>0?(d.rev/d.spend).toFixed(2):'0')
+        +'. Day is already below target and forward ROAS ('+r.toFixed(2)+') cannot lift it.</div>';
+    } else {
+      var cut=sf-xmax;
+      if(cut<=0){
+        verdict='<div class="pverd pv-yes">&#10003; On track for '+T.toFixed(2)
+          +' \\u2014 remaining spend fits. Projected close: '+endR0.toFixed(2)+'</div>';
+      } else {
+        var closeNeed=(unspent*hs)>0?cut/(unspent*hs):Infinity;
+        var pct=d.abud>0?Math.min(100,closeNeed/d.abud*100):0;
+        verdict='<div class="pverd '+(closeNeed<=d.abud?'pv-warn':'pv-no')+'">'
+          +(closeNeed<=d.abud
+            ?'&#9888; To end at '+T.toFixed(2)+': close campaigns worth <b>'+rs(closeNeed)
+              +'</b> daily budget ('+pct.toFixed(0)+'% of live budget) \\u2014 cuts '
+              +rs(cut)+' of future spend, leaving room for '+rs(Math.max(0,xmax))+' more.'
+            :'&#10007; Even closing ALL live budget is not enough \\u2014 best possible today is '
+              +(d.spend>0?((d.rev)/(d.spend)).toFixed(2):'0')+' by stopping everything now.')
+          +'</div>';
+      }
+    }
+  }
+  el('p_out').innerHTML=out+verdict;
+ }
+ document.querySelectorAll('.pchip').forEach(function(c){
+   c.addEventListener('click',function(){cur=c.dataset.p;
+     el('p_marg').value=PRED[cur].marg.toFixed(2);paint();calc();});});
+ ['p_target','p_hours','p_marg','p_close'].forEach(function(i){
+   el(i).addEventListener('input',calc);});
+ el('p_marg').value=PRED[cur].marg.toFixed(2);
+ paint();calc();
+})();
+</script>""")
+        h.append('</div>')
 
     # hourly log — the "saved every hour" section
     stimes = slot_times(args.snap_db, day)
