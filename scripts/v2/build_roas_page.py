@@ -513,8 +513,9 @@ def main():
         h.append('<div class="row">'
                  '<div class="fld"><label>Target ROAS</label>'
                  '<input id="p_target" type="number" step="0.05" value="1.30"></div>'
-                 '<div class="fld"><label>Hours left today</label>'
-                 f'<input id="p_hours" type="number" step="0.5" value="{hours_auto}"></div>'
+                 '<div class="fld"><label>Hours left today (auto, IST)</label>'
+                 '<input id="p_hours" type="number" disabled '
+                 'style="background:#f0f3f7;color:#5a6b7d"></div>'
                  '<div class="fld"><label>Forward ROAS (rest of day)</label>'
                  '<input id="p_marg" type="number" step="0.05"></div>'
                  '<div class="fld"><label>Closing &mdash; daily budget to pause (&#8377;)</label>'
@@ -539,10 +540,16 @@ def main():
     var on=c.dataset.p===cur; c.classList.toggle('on',on);
     c.style.background=on?c.dataset.c:'#fff';});
  }
+ function hoursLeftIST(){
+  // live hours until midnight IST, wherever the viewer is
+  var n=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+  return Math.max(0,(24*60-(n.getHours()*60+n.getMinutes()))/60);
+ }
  function calc(){
   var d=PRED[cur];
   var T=parseFloat(el('p_target').value)||0;
-  var H=Math.max(0,parseFloat(el('p_hours').value)||0);
+  var H=hoursLeftIST();
+  el('p_hours').value=H.toFixed(1);
   var r=parseFloat(el('p_marg').value); if(isNaN(r)) r=d.marg;
   var C=Math.max(0,parseFloat(el('p_close').value)||0);
   var hs=Math.min(1,PRED_HA>0?H/PRED_HA:1);          // fraction of remaining runway kept
@@ -598,10 +605,11 @@ def main():
  document.querySelectorAll('.pchip').forEach(function(c){
    c.addEventListener('click',function(){cur=c.dataset.p;
      el('p_marg').value=PRED[cur].marg.toFixed(2);paint();calc();});});
- ['p_target','p_hours','p_marg','p_close'].forEach(function(i){
+ ['p_target','p_marg','p_close'].forEach(function(i){
    el(i).addEventListener('input',calc);});
  el('p_marg').value=PRED[cur].marg.toFixed(2);
  paint();calc();
+ setInterval(calc,60000);   // hours-left ticks down by itself
 })();
 </script>""")
         h.append('</div>')
