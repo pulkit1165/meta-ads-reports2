@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from portal_hourly import (  # noqa: E402
     PORTALS, all_portal_rows, build_rows, closures, latest_snapshot_ts,
-    slot_times, summarise,
+    portal_of, slot_times, summarise,
 )
 from success_lookup import TARGET_ROAS, build_both  # noqa: E402
 from camp_closing import build_first_activity, collect  # noqa: E402
@@ -484,27 +484,40 @@ def main():
                  f'<td>{a["products"]}</td></tr>')
         h.append('</table></div></div>')
 
-    # ── ROAS predictor: will today hit the target, and how much closing? ──
+    # ── ROAS predictor: pick campaigns to close, see if today reaches target ──
     if tot:
         hours_auto = round(max(0.1, 24 - (sdt.hour + sdt.minute / 60)), 1) if snap_ts else 12.0
+        # live campaigns at the latest snapshot — the pick-list. Pixel numbers
+        # (campaign revenue/roas) are calibrated to Shopify units per portal so
+        # the projection stays in the same currency as the page's blended ROAS.
+        pcon = sqlite3.connect(f'file:{args.snap_db}?mode=ro', uri=True)
+        crows = pcon.execute(
+            "SELECT account_name, campaign_id, campaign_name, COALESCE(spend,0), "
+            "COALESCE(revenue,0), COALESCE(daily_budget,0) FROM campaign_hourly_snapshots "
+            "WHERE hour_slot=(SELECT MAX(hour_slot) FROM campaign_hourly_snapshots "
+            "                 WHERE substr(hour_slot,1,10)=?) "
+            "AND substr(hour_slot,1,10)=? AND status='Active' AND COALESCE(daily_budget,0)>0",
+            (day, day)).fetchall()
+        pcon.close()
+        camps, pixel_rev = [], {p: 0.0 for p in PORTALS}
+        for acct, cid, cname, sp, prv, bud in crows:
+            p = portal_of(acct)
+            if not p:
+                continue
+            pixel_rev[p] += prv
+            camps.append({'i': cid, 'p': p, 'n': (cname or cid)[:52],
+                          's': round(sp), 'r': round(prv / sp, 2) if sp else 0.0,
+                          'b': round(bud), 'l': round(max(0.0, bud - sp))})
+        camps.sort(key=lambda c: c['r'])
         pdata = {}
-        marg_n = {}
         for p in PORTALS:
             t = tot[p]
-            # forward ROAS default = the last 3 measured hours' blended ROAS —
-            # what the money is doing RIGHT NOW, not the whole day's average.
-            recent = [r for r in sorted(prows, key=lambda r: r['slot'])
-                      if r['portal'] == p and r['has_snap'] and r['ad_spend'] > 0][-3:]
-            ms, mr = sum(r['ad_spend'] for r in recent), sum(r['shopify_sale'] for r in recent)
             pdata[p] = {'rev': round(t['rev']), 'spend': round(t['spend']),
-                        'bleft': round(t['budget_left']), 'abud': round(t['active_budget']),
-                        'marg': round(mr / ms, 2) if ms else round(t['roas'], 2)}
-            marg_n[p] = (mr, ms)
-        all_mr = sum(v[0] for v in marg_n.values()); all_ms = sum(v[1] for v in marg_n.values())
+                        'cal': round(t['rev'] / pixel_rev[p], 3) if pixel_rev[p] else 1.0}
         pdata['ALL'] = {'rev': round(a['rev']), 'spend': round(a['spend']),
-                        'bleft': round(a['budget_left']), 'abud': round(a['active_budget']),
-                        'marg': round(all_mr / all_ms, 2) if all_ms else round(a['roas'], 2)}
-        h.append('<div class="card pred"><h2>ROAS predictor &mdash; will today hit target?</h2>')
+                        'cal': round(a['rev'] / sum(pixel_rev.values()), 3)
+                               if sum(pixel_rev.values()) else 1.0}
+        h.append('<div class="card pred"><h2>ROAS predictor &mdash; close which camps to hit target?</h2>')
         h.append('<div id="pchips">'
                  + ''.join(f'<span class="pchip" data-p="{p}" '
                            f'data-c="{PORTAL_COLOR.get(p, "#12355b")}">'
@@ -516,100 +529,144 @@ def main():
                  '<div class="fld"><label>Hours left today (auto, IST)</label>'
                  '<input id="p_hours" type="number" disabled '
                  'style="background:#f0f3f7;color:#5a6b7d"></div>'
-                 '<div class="fld"><label>Forward ROAS (rest of day)</label>'
-                 '<input id="p_marg" type="number" step="0.05"></div>'
-                 '<div class="fld"><label>Closing &mdash; daily budget to pause (&#8377;)</label>'
-                 '<input id="p_close" type="number" step="1000" value="0"></div>'
+                 '<div class="fld"><label>Forward ROAS (auto, from camps kept live)</label>'
+                 '<input id="p_marg" type="number" disabled '
+                 'style="background:#f0f3f7;color:#5a6b7d"></div>'
                  '</div>')
         h.append('<div id="p_out"></div>')
-        h.append(f'<div class="pnote">Auto-filled from the latest snapshot ({data_txt}). '
-                 'Model: campaigns spend their remaining budget by midnight, scaled by the '
-                 'hours you leave them on; money spent from now on earns the Forward ROAS '
-                 '(defaults to the last 3 measured hours). Closing a campaign saves only its '
-                 'UNSPENT share &mdash; spend already gone is sunk. The required-closing line '
-                 'solves for the most future spend today can afford and still average out to '
-                 'target.</div>')
-        h.append(f'<script>var PRED={json.dumps(pdata)};var PRED_HA={hours_auto};</script>')
+        h.append('<div class="row" style="align-items:center">'
+                 '<button id="p_auto" class="pchip" style="border-color:#4f46e5;color:#4f46e5">'
+                 '&#9889; Auto-pick worst camps to hit target</button>'
+                 '<button id="p_clear" class="pchip">Clear selection</button>'
+                 '<span id="p_sel" class="asof"></span>'
+                 '<input id="p_find" placeholder="filter campaigns&hellip;" '
+                 'style="flex:1 1 160px;padding:7px 10px;border:1px solid #d7dfe9;'
+                 'border-radius:8px;font-size:13px"></div>')
+        h.append('<div id="p_list" style="max-height:340px;overflow-y:auto;'
+                 'border:1px solid #edf1f6;border-radius:9px"></div>')
+        h.append(f'<div class="pnote">Tick the campaigns you would CLOSE (worst pixel ROAS first). '
+                 f'Everything left unticked keeps spending its remaining budget until midnight, '
+                 f'earning its own today-ROAS (pixel, calibrated to Shopify per website). '
+                 f'Auto-filled from the latest snapshot ({data_txt}); hours tick down live. '
+                 f'Closing saves only unspent budget &mdash; spend already gone is sunk.</div>')
+        h.append(f'<script>var PRED={json.dumps(pdata)};var CAMPS={json.dumps(camps)};'
+                 f'var PRED_HA={hours_auto};</script>')
         h.append("""<script>
 (function(){
- var cur='ALL';
+ var cur='ALL', sel={};
  var rs=function(n){return '\\u20B9'+Math.round(n).toLocaleString('en-IN');};
  function el(id){return document.getElementById(id);}
+ function hoursLeftIST(){
+  var n=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+  return Math.max(0,(24*60-(n.getHours()*60+n.getMinutes()))/60);
+ }
+ function inScope(c){return cur==='ALL'||c.p===cur;}
  function paint(){
-  document.querySelectorAll('.pchip').forEach(function(c){
+  document.querySelectorAll('#pchips .pchip').forEach(function(c){
     var on=c.dataset.p===cur; c.classList.toggle('on',on);
     c.style.background=on?c.dataset.c:'#fff';});
  }
- function hoursLeftIST(){
-  // live hours until midnight IST, wherever the viewer is
-  var n=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-  return Math.max(0,(24*60-(n.getHours()*60+n.getMinutes()))/60);
+ function renderList(){
+  var q=(el('p_find').value||'').toLowerCase();
+  var html='';
+  CAMPS.filter(inScope).forEach(function(c){
+    if(q && c.n.toLowerCase().indexOf(q)<0) return;
+    html+='<label style="display:flex;gap:9px;align-items:center;padding:7px 10px;'
+      +'border-bottom:1px solid #f0f3f7;font-size:12.5px;cursor:pointer;'
+      +(sel[c.i]?'background:#fdecea':'')+'">'
+      +'<input type="checkbox" data-i="'+c.i+'" '+(sel[c.i]?'checked':'')+'>'
+      +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+      +'<span class="pdot" style="background:'
+      +({SM:'#4f46e5',SML:'#0d9488',NBP:'#d97706'}[c.p]||'#888')+'"></span>'+c.n+'</span>'
+      +'<span style="color:'+(c.r<1?'#c0392b':'#0a7d3c')+';font-weight:700;min-width:44px;text-align:right">'
+      +c.r.toFixed(2)+'</span>'
+      +'<span class="mut" style="min-width:150px;text-align:right">'+rs(c.s)+' spent &middot; '
+      +rs(c.l)+' left</span></label>';
+  });
+  el('p_list').innerHTML=html||'<div style="padding:14px" class="mut">no campaigns</div>';
+  el('p_list').querySelectorAll('input').forEach(function(cb){
+    cb.addEventListener('change',function(){sel[cb.dataset.i]=cb.checked;renderList();calc();});});
+ }
+ function project(closedSet){
+  var d=PRED[cur];
+  var H=hoursLeftIST();
+  var hs=Math.min(1,PRED_HA>0?H/PRED_HA:1);
+  var sf=0,wr=0;
+  CAMPS.filter(inScope).forEach(function(c){
+    if(closedSet[c.i]) return;
+    var f=c.l*hs; sf+=f; wr+=c.r*f;
+  });
+  var rpix=sf>0?wr/sf:0, r=rpix*d.cal;
+  var endS=d.spend+sf;
+  return {sf:sf,r:r,end:endS>0?(d.rev+r*sf)/endS:0,H:H};
  }
  function calc(){
   var d=PRED[cur];
   var T=parseFloat(el('p_target').value)||0;
-  var H=hoursLeftIST();
-  el('p_hours').value=H.toFixed(1);
-  var r=parseFloat(el('p_marg').value); if(isNaN(r)) r=d.marg;
-  var C=Math.max(0,parseFloat(el('p_close').value)||0);
-  var hs=Math.min(1,PRED_HA>0?H/PRED_HA:1);          // fraction of remaining runway kept
-  var unspent=d.abud>0?d.bleft/d.abud:0;             // avg unspent share of a live budget
-  var sf=d.bleft*hs;                                 // future spend, no action
-  var avoided=Math.min(sf,C*unspent*hs);             // what your closing actually saves
-  var sfC=sf-avoided;
-  var endS0=d.spend+sf,  endR0=endS0>0?(d.rev+r*sf)/endS0:0;
-  var endS1=d.spend+sfC, endR1=endS1>0?(d.rev+r*sfC)/endS1:0;
-  var out='';
-  out+='<div class="pgrid">'
+  var p0=project({}), p1=project(sel);
+  el('p_hours').value=p1.H.toFixed(1);
+  el('p_marg').value=p1.r?p1.r.toFixed(2):'0.00';
+  var nSel=CAMPS.filter(inScope).filter(function(c){return sel[c.i];});
+  var selBud=nSel.reduce(function(s,c){return s+c.b;},0);
+  var selSaved=p0.sf-p1.sf;
+  el('p_sel').textContent=nSel.length
+    ? nSel.length+' camps picked \\u2014 '+rs(selBud)+' daily budget, saves '+rs(selSaved)+' future spend'
+    : 'nothing picked';
+  var out='<div class="pgrid">'
    +'<div class="pbox"><span>Now</span><b>'+(d.spend>0?(d.rev/d.spend).toFixed(2):'-')+'</b>'
    +rs(d.rev)+' / '+rs(d.spend)+'</div>'
-   +'<div class="pbox"><span>No action &rarr; end of day</span><b>'+endR0.toFixed(2)+'</b>'
-   +'+'+rs(sf)+' spend to come</div>'
-   +'<div class="pbox"><span>With your closing</span><b>'+endR1.toFixed(2)+'</b>'
-   +'closing '+rs(C)+' saves '+rs(avoided)+'</div></div>';
-  var verdict='';
-  if(endR1>=T){
-    verdict='<div class="pverd pv-yes">&#10003; Reaches target '+T.toFixed(2)
-      +(C>0?' with this closing':' \\u2014 no closing needed')+'. Projected close: '+endR1.toFixed(2)+'</div>';
-  } else if(r>=T){
-    verdict='<div class="pverd pv-warn">&#9888; Below target, but closing will NOT help: forward ROAS ('
-      +r.toFixed(2)+') is already &ge; target \\u2014 every rupee you keep spending pulls the day UP. '
-      +'The drag is money already spent. Projected close: '+endR1.toFixed(2)+'</div>';
+   +'<div class="pbox"><span>Close nothing</span><b>'+p0.end.toFixed(2)+'</b>'
+   +'+'+rs(p0.sf)+' spend to come</div>'
+   +'<div class="pbox"><span>Close the '+nSel.length+' picked</span><b>'+p1.end.toFixed(2)+'</b>'
+   +'+'+rs(p1.sf)+' spend to come</div></div>';
+  var verdict;
+  if(p1.end>=T){
+    verdict='<div class="pverd pv-yes">&#10003; YES \\u2014 '
+      +(nSel.length?'closing these '+nSel.length:'even with nothing closed, today')
+      +' reaches target '+T.toFixed(2)+' (projected close '+p1.end.toFixed(2)+')</div>';
   } else {
-    var xmax=(d.rev-T*d.spend)/(T-r);                // max future spend the target can absorb
-    if(xmax<0){
-      verdict='<div class="pverd pv-no">&#10007; Target '+T.toFixed(2)+' is OUT OF REACH today \\u2014 '
-        +'even closing everything ends at '+(d.spend>0?(d.rev/d.spend).toFixed(2):'0')
-        +'. Day is already below target and forward ROAS ('+r.toFixed(2)+') cannot lift it.</div>';
-    } else {
-      var cut=sf-xmax;
-      if(cut<=0){
-        verdict='<div class="pverd pv-yes">&#10003; On track for '+T.toFixed(2)
-          +' \\u2014 remaining spend fits. Projected close: '+endR0.toFixed(2)+'</div>';
-      } else {
-        var closeNeed=(unspent*hs)>0?cut/(unspent*hs):Infinity;
-        var pct=d.abud>0?Math.min(100,closeNeed/d.abud*100):0;
-        verdict='<div class="pverd '+(closeNeed<=d.abud?'pv-warn':'pv-no')+'">'
-          +(closeNeed<=d.abud
-            ?'&#9888; To end at '+T.toFixed(2)+': close campaigns worth <b>'+rs(closeNeed)
-              +'</b> daily budget ('+pct.toFixed(0)+'% of live budget) \\u2014 cuts '
-              +rs(cut)+' of future spend, leaving room for '+rs(Math.max(0,xmax))+' more.'
-            :'&#10007; Even closing ALL live budget is not enough \\u2014 best possible today is '
-              +(d.spend>0?((d.rev)/(d.spend)).toFixed(2):'0')+' by stopping everything now.')
-          +'</div>';
-      }
-    }
+    var best=bestPossible(T);
+    verdict='<div class="pverd '+(best.reachable?'pv-warn':'pv-no')+'">'
+      +(nSel.length?'&#10007; NOT with these '+nSel.length+' \\u2014 projected close '+p1.end.toFixed(2):'&#10007; Not on track \\u2014 projected close '+p0.end.toFixed(2))
+      +(best.reachable
+        ?'. Auto-pick can still get there (closing '+best.n+' camps ends at '+best.end.toFixed(2)+').'
+        :'. Target is OUT OF REACH today \\u2014 best possible is '+best.end.toFixed(2)
+          +' (closing the worst '+best.n+' camps).')
+      +'</div>';
   }
   el('p_out').innerHTML=out+verdict;
  }
- document.querySelectorAll('.pchip').forEach(function(c){
-   c.addEventListener('click',function(){cur=c.dataset.p;
-     el('p_marg').value=PRED[cur].marg.toFixed(2);paint();calc();});});
- ['p_target','p_marg','p_close'].forEach(function(i){
-   el(i).addEventListener('input',calc);});
- el('p_marg').value=PRED[cur].marg.toFixed(2);
- paint();calc();
- setInterval(calc,60000);   // hours-left ticks down by itself
+ function bestPossible(T){
+  // greedy: close worst-pixel-ROAS camps one by one, track the best close
+  var trial={},best={end:project({}).end,n:0,reachable:project({}).end>=T},k=0;
+  var list=CAMPS.filter(inScope);
+  for(var i=0;i<list.length;i++){
+    trial[list[i].i]=true;k++;
+    var e=project(trial).end;
+    if(e>best.end){best.end=e;best.n=k;}
+    if(e>=T){return {end:e,n:k,reachable:true};}
+  }
+  best.reachable=best.end>=T;
+  return best;
+ }
+ el('p_auto').addEventListener('click',function(ev){
+  ev.preventDefault();
+  var T=parseFloat(el('p_target').value)||0;
+  sel={};var list=CAMPS.filter(inScope);
+  for(var i=0;i<list.length;i++){
+    sel[list[i].i]=true;
+    if(project(sel).end>=T) break;
+  }
+  if(project(sel).end<parseFloat(el('p_target').value||0)){/* keep best-effort selection */}
+  renderList();calc();
+ });
+ el('p_clear').addEventListener('click',function(ev){ev.preventDefault();sel={};renderList();calc();});
+ el('p_find').addEventListener('input',renderList);
+ document.querySelectorAll('#pchips .pchip').forEach(function(c){
+   c.addEventListener('click',function(){cur=c.dataset.p;paint();renderList();calc();});});
+ el('p_target').addEventListener('input',calc);
+ paint();renderList();calc();
+ setInterval(calc,60000);
 })();
 </script>""")
         h.append('</div>')
