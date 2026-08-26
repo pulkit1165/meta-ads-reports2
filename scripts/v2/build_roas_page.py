@@ -569,7 +569,7 @@ def main():
         # one Rs2k order reads as 40x and, weighted by budget-left, poisons the
         # forward projection). Low-spend camps borrow the portal blend; all camp
         # ROAS is capped so no single row can dominate the weighted average.
-        MIN_SP, R_CAP = 500.0, 8.0
+        K_SP, R_CAP = 2000.0, 8.0
         pixel_sp = {p: 0.0 for p in PORTALS}
         crows_p = []
         for acct, cid, cname, sp, prv, bud in crows:
@@ -581,7 +581,10 @@ def main():
             crows_p.append((p, cid, cname, sp, prv, bud))
         blend = {p: (pixel_rev[p] / pixel_sp[p] if pixel_sp[p] else 0.0) for p in PORTALS}
         for p, cid, cname, sp, prv, bud in crows_p:
-            r = (prv / sp) if sp >= MIN_SP else blend[p]
+            # spend-credibility blend: low-spend camps lean on the portal average,
+            # high-spend camps earn their own number (K_SP = Rs2k pseudo-spend)
+            raw = (prv / sp) if sp > 0 else blend[p]
+            r = (sp * raw + K_SP * blend[p]) / (sp + K_SP)
             camps.append({'i': cid, 'p': p, 'n': (cname or cid)[:52],
                           's': round(sp), 'r': round(min(r, R_CAP), 2),
                           'b': round(bud), 'l': round(max(0.0, bud - sp))})
@@ -597,9 +600,10 @@ def main():
                         'cal': _cal(a['rev'], sum(pixel_rev.values()))}
         h.append('<div class="card pred"><h2>ROAS predictor &mdash; close which camps to hit target?</h2>')
         h.append('<div class="pformula">'
-                 '<div><b>Forward ROAS</b> = &Sigma;(kept camp&rsquo;s today-ROAS &times; its budget left) '
-                 '&divide; &Sigma;(budget left) &nbsp;&times;&nbsp; Shopify&divide;pixel calibration</div>'
-                 '<div><b>Future spend</b> = budget left of kept camps &times; share of hours remaining</div>'
+                 '<div><b>Forward ROAS</b> = &Sigma;(kept camp&rsquo;s ROAS &times; its expected future spend) '
+                 '&divide; &Sigma;(expected future spend) &nbsp;&times;&nbsp; Shopify&divide;pixel calibration '
+                 '&mdash; camp ROAS is spend-credibility blended with the portal average</div>'
+                 '<div><b>Future spend</b> = each camp&rsquo;s own spend pace &times; hours remaining, capped at its budget left</div>'
                  '<div><b>Projected close</b> = (sales so far + Forward ROAS &times; future spend) '
                  '&divide; (spend so far + future spend)</div>'
                  '</div>')
@@ -675,11 +679,12 @@ def main():
  function project(closedSet){
   var d=PRED[cur];
   var H=hoursLeftIST();
-  var hs=Math.min(1,PRED_HA>0?H/PRED_HA:1);
+  var elapsed=Math.max(1,24-PRED_HA);   /* hours of the day already burned at snapshot */
   var sf=0,wr=0;
   CAMPS.filter(inScope).forEach(function(c){
     if(closedSet[c.i]) return;
-    var f=c.l*hs; sf+=f; wr+=c.r*f;
+    /* future spend follows the camp's OWN pace, capped at its budget left */
+    var f=Math.min(c.l,(c.s/elapsed)*H); sf+=f; wr+=c.r*f;
   });
   var rpix=sf>0?wr/sf:0, r=rpix*d.cal;
   var endS=d.spend+sf;
