@@ -642,7 +642,7 @@ def main():
                  f'var PRED_HA={hours_auto};</script>')
         h.append("""<script>
 (function(){
- var cur='ALL', sel={};
+ var cur='ALL', sel={}, recommend={};
  var rs=function(n){return '\\u20B9'+Math.round(n).toLocaleString('en-IN');};
  function el(id){return document.getElementById(id);}
  function hoursLeftIST(){
@@ -666,7 +666,8 @@ def main():
       +'<input type="checkbox" data-i="'+c.i+'" '+(sel[c.i]?'checked':'')+'>'
       +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
       +'<span class="pdot" style="background:'
-      +({SM:'#4f46e5',SML:'#0d9488',NBP:'#d97706'}[c.p]||'#888')+'"></span>'+c.n+'</span>'
+      +({SM:'#4f46e5',SML:'#0d9488',NBP:'#d97706'}[c.p]||'#888')+'"></span>'+c.n
+      +(recommend[c.i]?' <span title="auto-pick recommends closing this camp" style="font-weight:800">&#9889;</span>':'')+'</span>'
       +'<span style="color:'+(c.r<1?'var(--neg)':'var(--pos)')+';font-weight:700;min-width:44px;text-align:right">'
       +c.r.toFixed(2)+'</span>'
       +'<span class="mut" style="min-width:150px;text-align:right">'+rs(c.s)+' spent &middot; '
@@ -710,34 +711,50 @@ def main():
    +'<div class="pbox"><span>Close the '+nSel.length+' picked</span><b>'+p1.end.toFixed(2)+'</b>'
    +'+'+rs(p1.sf)+' spend to come</div></div>';
   var verdict;
+  recommend={};
   if(p1.end>=T){
     verdict='<div class="pverd pv-yes">&#10003; YES \\u2014 '
       +(nSel.length?'closing these '+nSel.length:'even with nothing closed, today')
       +' reaches target '+T.toFixed(2)+' (projected close '+p1.end.toFixed(2)+')</div>';
   } else {
     var best=bestPossible(T);
+    var allEnd=(d.spend>0?(d.rev/d.spend):0);   /* close EVERYTHING => day ends at rev/spend so far */
+    best.ids.forEach(function(id){recommend[id]=true;});
     verdict='<div class="pverd '+(best.reachable?'pv-warn':'pv-no')+'">'
       +(nSel.length?'&#10007; NOT with these '+nSel.length+' \\u2014 projected close '+p1.end.toFixed(2):'&#10007; Not on track \\u2014 projected close '+p0.end.toFixed(2))
       +(best.reachable
-        ?'. Auto-pick can still get there (closing '+best.n+' camps ends at '+best.end.toFixed(2)+').'
-        :'. Target is OUT OF REACH today \\u2014 best possible is '+best.end.toFixed(2)
-          +' (closing the worst '+best.n+' camps).')
+        ?'. &#9889; Closing '+(best.n===1?'this 1 camp':'these '+best.n+' camps')+' gets there ('+best.end.toFixed(2)+'): '
+          +nameList(best.ids)+' \\u2014 marked &#9889; in the list below.'
+        :'. Target '+T.toFixed(2)+' is OUT OF REACH today \\u2014 best possible is '+best.end.toFixed(2)
+          +' (closing '+nameList(best.ids)+', marked &#9889; below). '
+          +'Even closing ALL remaining budget ends the day at '+allEnd.toFixed(2)
+          +' \\u2014 spend already gone is locked in.')
       +'</div>';
   }
   el('p_out').innerHTML=out+verdict;
+  renderList();
  }
  function bestPossible(T){
-  // greedy: close worst-pixel-ROAS camps one by one, track the best close
-  var trial={},best={end:project({}).end,n:0,reachable:project({}).end>=T},k=0;
+  // greedy: close worst-pixel-ROAS camps one by one, track the best close + WHICH camps
+  var trial={},ids=[],best={end:project({}).end,n:0,ids:[],reachable:project({}).end>=T};
   var list=CAMPS.filter(inScope);
   for(var i=0;i<list.length;i++){
-    trial[list[i].i]=true;k++;
+    trial[list[i].i]=true;ids.push(list[i].i);
     var e=project(trial).end;
-    if(e>best.end){best.end=e;best.n=k;}
-    if(e>=T){return {end:e,n:k,reachable:true};}
+    if(e>best.end){best.end=e;best.n=ids.length;best.ids=ids.slice();}
+    if(e>=T){return {end:e,n:ids.length,ids:ids.slice(),reachable:true};}
   }
   best.reachable=best.end>=T;
   return best;
+ }
+ function campName(id){
+  for(var i=0;i<CAMPS.length;i++) if(CAMPS[i].i===id) return CAMPS[i].n;
+  return id;
+ }
+ function nameList(ids){
+  var names=ids.slice(0,4).map(function(id){return '<b>'+campName(id)+'</b>';});
+  if(ids.length>4) names.push('+'+(ids.length-4)+' more');
+  return names.join(', ');
  }
  el('p_auto').addEventListener('click',function(ev){
   ev.preventDefault();
