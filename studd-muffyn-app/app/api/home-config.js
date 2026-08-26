@@ -16,6 +16,23 @@ const EXTERNAL_HANDLE_MAP = {
 
 const titleCache = new Map(); // warm-instance cache of collection titles
 
+// Site headings arrive HTML-encoded (e.g. "&#10022;" for ✦) and often already
+// carry their own decorative glyphs — decode, then strip so the app doesn't
+// render raw entities or double up on ornaments.
+const decodeEntities = (t) =>
+  String(t)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+const stripOrnaments = (t) =>
+  decodeEntities(t)
+    .replace(/[\u2726\u2727\u2724\u2725\u2735\u2736\u273B\u273D\u2739\u2605\u2606\u25C6\u25C7\u2756\u274A\u274B*~\-–—|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const prettify = (h) =>
   h.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bAnd\b/g, '&');
 
@@ -193,7 +210,7 @@ function parseMenu(html) {
   const re = /<a[^>]*href="([^"#]*)"[^>]*>([\s\S]*?)<\/a>/g;
   let a;
   while ((a = re.exec(seg))) {
-    const title = a[2].replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    const title = decodeEntities(a[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
     let url = a[1].replace(/^https?:\/\/(www\.)?studdmuffyn\.com/, '');
     if (!title || /log in|create an account/i.test(title)) continue;
     anchors.push({ title, url });
@@ -260,7 +277,7 @@ async function buildConfig(html) {
       const orn = (seg => {
         const m2 = seg.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/);
         if (!m2) return null;
-        const t = m2[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const t = stripOrnaments(m2[1].replace(/<[^>]+>/g, ' '));
         return t && t.length <= 40 ? t : null;
       })(p);
       if (orn) sections.push({ type: 'sectionTitle', text: orn });
@@ -321,7 +338,7 @@ async function buildConfig(html) {
     )
   );
   for (const s of sections) {
-    if (s.type === 'productRail') s.title = titleCache.get(s.handle) || prettify(s.handle);
+    if (s.type === 'productRail') s.title = decodeEntities(titleCache.get(s.handle) || prettify(s.handle));
   }
 
   sections.push({ type: 'recentlyViewed', title: 'Recently Viewed' });

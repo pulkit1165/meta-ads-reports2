@@ -5,7 +5,6 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import type { Product } from '../api/types';
 import { startCheckoutUrl } from '../api/shopify';
@@ -29,8 +28,6 @@ export function ProductCard({
   const mkt = idx?.[product.handle];
   const wished = wishlist.includes(product.handle);
   const off = pctOff(product.price, product.compareAt);
-  const scale = useSharedValue(1);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const soldOut = product.variants.length > 0 && product.variants.every((v) => !v.available);
 
   const [added, setAdded] = React.useState(false);
@@ -59,10 +56,8 @@ export function ProductCard({
   };
 
   return (
-    <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 60).springify()} style={[a, { width }]}>
+    <View style={{ width }}>
       <Pressable
-        onPressIn={() => (scale.value = withSpring(0.97, { damping: 15 }))}
-        onPressOut={() => (scale.value = withSpring(1, { damping: 12 }))}
         onPress={() => router.push(`/product/${product.handle}`)}
         style={[s.card, shadow.card]}
       >
@@ -130,7 +125,7 @@ export function ProductCard({
           ) : null}
         </View>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 

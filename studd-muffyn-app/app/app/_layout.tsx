@@ -4,13 +4,18 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { colors, SCREEN_W } from '../src/theme';
+import { InteractionManager } from 'react-native';
 import { refreshCatalogFromCloud } from '../src/api/shopify';
 
 function AppStack() {
   // pull the current product list once per launch so new launches are
   // searchable straight away (falls back silently to the bundled snapshot)
   React.useEffect(() => {
-    refreshCatalogFromCloud();
+    // never compete with first paint / touch handling on device
+    const task = InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => { refreshCatalogFromCloud(); }, 3000);
+    });
+    return () => task.cancel();
   }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>

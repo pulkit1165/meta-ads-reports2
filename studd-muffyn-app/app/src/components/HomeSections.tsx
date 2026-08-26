@@ -44,7 +44,11 @@ export function AutoImage({
       transition={250}
       onLoad={(e) => {
         const src = (e as any)?.source;
-        if (src?.width && src?.height) setAspect(src.width / src.height);
+        if (!src?.width || !src?.height) return;
+        const next = src.width / src.height;
+        // the config already carries true aspects, so in the normal case this
+        // is a no-op — avoid a setState per image (re-render storm on device)
+        setAspect((prev) => (Math.abs(prev - next) > 0.02 ? next : prev));
       }}
     />
   );
@@ -72,9 +76,9 @@ export function AnnouncementTicker({ messages }: { messages: string[] }) {
   }, [messages.length]);
   return (
     <View style={s.ticker}>
-      <Animated.Text key={i} entering={FadeIn.duration(400)} style={s.tickerText} numberOfLines={1}>
+      <Text style={s.tickerText} numberOfLines={1}>
         {messages[i]}
-      </Animated.Text>
+      </Text>
     </View>
   );
 }
@@ -145,26 +149,15 @@ export function IconRow({ items }: { items: { image: string; title?: string; han
 
 // --- auto-scrolling strip (USP badges / marketplace logos) ------------------
 export function LogoStrip({ images, height = 84, gap = 18 }: { images: string[]; height?: number; gap?: number }) {
-  const ref = useRef<ScrollView>(null);
-  const x = useRef(0);
-  useEffect(() => {
-    const id = setInterval(() => {
-      x.current += 1;
-      ref.current?.scrollTo({ x: x.current, animated: false });
-    }, 30);
-    return () => clearInterval(id);
-  }, []);
-  const doubled = [...images, ...images];
+  // NOTE: this used to auto-scroll via setInterval -> scrollTo(). A scroll view
+  // being driven programmatically many times a second keeps claiming the touch
+  // responder, which cancels taps across the whole home screen on device.
+  // It is now a normal strip the customer can swipe.
+  const doubled = images;
   return (
     <ScrollView
-      ref={ref}
       horizontal
       showsHorizontalScrollIndicator={false}
-      scrollEnabled={false}
-      onContentSizeChange={(w) => {
-        // loop the marquee
-        if (x.current > w / 2) x.current = 0;
-      }}
       contentContainerStyle={{ paddingHorizontal: 16, gap, alignItems: 'center', paddingVertical: 10 }}
     >
       {doubled.map((img, i) => (
@@ -218,7 +211,7 @@ export function ProductRail({
       };
     }
   }, [handle]);
-  const items = (bundled.length ? bundled : fetched ?? []).slice(0, 12);
+  const items = (bundled.length ? bundled : fetched ?? []).slice(0, 8);
   if (!items.length) return null;
   return (
     <View>
@@ -234,6 +227,10 @@ export function ProductRail({
         showsHorizontalScrollIndicator={false}
         keyExtractor={(p) => p.handle}
         contentContainerStyle={{ paddingHorizontal: 20, gap: 14 }}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        windowSize={3}
+        removeClippedSubviews
         renderItem={({ item, index }) => <ProductCard product={item} index={index} />}
       />
     </View>

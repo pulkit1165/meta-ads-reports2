@@ -1,6 +1,6 @@
 // Home — fully driven by src/config/home.json (merch dashboard-ready).
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,7 +20,6 @@ import {
   SectionTitle,
 } from '../../src/components/HomeSections';
 import { getProduct } from '../../src/api/shopify';
-import { Onboarding } from '../../src/components/Onboarding';
 import { useShop } from '../../src/store/shop';
 import { colors } from '../../src/theme';
 
@@ -52,60 +51,60 @@ function RecentlyViewed({ title }: { title: string }) {
 
 export default function Home() {
   const cfg = useHomeConfig() as any;
-  const onboarded = useShop((st) => st.onboarded);
-  const setOnboarded = useShop((st) => st.setOnboarded);
-  const [hydrated, setHydrated] = useState(() => useShop.persist.hasHydrated());
-  useEffect(() => {
-    if (useShop.persist.hasHydrated()) {
-      setHydrated(true);
-      return;
+  const sections = (cfg.sections || []) as any[];
+
+  const renderSection = (sec: any, i: number) => {
+    switch (sec.type) {
+      case 'hero':
+        return <Hero slides={sec.slides} aspect={sec.aspect} />;
+      case 'iconRow':
+        return <IconRow items={sec.items} />;
+      case 'logoStrip':
+        return <LogoStrip images={sec.images} height={sec.height} />;
+      case 'imageBanner':
+        return <ImageBanner image={sec.image} url={sec.url} aspect={sec.aspect} />;
+      case 'sectionTitle':
+        return <SectionTitle text={sec.text} />;
+      case 'categoryGrid':
+        return (
+          <CategoryGrid
+            title={sec.title}
+            items={sec.items}
+            aspect={sec.aspect}
+            showLabel={sec.showLabel !== false}
+            labelMode={sec.labelMode}
+          />
+        );
+      case 'productRail':
+        return <ProductRail title={sec.title} subtitle={sec.subtitle} handle={sec.handle} />;
+      case 'offerCards':
+        return <OfferCards title={sec.title} items={sec.items} />;
+      case 'purposeGrid':
+        return <PurposeGrid title={sec.title} subtitle={sec.subtitle} items={sec.items} />;
+      case 'bigBanner':
+        return <BigBanner title={sec.title} subtitle={sec.subtitle} handle={sec.handle} />;
+      case 'recentlyViewed':
+        return <RecentlyViewed title={sec.title} />;
+      default:
+        return null;
     }
-    return useShop.persist.onFinishHydration(() => setHydrated(true));
-  }, []);
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <AnnouncementTicker messages={cfg.announcement.messages} />
       <Header />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
-        {cfg.sections.map((sec: any, i: number) => {
-          switch (sec.type) {
-            case 'hero':
-              return <Hero key={i} slides={sec.slides} aspect={sec.aspect} />;
-            case 'iconRow':
-              return <IconRow key={i} items={sec.items} />;
-            case 'logoStrip':
-              return <LogoStrip key={i} images={sec.images} height={sec.height} />;
-            case 'imageBanner':
-              return <ImageBanner key={i} image={sec.image} url={sec.url} aspect={sec.aspect} />;
-            case 'sectionTitle':
-              return <SectionTitle key={i} text={sec.text} />;
-            case 'categoryGrid':
-              return (
-                <CategoryGrid
-                  key={i}
-                  title={sec.title}
-                  items={sec.items}
-                  aspect={sec.aspect}
-                  showLabel={sec.showLabel !== false}
-                  labelMode={sec.labelMode}
-                />
-              );
-            case 'productRail':
-              return <ProductRail key={i} title={sec.title} subtitle={sec.subtitle} handle={sec.handle} />;
-            case 'offerCards':
-              return <OfferCards key={i} title={sec.title} items={sec.items} />;
-            case 'purposeGrid':
-              return <PurposeGrid key={i} title={sec.title} subtitle={sec.subtitle} items={sec.items} />;
-            case 'bigBanner':
-              return <BigBanner key={i} title={sec.title} subtitle={sec.subtitle} handle={sec.handle} />;
-            case 'recentlyViewed':
-              return <RecentlyViewed key={i} title={sec.title} />;
-            default:
-              return null;
-          }
-        })}
-      </ScrollView>
-      {hydrated && !onboarded && <Onboarding onDone={setOnboarded} />}
+      <FlatList
+        data={sections}
+        keyExtractor={(_, i) => String(i)}
+        renderItem={({ item, index }) => <View>{renderSection(item, index)}</View>}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 130 }}
+        initialNumToRender={4}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        removeClippedSubviews={false}
+      />
     </SafeAreaView>
   );
 }
