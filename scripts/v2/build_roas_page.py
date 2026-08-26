@@ -565,23 +565,36 @@ def main():
             (day, day)).fetchall()
         pcon.close()
         camps, pixel_rev = [], {p: 0.0 for p in PORTALS}
+        # a camp with trivial spend today has a meaningless own-ROAS (Rs50 spend +
+        # one Rs2k order reads as 40x and, weighted by budget-left, poisons the
+        # forward projection). Low-spend camps borrow the portal blend; all camp
+        # ROAS is capped so no single row can dominate the weighted average.
+        MIN_SP, R_CAP = 500.0, 8.0
+        pixel_sp = {p: 0.0 for p in PORTALS}
+        crows_p = []
         for acct, cid, cname, sp, prv, bud in crows:
             p = portal_of(acct)
             if not p:
                 continue
             pixel_rev[p] += prv
+            pixel_sp[p] += sp
+            crows_p.append((p, cid, cname, sp, prv, bud))
+        blend = {p: (pixel_rev[p] / pixel_sp[p] if pixel_sp[p] else 0.0) for p in PORTALS}
+        for p, cid, cname, sp, prv, bud in crows_p:
+            r = (prv / sp) if sp >= MIN_SP else blend[p]
             camps.append({'i': cid, 'p': p, 'n': (cname or cid)[:52],
-                          's': round(sp), 'r': round(prv / sp, 2) if sp else 0.0,
+                          's': round(sp), 'r': round(min(r, R_CAP), 2),
                           'b': round(bud), 'l': round(max(0.0, bud - sp))})
         camps.sort(key=lambda c: c['r'])
+        def _cal(shop, pix):
+            return round(min(3.0, max(0.3, shop / pix)), 3) if pix else 1.0
         pdata = {}
         for p in PORTALS:
             t = tot[p]
             pdata[p] = {'rev': round(t['rev']), 'spend': round(t['spend']),
-                        'cal': round(t['rev'] / pixel_rev[p], 3) if pixel_rev[p] else 1.0}
+                        'cal': _cal(t['rev'], pixel_rev[p])}
         pdata['ALL'] = {'rev': round(a['rev']), 'spend': round(a['spend']),
-                        'cal': round(a['rev'] / sum(pixel_rev.values()), 3)
-                               if sum(pixel_rev.values()) else 1.0}
+                        'cal': _cal(a['rev'], sum(pixel_rev.values()))}
         h.append('<div class="card pred"><h2>ROAS predictor &mdash; close which camps to hit target?</h2>')
         h.append('<div class="pformula">'
                  '<div><b>Forward ROAS</b> = &Sigma;(kept camp&rsquo;s today-ROAS &times; its budget left) '
