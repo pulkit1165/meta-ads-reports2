@@ -15,6 +15,9 @@ on:
     - cron: '5 * * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: paras-videos          # queue, never kill a long run mid-flight
   cancel-in-progress: false
