@@ -669,8 +669,9 @@ def main():
       +'<span class="pdot" style="background:'
       +({SM:'#4f46e5',SML:'#0d9488',NBP:'#d97706'}[c.p]||'#888')+'"></span>'+c.n
       +(recommend[c.i]?' <span title="auto-pick recommends closing this camp" style="font-weight:800">&#9889;</span>':'')+'</span>'
-      +'<span style="color:'+(c.r<1?'var(--neg)':'var(--pos)')+';font-weight:700;min-width:44px;text-align:right">'
-      +c.r.toFixed(2)+'</span>'
+      +'<span style="min-width:96px;text-align:right;white-space:nowrap">'
+      +'<span style="color:'+(c.r<1?'var(--neg)':'var(--pos)')+';font-weight:700">'+c.r.toFixed(2)+'</span>'
+      +'<span class="mut" style="font-weight:500"> &rarr;'+(c.r*(PRED[cur]&&PRED[cur].cal||1)).toFixed(2)+' shop</span></span>'
       +'<span class="mut" style="min-width:150px;text-align:right">'+rs(c.s)+' spent &middot; '
       +rs(c.l)+' left</span></label>';
   });
@@ -724,8 +725,10 @@ def main():
     verdict='<div class="pverd '+(best.reachable?'pv-warn':'pv-no')+'">'
       +(nSel.length?'&#10007; NOT with these '+nSel.length+' \\u2014 projected close '+p1.end.toFixed(2):'&#10007; Not on track \\u2014 projected close '+p0.end.toFixed(2))
       +(best.reachable
-        ?'. &#9889; Closing '+(best.n===1?'this 1 camp':'these '+best.n+' camps')+' gets there ('+best.end.toFixed(2)+'): '
-          +nameList(best.ids)+' \\u2014 marked &#9889; in the list below.'
+        ?(best.n===0
+          ?'. Your picked camps are the problem \\u2014 clear the selection: with NOTHING closed today already reaches '+best.end.toFixed(2)+'. (Their pixel ROAS looks low, but Shopify-calibrated they earn at/above target.)'
+          :'. &#9889; Closing '+(best.n===1?'this 1 camp':'these '+best.n+' camps')+' gets there ('+best.end.toFixed(2)+'): '
+          +nameList(best.ids)+' \\u2014 marked &#9889; in the list below.')
         :'. Target '+T.toFixed(2)+' is OUT OF REACH today \\u2014 best possible is '+best.end.toFixed(2)
           +' (closing '+nameList(best.ids)+', marked &#9889; below). '
           +'Even closing ALL remaining budget ends the day at '+allEnd.toFixed(2)
