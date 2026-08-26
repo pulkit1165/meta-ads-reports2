@@ -69,6 +69,8 @@ jobs:
           VERCEL_PROJECT_ID: prj_lxnCOpXro6HtrSWZSavX1dSkX1LM
         run: |
           set -e
+          # union-merge: accounts that failed this hour keep last good videos
+          python3 scripts/v2/merge_paras_state.py || true
           python3 scripts/v2/build_paras_page.py --data antariksh/paras_videos.json \
               --smt antariksh/smt_videos.json --out antariksh/paras-videos.html
           if [ -n "$VERCEL_TOKEN" ]; then
