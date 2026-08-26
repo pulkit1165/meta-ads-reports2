@@ -1,26 +1,28 @@
 name: Paras video report (hourly)
 
-# Rebuilds the Paras Video Report + SMT creatives data from Meta (ALL ads since
-# the window start — active AND closed; the report is created-time filtered, so
-# paused/closed videos stay in with their final numbers), renders
-# antariksh/paras-videos.html, deploys the antariksh Vercel project, and
-# force-pushes the three artifacts to the single-commit `paras-state` branch so
-# v2-ingest's own hourly antariksh deploys never clobber the page with the
-# stale repo copy.
+# Rebuilds the Paras Video Report + SMT creatives from Meta (created-time
+# filtered: active AND closed ads stay in), renders antariksh/paras-videos.html,
+# deploys the antariksh Vercel project, and force-pushes artifacts to the
+# single-commit `paras-state` branch (v2-ingest pulls from there so its own
+# deploys never clobber this page).
+#
+# Structure is timeout-proof: SMT (small) runs first, Paras (big, ~40 min) can
+# fail/time out per-step, and the page+deploy step ALWAYS runs using the
+# freshest data available (this run's output, else the last paras-state copy).
 
 on:
   schedule:
-    - cron: '5 * * * *'        # hourly at :05 UTC
+    - cron: '5 * * * *'
   workflow_dispatch:
 
 concurrency:
-  group: paras-videos
-  cancel-in-progress: true
+  group: paras-videos          # queue, never kill a long run mid-flight
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     env:
       META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
     steps:
@@ -29,37 +31,50 @@ jobs:
         with: { python-version: '3.11' }
       - run: pip install --quiet openpyxl
 
-      - name: Build Paras + SMT video data and page
+      - name: Restore last good artifacts from paras-state
+        run: |
+          git fetch origin paras-state --depth 1 2>/dev/null \
+            && git checkout FETCH_HEAD -- antariksh/paras_videos.json antariksh/smt_videos.json antariksh/paras-videos.html \
+            || echo "no paras-state yet — repo copies stand"
+
+      - name: SMT data (7-day window, small)
+        timeout-minutes: 18
+        continue-on-error: true
         run: |
           TODAY=$(TZ=Asia/Kolkata date +%F)
           SMT_SINCE=$(TZ=Asia/Kolkata date -d '7 days ago' +%F)
-          python3 scripts/v2/paras_video_report.py --since 2026-06-26 --until "$TODAY" \
-              --out /tmp/paras_video_report.xlsx
-          python3 scripts/v2/build_paras_data.py --xlsx /tmp/paras_video_report.xlsx \
-              --since 2026-06-26 --until "$TODAY" --out antariksh/paras_videos.json
           python3 scripts/v2/paras_video_report.py --match SMT --since "$SMT_SINCE" --until "$TODAY" \
               --out /tmp/smt_video_report.xlsx
           python3 scripts/v2/build_paras_data.py --xlsx /tmp/smt_video_report.xlsx \
               --since "$SMT_SINCE" --until "$TODAY" --out antariksh/smt_videos.json
-          python3 scripts/v2/build_paras_page.py --data antariksh/paras_videos.json \
-              --smt antariksh/smt_videos.json --out antariksh/paras-videos.html
 
-      - name: Deploy antariksh (Vercel)
+      - name: Paras data (full window, big)
+        timeout-minutes: 50
+        continue-on-error: true
+        run: |
+          TODAY=$(TZ=Asia/Kolkata date +%F)
+          python3 scripts/v2/paras_video_report.py --since 2026-06-26 --until "$TODAY" \
+              --out /tmp/paras_video_report.xlsx
+          python3 scripts/v2/build_paras_data.py --xlsx /tmp/paras_video_report.xlsx \
+              --since 2026-06-26 --until "$TODAY" --out antariksh/paras_videos.json
+
+      - name: Build page, deploy, publish state (always)
+        if: always()
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: team_AocNAz8F008iWPSLVvar2Xb5
           VERCEL_PROJECT_ID: prj_lxnCOpXro6HtrSWZSavX1dSkX1LM
         run: |
-          if [ -z "$VERCEL_TOKEN" ]; then echo "no VERCEL_TOKEN"; exit 0; fi
-          npx --yes vercel@latest deploy antariksh --prod --yes --token="$VERCEL_TOKEN"
-
-      - name: Publish artifacts to paras-state branch (single commit, like state)
-        run: |
           set -e
+          python3 scripts/v2/build_paras_page.py --data antariksh/paras_videos.json \
+              --smt antariksh/smt_videos.json --out antariksh/paras-videos.html
+          if [ -n "$VERCEL_TOKEN" ]; then
+            npx --yes vercel@latest deploy antariksh --prod --yes --token="$VERCEL_TOKEN"
+          fi
           git config user.name meta-ads-bot
           git config user.email bot@local
-          git checkout --orphan paras-state
+          git checkout --orphan paras-state-new
           git rm -rf --cached . >/dev/null 2>&1 || true
           git add -f antariksh/paras_videos.json antariksh/smt_videos.json antariksh/paras-videos.html
           git commit -q -m "paras artifacts $(TZ=Asia/Kolkata date '+%F %H:%M IST')"
-          git push -f origin paras-state
+          git push -f origin paras-state-new:paras-state
