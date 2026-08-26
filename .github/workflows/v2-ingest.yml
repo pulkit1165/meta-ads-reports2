@@ -164,6 +164,11 @@ jobs:
           VERCEL_ORG_ID: team_AocNAz8F008iWPSLVvar2Xb5
           VERCEL_PROJECT_ID: prj_lxnCOpXro6HtrSWZSavX1dSkX1LM
         run: |
+          # freshest Paras/SMT video pages come from the hourly paras-videos
+          # workflow via the paras-state branch — never deploy the stale repo copy
+          git fetch origin paras-state --depth 1 2>/dev/null \
+            && git checkout FETCH_HEAD -- antariksh/paras_videos.json antariksh/smt_videos.json antariksh/paras-videos.html \
+            || echo "paras-state not available yet — using repo copies"
           python3 scripts/v2/build_antariksh_rollup.py --db state/ntn.db --days 120
           python3 scripts/v2/build_antariksh.py --db state/ntn.db --days 90
           if [ -z "$VERCEL_TOKEN" ]; then

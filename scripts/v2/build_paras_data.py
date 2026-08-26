@@ -150,7 +150,8 @@ def main():
     for aname, want in by_acct_videos.items():
         aid = ACCT_ID[aname]
         try:
-            m = preview_map(aid, token, args.since, args.until or '2026-07-22')
+            m = preview_map(aid, token, args.since,
+                            args.until or __import__('datetime').date.today().isoformat())
         except Exception as e:
             print(f'  {aname}: preview fetch failed ({str(e)[:60]})'); continue
         n = 0
