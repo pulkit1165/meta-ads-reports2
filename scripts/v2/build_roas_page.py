@@ -167,6 +167,7 @@ tr.p-NBP td:first-child{border-left-color:#d97706}
 .pverd{border-radius:12px;padding:13px 16px;margin-top:8px;font-size:14px;font-weight:600;line-height:1.5}
 .pv-yes{background:var(--pos-bg);color:var(--pos)}.pv-no{background:var(--neg-bg);color:var(--neg)}
 .pv-warn{background:var(--card)aeb;color:var(--warn-i)}
+.ppath{border:1px dashed var(--line2);border-radius:12px;padding:11px 16px;margin-top:8px;font-size:13px;color:var(--ink);line-height:1.55}
 .pgrid{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
 .pbox{flex:1 1 150px;min-width:140px;background:var(--hover);border:1px solid var(--line2);border-radius:12px;padding:12px 14px}
 .pbox b{display:block;font-size:22px;color:var(--ink);margin-top:3px;letter-spacing:-.01em;
@@ -731,7 +732,37 @@ def main():
           +' \\u2014 spend already gone is locked in.')
       +'</div>';
   }
-  el('p_out').innerHTML=out+verdict;
+  /* path to target: what spend at what ROAS closes the day at T */
+  var path='';
+  if(T>0&&d.spend>0){
+    var now=d.rev/d.spend;
+    if(now>=T){
+      var head=(T-1e-9);
+      path='<div class="ppath">Already above target: day sits at '+now.toFixed(2)
+        +'. Any further spend at ROAS &ge; '+T.toFixed(2)+' keeps it; ';
+      var samples=[T-0.3,T-0.15].filter(function(r){return r>0.2;});
+      var parts=[];
+      samples.forEach(function(r){
+        var allow=(d.rev-T*d.spend)/(T-r);
+        parts.push('at '+r.toFixed(2)+' you can afford up to '+rs(allow)+' more');
+      });
+      path+=parts.join(', ')+'.</div>';
+    } else {
+      var F0=p1.sf, need=F0>0?(T*(d.spend+F0)-d.rev)/F0:0;
+      path='<div class="ppath"><b>Path to '+T.toFixed(2)+':</b> your projected remaining spend '
+        +rs(F0)+' must average ROAS <b>'+(F0>0?need.toFixed(2):'\\u2014')+'</b>'
+        +(F0>0&&need>R_SAMPLES_MAX()?' (unrealistic \\u2014 lower spend or target)':'')+'. ';
+      var alts=[];
+      [T+0.15,T+0.35,T+0.6].forEach(function(r){
+        var f=(T*d.spend-d.rev)/(r-T);
+        if(f>0) alts.push('at ROAS '+r.toFixed(2)+' you need '+rs(f)+' more spend');
+      });
+      if(alts.length) path+='Or: '+alts.join(' &middot; ')+'.';
+      path+='</div>';
+    }
+  }
+  function R_SAMPLES_MAX(){return 4.0;}
+  el('p_out').innerHTML=out+verdict+path;
   renderList();
  }
  function bestPossible(T){
