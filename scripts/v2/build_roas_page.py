@@ -387,7 +387,8 @@ def sidebar_html(items):
     s = ['<nav class="side">',
          '<div class="brand">&#128202; NTN Ads &middot; ROAS</div>',
          '<div><div class="navsec">Live</div>'
-         '<a class="nav active" href="#top">Blended ROAS</a></div>',
+         '<a class="nav active" href="#top">Blended ROAS</a>'
+         '<a class="nav" href="budget.html">&#9878;&#65039; Budget Advisor</a></div>',
          '<details class="reports" open>',
          '<summary>&#128193; Reports</summary>',
          '<div class="navsec hidem">Products report &middot; daily 2 PM</div>',

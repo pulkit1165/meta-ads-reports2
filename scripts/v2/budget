@@ -1,0 +1,17 @@
+#!/bin/zsh
+# Daily budget call — refreshes data and publishes the live page.
+#   ./budget                  target 1200 orders, reactivate at 1.5x
+#   ./budget 1500 2.0         target 1500 orders, reactivate at 2.0x
+#   ./budget 600 1.8 NBP      just NBP
+#   ./budget 1200 1.5 "" nodeploy    skip the vercel push
+cd "$(dirname "$0")"
+T=${1:-1200}; R=${2:-1.5}; P=$3; D=$4
+ARGS=(--target-orders "$T" --reactivate-roas "$R" --no-html)
+[ -n "$P" ] && ARGS+=(--portal "$P")
+python3 budget_advisor.py "${ARGS[@]}" || exit 1
+if [ "$D" != "nodeploy" ]; then
+  ROOT=~/meta-ads-reports/roas-live
+  TOKEN=$(grep '^VERCEL_TOKEN=' ~/.openclaw/workspace/.env | cut -d= -f2)
+  echo "deploying roas-live..."
+  ( cd "$ROOT" && npx --yes vercel@latest deploy --prod --yes --token "$TOKEN" 2>&1 | tail -3 )
+fi

@@ -1,0 +1,275 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Budget Calculator — NTN</title>
+<style>
+:root{--ink:#14181D;--ink2:#4A555E;--ink3:#7C8892;--rule:rgba(20,24,29,.13);--soft:#F6F6F3;
+--pos:#1f66bd;--neg:#b3261e;--warn:#9A6207;
+--display:'Charter','Iowan Old Style',Georgia,serif;--body:'Avenir Next','Segoe UI',system-ui,-apple-system,sans-serif;
+--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:80rem;margin:0 auto;padding:0 clamp(.9rem,3vw,2.6rem)}
+header{padding:2.2rem 0 1.2rem;border-bottom:2px solid var(--ink)}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(1.7rem,3.4vw,2.4rem);margin:0 0 .3rem;letter-spacing:-.02em}
+h2{font-family:var(--display);font-weight:400;font-size:1.3rem;margin:0 0 .5rem}
+.lbl{font-family:var(--mono);font-size:.63rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+.sub{color:var(--ink2);margin:0;max-width:66ch}
+section{padding:2rem 0 0}
+.ctl{display:flex;gap:1.1rem;flex-wrap:wrap;align-items:flex-end;padding:1rem 1.1rem;border:1px solid var(--rule);
+background:var(--soft);margin-top:1.2rem}
+.ctl label{display:flex;flex-direction:column;gap:.3rem}
+.ctl input,.ctl select{font-family:var(--mono);font-size:1rem;padding:.42rem .55rem;border:1px solid var(--rule);
+background:#fff;color:var(--ink);min-width:8rem}
+.hero{border:2px solid var(--ink);padding:1.4rem 1.5rem;margin-top:1.2rem;display:flex;justify-content:space-between;
+gap:1.2rem;flex-wrap:wrap;align-items:center}
+.hero .big{font-family:var(--display);font-size:clamp(1.15rem,2.3vw,1.7rem);max-width:40ch;line-height:1.22}
+.hero .amt{font-family:var(--mono);font-size:clamp(1.5rem,3.2vw,2.2rem);font-weight:500;white-space:nowrap}
+.up{border-color:var(--pos)}.up .amt{color:var(--pos)}
+.down{border-color:var(--neg)}.down .amt{color:var(--neg)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr));gap:1px;background:var(--rule);
+border:1px solid var(--rule);margin-top:1.1rem}
+.kpis div{background:#fff;padding:.95rem .9rem;display:flex;flex-direction:column;gap:.2rem}
+.kpis b{font-family:var(--mono);font-size:1.4rem;font-weight:500}
+.kpis small{font-size:.72rem;color:var(--ink3)}
+.scroll{overflow-x:auto;border:1px solid var(--rule);margin-top:.9rem}
+table{border-collapse:collapse;width:100%;font-size:.85rem;min-width:40rem}
+th,td{padding:.48rem .65rem;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-family:var(--mono);font-size:.59rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);
+font-weight:400;background:var(--soft)}
+th:first-child,td:first-child{text-align:left}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.nm{font-family:var(--mono);font-size:.75rem;text-align:left;max-width:28rem;overflow:hidden;text-overflow:ellipsis}
+tr.good td{background:#F0F5FB}tr.bad td{background:#FDF3F2}
+.bar{height:26px;display:flex;border:1px solid var(--rule);margin:.9rem 0 .3rem;overflow:hidden}
+.bar span{display:grid;place-items:center;font-family:var(--mono);font-size:.68rem;color:#fff;font-weight:600}
+.key{display:flex;gap:1.4rem;flex-wrap:wrap;font-size:.8rem;color:var(--ink2)}
+.key i{display:inline-block;width:10px;height:10px;margin-right:.4rem}
+.note{border-left:3px solid var(--warn);background:#FDFBF6;padding:.9rem 1.1rem;margin-top:1rem;max-width:70ch;
+color:var(--ink2);font-size:.88rem}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.warnc{color:var(--warn)}
+footer{margin-top:2.6rem;padding:1.3rem 0 2.4rem;border-top:1px solid var(--rule);display:flex;
+justify-content:space-between;gap:1rem;flex-wrap:wrap}
+#err{padding:2rem 0;color:var(--neg)}
+@media(max-width:34rem){th,td{padding:.4rem .45rem;font-size:.78rem}}
+</style></head><body><div class="wrap">
+<header>
+  <span class="lbl" id="stamp">Budget Calculator</span>
+  <h1>What to allocate tomorrow.</h1>
+  <p class="sub">Revenue is Shopify actuals. Everything is sized off your <strong>morning allocation</strong>, because
+  auto-close removes about half of it during the day. <strong>Incremental ROAS</strong> — what an added rupee earns —
+  decides the answer, not the average.</p>
+</header>
+<div id="err"></div>
+<div id="app" hidden>
+
+<div class="ctl">
+  <label><span class="lbl">Your ROAS goal</span><input id="iRoas" type="number" min="0.1" step="0.1" value="2"></label>
+  <label><span class="lbl">Reactivate at ROAS &ge;</span><input id="iReact" type="number" min="0" step="0.1" value="1.5"></label>
+  <label><span class="lbl">Max daily move</span><input id="iStep" type="number" min="5" max="50" step="5" value="20"></label>
+  <label><span class="lbl">Portal</span><select id="iPortal">
+    <option value="">All portals</option><option>SM</option><option>NBP</option><option>SML</option></select></label>
+</div>
+
+<div class="hero" id="hero"><div class="big" id="heroTxt"></div><div class="amt" id="heroAmt"></div></div>
+<div class="kpis" id="topK"></div>
+
+<section>
+  <span class="lbl">1 &middot; Allocation</span>
+  <h2 id="allocH"></h2>
+  <div class="scroll"><table><thead><tr><th>Portal</th><th>Allocated now</th><th>Spend</th><th>Delivery</th>
+  <th>Avg ROAS</th><th>Marginal</th><th>Fit</th><th>ALLOCATE</th><th>Move</th></tr></thead><tbody id="allocB"></tbody></table></div>
+  <div class="note" id="allocNote"></div>
+</section>
+
+<section>
+  <span class="lbl">2 &middot; Budget base</span>
+  <h2>Morning allocation, and what survives it.</h2>
+  <div class="kpis" id="baseK"></div>
+  <div class="bar" id="baseBar"></div>
+  <div class="key"><span><i style="background:#1f66bd"></i>spent</span><span><i style="background:#b3261e"></i>closed or undelivered</span></div>
+</section>
+
+<section>
+  <span class="lbl">3 &middot; Learning</span>
+  <h2 id="learnH"></h2>
+  <div class="kpis" id="learnK"></div>
+  <p class="sub" style="font-size:.88rem;margin-top:.9rem" id="learnNote"></p>
+  <div class="scroll" id="stuckWrap" hidden><table><thead><tr><th>Adset that cannot graduate</th><th>Portal</th>
+  <th>Spend/day</th><th>Conversions</th><th>Fix</th></tr></thead><tbody id="stuckB"></tbody></table></div>
+</section>
+
+<section>
+  <span class="lbl">4 &middot; Where the gain is</span>
+  <h2>Moving budget beats adding it.</h2>
+  <p class="sub" style="font-size:.9rem" id="cruxSub"></p>
+  <div class="kpis" id="cruxK"></div>
+  <div class="scroll"><table><thead><tr><th>Redeploy into</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th>
+  <th>7d spend</th><th>After learning tax</th></tr></thead><tbody id="cruxB"></tbody></table></div>
+  <div class="note" id="cruxNote"></div>
+</section>
+
+<section>
+  <span class="lbl">5 &middot; Closing</span>
+  <h2>Is auto-close cutting too deep?</h2>
+  <p class="sub" style="font-size:.9rem" id="audSub"></p>
+  <div class="scroll"><table><thead><tr><th>7-day ROAS of what it closed</th><th>Campaigns</th><th>Budget</th>
+  <th>Read</th></tr></thead><tbody id="audB"></tbody></table></div>
+  <div class="note" id="audNote"></div>
+</section>
+
+<footer><span class="lbl">Budget Calculator &middot; NTN</span><span class="lbl" id="foot"></span></footer>
+</div></div>
+<script>
+const $=i=>document.getElementById(i);
+const rs=n=>"₹"+Math.round(n||0).toLocaleString('en-IN');
+const esc=s=>String(s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let S=null;
+const PORTALS=['SM','NBP','SML'];
+
+/* solve for the spend where marginal ROAS = bar, using the fitted curve
+   revenue = a * spend^b  ->  marginal(S) = b*a*S^(b-1)  ->  S* = (bar/(a*b))^(1/(b-1)) */
+function solve(fit, bar, maxStep){
+  if(!fit||!fit.ok) return {ok:false,reason:(fit&&fit.reason)||'no fit'};
+  const {a,b,cur_spend:S0}=fit;
+  if(b<=0) return {ok:true,solvable:false,reason:'spend and revenue are uncorrelated — adding budget does nothing'};
+  if(b>=1) return {ok:true,solvable:false,reason:'fit shows increasing returns — treat as unreliable'};
+  const Sstar=Math.pow(bar/(a*b),1/(b-1));
+  const raw=100*(Sstar/S0-1);
+  const pct=Math.max(-maxStep,Math.min(maxStep,raw));
+  const S2=S0*(1+pct/100);
+  return {ok:true,solvable:true,pct,raw,clamped:Math.abs(raw)>maxStep,
+    targetSpend:S2,curSpend:S0,marginalAfter:b*a*Math.pow(S2,b-1),
+    dSpend:S2-S0,dRev:a*Math.pow(S2,b)-a*Math.pow(S0,b)};
+}
+function render(){
+  const bar=+$('iRoas').value||2, minR=+$('iReact').value||0, step=+$('iStep').value||20;
+  const portal=$('iPortal').value||null;
+  const list=portal?[portal]:PORTALS;
+  const REC=S.recommendation||{}, F=S.fits||{}, LH=S.learning_headroom||{}, LP=S.learning_penalty||{},
+        EC=S.economics||{}, AU=S.closure_audit||{}, M=S.morning||{};
+
+  // ---- allocation, recomputed live against the ROAS goal ----
+  let totNow=0, totNew=0, totD=0, totR=0, rowsHtml='', clamped=[];
+  list.forEach(p=>{
+    const rec=REC[p]||{}, m=rec.morning||{}, f=F[p]||{};
+    const allocNow=m.allocated||0, dr=m.delivery_rate||0.6;
+    const o=solve(f,bar,step);
+    totNow+=allocNow;
+    if(!o.ok||!o.solvable){
+      totNew+=allocNow;
+      rowsHtml+=`<tr><td>${p}</td><td class="n">${rs(allocNow)}</td><td class="n">${rs(m.spent)}</td>
+        <td class="n">${Math.round(100*dr)}%</td><td class="n">${f.avg_roas??'—'}</td>
+        <td class="n neg">${f.marginal_roas??'—'}</td><td class="n">R² ${f.r2??'—'}</td>
+        <td class="n"><strong>HOLD</strong></td><td>${esc((o.reason||'').slice(0,42))}</td></tr>`;
+      return;
+    }
+    const allocate=o.targetSpend/dr;
+    const pct=allocNow?100*(allocate/allocNow-1):0;
+    totNew+=allocate; totD+=o.dSpend; totR+=o.dRev;
+    if(o.clamped) clamped.push(p);
+    const k=pct>0?'pos':(pct<0?'neg':'');
+    rowsHtml+=`<tr class="${pct>0?'good':(pct<0?'bad':'')}"><td>${p}</td><td class="n">${rs(allocNow)}</td>
+      <td class="n">${rs(o.curSpend)}</td><td class="n">${Math.round(100*dr)}%</td>
+      <td class="n">${f.avg_roas}</td><td class="n ${f.marginal_roas>=1?'':'neg'}">${f.marginal_roas}</td>
+      <td class="n">R² ${f.r2}</td><td class="n"><strong>${rs(allocate)}</strong></td>
+      <td class="n ${k}">${pct>0?'+':''}${Math.round(pct)}%</td></tr>`;
+  });
+  $('allocB').innerHTML=rowsHtml;
+  const netPct=totNow?100*(totNew/totNow-1):0;
+  $('allocH').textContent=`Allocate ${rs(totNew)} tomorrow — ${netPct>=0?'+':''}${Math.round(netPct)}% on today's ${rs(totNow)}.`;
+  const heroUp=netPct>=0;
+  $('hero').className='hero '+(heroUp?'up':'down');
+  $('heroTxt').textContent=heroUp
+    ? `Allocate more — marginal ROAS is still above your ${bar}× bar`
+    : `Cut allocation — the next rupee earns less than your ${bar}× bar`;
+  $('heroAmt').innerHTML=rs(totNew)+`<span style="font-size:.85rem;color:var(--ink3)"> tomorrow</span>`;
+  $('allocNote').innerHTML=`Moves are capped at ±${step}% — a budget edit beyond about 20% resets an adset's learning.`+
+    (clamped.length?` The solver wanted a bigger move on <strong>${clamped.join(', ')}</strong>; take it in ${step}% steps across days rather than at once.`:'')+
+    (totD?` Net effect: ${rs(totD)} of spend, ${rs(totR)} of revenue — incremental ${(totR/totD).toFixed(2)}.`:'');
+
+  $('topK').innerHTML=`
+   <div><span class="lbl">Morning allocation</span><b>${rs(M.allocated)}</b><small>yesterday</small></div>
+   <div><span class="lbl">Delivery rate</span><b>${Math.round(100*(M.delivery_rate||0))}%</b><small>spend ÷ allocation</small></div>
+   <div><span class="lbl">Learning share</span><b>${Math.round(100*((S.learning||{}).ratio||0))}%</b><small>of live spend</small></div>
+   <div><span class="lbl">Learning room</span><b class="pos">${rs(LH.headroom_now)}</b><small>${LH.slots_now} adset slots</small></div>
+   <div><span class="lbl">Add a rupee</span><b class="neg">${(F.ALL||{}).marginal_roas??'—'}</b><small>expansion ROAS</small></div>
+   <div><span class="lbl">Move a rupee</span><b class="pos" id="kMove">—</b><small>reallocation ROAS</small></div>`;
+
+  $('baseK').innerHTML=`
+   <div><span class="lbl">Allocated</span><b>${rs(M.allocated)}</b><small>${M.campaigns} campaigns</small></div>
+   <div><span class="lbl">Auto-closed</span><b class="neg">${rs(M.closed_budget)}</b><small>${M.closed_pct}% of it</small></div>
+   <div><span class="lbl">Spent</span><b>${rs(M.spent)}</b><small>full day</small></div>
+   <div><span class="lbl">Delivery</span><b>${Math.round(100*(M.delivery_rate||0))}%</b><small>×${(M.delivery_rate||0).toFixed(2)} on every rupee</small></div>`;
+  const und=Math.max(0,(M.allocated||0)-(M.spent||0));
+  $('baseBar').innerHTML=`<span style="flex:${M.spent||1};background:#1f66bd">SPENT ${rs(M.spent)}</span>
+    <span style="flex:${und||1};background:#b3261e">CLOSED / UNDELIVERED ${rs(und)}</span>`;
+
+  $('learnH').textContent=`You can put ${rs(LH.headroom_now)} into learning right now.`;
+  $('learnK').innerHTML=`
+   <div><span class="lbl">Capacity</span><b>${rs(LH.capacity_spend)}</b><small>${EC.capacity_adsets} adsets</small></div>
+   <div><span class="lbl">In learning</span><b>${rs(LH.in_learning)}</b><small>${(S.learning||{}).n_learning||0} adsets</small></div>
+   <div><span class="lbl">Room</span><b class="pos">${rs(LH.headroom_now)}</b><small>${LH.slots_now} slots</small></div>
+   <div><span class="lbl">Floor per adset</span><b>${rs(EC.min_per_adset_day)}</b><small>50 conv ÷ 7d @ CAC ${rs(EC.cac)}</small></div>
+   <div><span class="lbl">Learning tax</span><b class="warnc">${Math.round(100*(LP.discount_new||0))}%</b><small>new vs mature ROAS</small></div>`;
+  $('learnNote').innerHTML=`An adset graduates at roughly 50 conversions in 7 days; at CAC ${rs(EC.cac)} that is
+    <strong>${rs(EC.min_per_adset_day)}/day minimum</strong>. Below it, an adset never stabilises. Measured on your own
+    campaigns, new ones run at <strong>${Math.round(100*(LP.discount_new||0))}%</strong> of mature ROAS
+    (${(LP.new||{}).roas} vs ${(LP.mature||{}).roas}) — so anything started tomorrow should be judged at
+    ${(LP.discount_new||0).toFixed(2)} × its eventual number.`;
+  const stuck=(((S.learning||{}).learning_adsets)||[]).filter(x=>x.spend<(EC.min_per_adset_day||0))
+      .filter(x=>!portal||x.portal===portal);
+  $('stuckWrap').hidden=!stuck.length;
+  $('stuckB').innerHTML=stuck.map(x=>`<tr class="bad"><td class="nm">${esc(x.name)}</td><td>${x.portal}</td>
+    <td class="n">${rs(x.spend)}</td><td class="n">${x.conv}</td>
+    <td>raise to ${rs(EC.min_per_adset_day)} or kill</td></tr>`).join('');
+
+  const camps=(S.campaigns||[]).filter(c=>!portal||c.portal===portal);
+  const losers=camps.filter(c=>c.status==='ACTIVE'&&c.spend7>3000&&c.roas7<1);
+  const pool=(portal?stuck.reduce((x,y)=>x+y.spend,0):(LH.stuck_spend||0))
+             + losers.reduce((x,c)=>x+c.budget,0);
+  const winners=camps.filter(c=>c.status!=='ACTIVE'&&c.spend7>=2000&&c.roas7>=minR).sort((a,b)=>b.roas7-a.roas7);
+  let acc=0; const take=[];
+  winners.forEach(w=>{ if(acc<pool){take.push(w);acc+=w.budget;} });
+  const moved=take.reduce((x,w)=>x+w.budget,0);
+  const gross=take.reduce((x,w)=>x+w.budget*w.roas7,0);
+  const taxed=moved?(gross/moved)*(LP.discount_new||1):0;
+  const expansion=(F.ALL||{}).marginal_roas;
+  $('kMove').textContent=taxed?taxed.toFixed(2):'—';
+  $('cruxSub').innerHTML=`Adding new money prices at <strong class="neg">${expansion??'n/a'}</strong>. Moving money that is
+    already sitting in dead places prices at <strong class="pos">${taxed.toFixed(2)}</strong>, even after the learning tax.`;
+  $('cruxK').innerHTML=`
+   <div><span class="lbl">Pool to move</span><b>${rs(pool)}</b><small>stuck learning + sub-1× actives</small></div>
+   <div><span class="lbl">Destinations</span><b>${take.length}</b><small>paused ≥ ${minR}×</small></div>
+   <div><span class="lbl">Add a rupee</span><b class="neg">${expansion??'—'}</b><small>expansion</small></div>
+   <div><span class="lbl">Move a rupee</span><b class="pos">${taxed.toFixed(2)}</b><small>reallocation</small></div>`;
+  $('cruxB').innerHTML=take.slice(0,12).map(w=>`<tr class="good"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+    <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${rs(w.budget)}</td><td class="n">${rs(w.spend7)}</td>
+    <td class="n">${(w.roas7*(LP.discount_new||1)).toFixed(2)}</td></tr>`).join('')||
+    `<tr><td colspan="6" style="text-align:center;color:var(--ink3);padding:1rem">nothing paused clears ${minR}×</td></tr>`;
+  $('cruxNote').innerHTML=`<strong>Same total spend.</strong> ${rs(pool)}/day currently sits in adsets that cannot
+    graduate and campaigns returning under 1×. Redeployed into the list above it returns about
+    <strong>${taxed.toFixed(2)}×</strong> in week one. That is how incremental ROAS is earned — by moving budget, not adding it.`;
+
+  $('audSub').innerHTML=`Auto-close cut <strong>${AU.closed_n}</strong> campaigns today, <strong>${rs(AU.closed_budget)}</strong>
+    of allocation. <strong class="neg">${AU.false_positive_n} of them had a 7-day ROAS at or above ${AU.protect_roas}×</strong>
+    — ${rs(AU.false_positive_budget)} of proven budget killed on one bad intraday reading.`;
+  $('audB').innerHTML=Object.entries(AU.bands||{}).map(([k,v])=>{
+    const bad=['1.0-1.5','1.5-2.0','>=2.0'].includes(k)&&v.n>0;
+    return `<tr class="${bad?'bad':''}"><td>${k}</td><td class="n">${v.n}</td><td class="n">${rs(v.budget)}</td>
+      <td>${bad?'<strong>likely mistakes</strong>':'correctly closed'}</td></tr>`}).join('');
+  $('audNote').innerHTML=`A single correct delivery rate cannot be derived honestly — what a closed campaign
+    <em>would</em> have earned is unobservable. What the data supports is a rule: keep closing on intraday ROAS for
+    campaigns with no record, but never close one whose 7-day ROAS is above ${AU.protect_roas}× on a single bad day.
+    Delivery then settles near <strong>${Math.round(100*(AU.delivery_if_protected||0))}%</strong>, up from
+    ${Math.round(100*(AU.delivery_now||0))}%.`;
+}
+fetch('budget.json?t='+Date.now()).then(r=>r.json()).then(j=>{
+  S=j; $('app').hidden=false; $('err').textContent='';
+  $('iRoas').value=j.target_roas??2; $('iReact').value=j.reactivate_roas??1.5;
+  const t=String(j.generated).slice(0,16).replace('T',' ');
+  $('stamp').textContent='Budget Calculator · data '+t+' IST';
+  $('foot').textContent='generated '+t;
+  ['iRoas','iReact','iStep','iPortal'].forEach(id=>$(id).addEventListener('input',render));
+  render();
+}).catch(e=>{$('err').innerHTML='<strong>Could not load budget.json.</strong> '+e});
+</script></body></html>
