@@ -360,7 +360,7 @@ function render(){
   const goal=+$('iGoal').value||1.5;
   const spendNow=rb?rb.spend0:0, revNow=rb?rb.rev0:0;
   const blendNow=spendNow?revNow/spendNow:0;
-  const gapPer=Math.max(0.01,wk2-wasRet);          // roas gained per rupee moved, once settled
+  const gapPer=Math.max(0.01,(tax?weekOne/tax:0)-nowRet);          // roas gained per rupee moved, once settled
   const needMove=Math.max(0,(goal*spendNow-revNow)/gapPer);
   const canMove=Math.min(pool,needMove);
   const reachable=needMove<=pool+1;
