@@ -39,12 +39,30 @@ PORTALS = ('SM', 'SML', 'NBP')
 # that is how Shopify's own sales number works, and the operator reconciles
 # this page against it. Voided/refunded/expired stay excluded (Shopify nets
 # them out as returns / never counts them).
+# 27 Aug 2026: 124 app orders paid 19-26 Aug never reached Shopify (Shiprocket
+# custom-checkout gap) and were re-created on 27 Aug. Exactly like the Matrixify
+# imports below they are historical revenue landing on the creation day —
+# counting them would overstate 27 Aug sales by Rs1.07L (~40%) and inflate ROAS.
+def _recovered_orders():
+    import json as _json, os as _os
+    p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'recovered_orders.json')
+    try:
+        with open(p) as fh:
+            return [str(x) for x in _json.load(fh)]
+    except Exception:
+        return []
+
+_RECOVERED = [o.replace("'", "") for o in _recovered_orders()]
+_RECOVERED_SQL = (" AND order_number NOT IN (%s)" %
+                  ",".join("'%s'" % o for o in _RECOVERED)) if _RECOVERED else ""
+
 SALES_FILTER = ("cancelled_at IS NULL AND "
                 "COALESCE(financial_status,'') NOT IN ('voided','refunded','expired') AND "
                 # Matrixify bulk-imports are historical orders re-created on the
                 # import day — Shopify Analytics excludes them, so must we
                 # (28 Jul: 33 imported orders inflated 'sales' by Rs25k).
-                "COALESCE(source_name,'') != 'Matrixify App'")
+                "COALESCE(source_name,'') != 'Matrixify App'"
+                + _RECOVERED_SQL)
 
 # Friendly account names as they appear in campaign_hourly_snapshots.account_name,
 # mirroring _utils.PORTAL_ACCOUNTS. Accounts outside these three portals
