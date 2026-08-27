@@ -18,7 +18,11 @@ h3{font-family:var(--display);font-weight:400;font-size:1.05rem;margin:1.3rem 0 
 section{padding:1.9rem 0 0}
 .ctl{display:flex;gap:1.1rem;flex-wrap:wrap;align-items:flex-end;padding:.9rem 1.1rem;border:1px solid var(--rule);
 background:var(--soft);margin-top:1.1rem}
-.ctl label{display:flex;flex-direction:column;gap:.28rem}
+.ctl label{display:flex;flex-direction:column;gap:.28rem;max-width:15rem}
+.ctl .hint{font-size:.72rem;color:var(--ink3);line-height:1.35}
+.ctl label.off{opacity:.45}
+#warn{border-left:3px solid var(--neg);background:#FDF3F2;padding:.8rem 1rem;margin-top:.8rem;
+font-size:.88rem;color:var(--ink2);max-width:70ch}
 .ctl input,.ctl select{font-family:var(--mono);font-size:1rem;padding:.4rem .55rem;border:1px solid var(--rule);
 background:#fff;color:var(--ink);min-width:8rem}
 .plan{border:2px solid var(--good);padding:1.3rem 1.5rem;margin-top:1.1rem}
@@ -67,12 +71,20 @@ justify-content:space-between;gap:1rem;flex-wrap:wrap}
 <div class="ctl">
   <label><span class="lbl">Revenue must</span><select id="iMode">
     <option value="hold">not fall (free moves only)</option>
-    <option value="grow">grow — show me the cost</option></select></label>
-  <label><span class="lbl">Growth wanted</span><input id="iGrow" type="number" min="0" max="30" step="1" value="5"></label>
-  <label><span class="lbl">Max move per portal</span><input id="iStep" type="number" min="5" max="30" step="5" value="20"></label>
-  <label><span class="lbl">Reactivate at ROAS &ge;</span><input id="iReact" type="number" min="0" step="0.1" value="1.5"></label>
+    <option value="grow">grow — show me the cost</option></select>
+    <span class="hint">Free moves keep spend flat. Grow also prices extra budget.</span></label>
+  <label id="lGrow"><span class="lbl">Growth wanted</span>
+    <input id="iGrow" type="number" min="0" max="30" step="1" value="5">
+    <span class="hint">How much more revenue, in %. Only used when the box on the left says grow.</span></label>
+  <label><span class="lbl">Max move per portal</span>
+    <input id="iStep" type="number" min="5" max="30" step="5" value="20">
+    <span class="hint">Biggest budget change in one day. Over 20% resets Meta&rsquo;s learning — leave it at 20.</span></label>
+  <label><span class="lbl">Reactivate at ROAS &ge;</span>
+    <input id="iReact" type="number" min="0" step="0.1" value="1.5">
+    <span class="hint">The bar a paused campaign must clear to be switched back on. Below 1.0 it loses money — keep this at 1.5.</span></label>
 </div>
 
+<div id="warn" hidden></div>
 <div class="plan" id="plan">
   <div class="top"><div class="big" id="planTxt"></div><div class="amt" id="planAmt"></div></div>
   <div class="kpis" id="planK" style="margin-top:1rem"></div>
@@ -211,6 +223,19 @@ function render(){
   const F=S.fits||{}, LH=S.learning_headroom||{}, LP=S.learning_penalty||{}, EC=S.economics||{},
         AU=S.closure_audit||{}, M=S.morning||{}, L=S.learning||{};
   const rb=rebalance(step); const lad=ladder(rb,step);
+  document.getElementById('lGrow').className = (mode==='grow') ? '' : 'off';
+  const w=$('warn');
+  if(minR<1){
+    w.hidden=false;
+    w.innerHTML=`<strong>Reactivate is set to ${minR}× — that switches on campaigns that lose money.</strong>
+      A campaign at ${minR}× returns ${Math.round(minR*100)} paise for every rupee. Anything under 1.0 costs more than it
+      brings back, so it should stay off. Set this to <strong>1.5</strong> to reactivate only campaigns that genuinely pay.`;
+  } else if(minR<1.3){
+    w.hidden=false;
+    w.innerHTML=`<strong>Reactivate at ${minR}× is thin.</strong> Reactivated campaigns run at
+      ${Math.round((LP.discount_new||0.72)*100)}% of their proven ROAS while relearning, so a ${minR}× campaign delivers
+      about ${(minR*(LP.discount_new||0.72)).toFixed(2)}× in week one — under break-even. 1.5 or higher is safer.`;
+  } else { w.hidden=true; }
 
   /* ---------- 1. where you stand ---------- */
   const camps=S.campaigns||[];
