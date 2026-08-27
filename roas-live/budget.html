@@ -98,6 +98,12 @@ justify-content:space-between;gap:1rem;flex-wrap:wrap}
   <h3 id="s4H"></h3>
   <div class="scroll"><table><thead><tr><th>Portal</th><th>Spend now</th><th>Change</th><th>New spend</th><th>Last rupee earns</th></tr></thead>
   <tbody id="s4B"></tbody></table></div>
+  <h3 id="s5H"></h3>
+  <div class="scroll" id="laterWrap" hidden><table><thead><tr><th>Hold for wave 2</th><th>Portal</th><th>ROAS 7d</th>
+  <th>Budget/day</th><th>Why not tomorrow</th></tr></thead><tbody id="laterB"></tbody></table></div>
+
+  <h3>What tomorrow looks like after you do this</h3>
+  <div class="kpis" id="afterK"></div>
   <div class="note" id="doNote"></div>
 </section>
 
@@ -243,7 +249,21 @@ function render(){
   const loserRs=losers.reduce((x,c)=>x+c.budget,0);
   const pool=stuckRs+loserRs;
   const winners=camps.filter(c=>c.status!=='ACTIVE'&&c.spend7>=2000&&c.roas7>=minR).sort((a,b)=>b.roas7-a.roas7);
-  let acc=0; const take=[]; winners.forEach(w=>{ if(acc<pool){take.push(w);acc+=w.budget;} });
+  /* Everything switched back on re-enters learning, so the wave is capped by
+     learning capacity as well as by the pool. Anything under the per-adset floor
+     is excluded outright — it could never settle. */
+  const dr=M.delivery_rate||0.59;
+  const capSpend=(EC.capacity_adsets||0)*(EC.min_per_adset_day||0);
+  const learnAfterFix=(L.spend_learning||0)-stuckRs;
+  const learnRoom=Math.max(0,capSpend-learnAfterFix);
+  const maxWave=dr?learnRoom/dr:0;
+  const eligible=winners.filter(w=>w.budget>=(EC.min_per_adset_day||0));
+  const tooSmall=winners.filter(w=>w.budget<(EC.min_per_adset_day||0));
+  let acc=0; const take=[]; const later=[];
+  eligible.forEach(w=>{
+    if(acc+w.budget<=Math.min(pool,maxWave)){ take.push(w); acc+=w.budget; }
+    else later.push(w);
+  });
   const moved=take.reduce((x,w)=>x+w.budget,0);
   const tax=LP.discount_new||0.72;
   const weekOne=moved?(take.reduce((x,w)=>x+w.budget*w.roas7,0)/moved)*tax:0;
@@ -331,6 +351,14 @@ function render(){
     <td class="n">${rs(x.spend)}</td><td class="n">${rs(EC.min_per_adset_day)}</td></tr>`).join('')||
     '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:.9rem">every learning adset is funded properly</td></tr>';
 
+  const onSpend=onRs*dr;
+  const offSpendToday=losers.reduce((x,c)=>x+c.today_spend,0);
+  const liveAfter=(L.spend_live||0)-offSpendToday-stuckRs+onSpend;
+  const lrnAfter=learnAfterFix+onSpend;
+  const ratioAfter=liveAfter?lrnAfter/liveAfter:0;
+  const wk1=onRs?take.reduce((x,w)=>x+w.budget*w.roas7,0)/onRs*tax:0;
+  const wk2=onRs?take.reduce((x,w)=>x+w.budget*w.roas7,0)/onRs:0;
+  const wasRet=loserRs?losers.reduce((x,c)=>x+c.budget*c.roas7,0)/loserRs:0;
   $('s3H').textContent=`3 · Switch on ${take.length} proven campaigns — spends ${rs(onRs)}/day`;
   $('s3B').innerHTML=take.map(w=>`<tr class="good"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
     <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${(w.roas7*tax).toFixed(2)}</td>
@@ -348,11 +376,37 @@ function render(){
       <td class="n ${d>0?'pos':(d<0?'neg':'')}">${Math.abs(d)<1000?'no change':(d>0?'+':'−')+rs(Math.abs(d))}</td>
       <td class="n"><strong>${rs(rb.alloc[p])}</strong></td>
       <td class="n">${marg(F[p],rb.alloc[p]).toFixed(2)}</td></tr>`}).join(''):'';
-  $('doNote').innerHTML=`Everything switched on re-enters learning, so week-one ROAS is
-    <strong>${Math.round(tax*100)}%</strong> of the proven number — measured from your own campaigns. Keep each one at or
-    above ${rs(EC.min_per_adset_day)}/day or it will not settle.`+
+  $('s5H').textContent=(later.length||tooSmall.length)
+    ? `Hold ${later.length+tooSmall.length} back for wave 2 — switching everything on at once breaks learning`
+    : `Nothing held back — the whole list fits inside learning capacity`;
+  $('laterWrap').hidden=!(later.length||tooSmall.length);
+  $('laterB').innerHTML=[
+    ...later.map(w=>`<tr><td class="nm">${esc(w.name)}</td><td>${w.portal}</td><td class="n">${w.roas7.toFixed(2)}</td>
+      <td class="n">${rs(w.budget)}</td><td>no learning room left tomorrow</td></tr>`),
+    ...tooSmall.map(w=>`<tr class="bad"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+      <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${rs(w.budget)}</td>
+      <td>under the ${rs(EC.min_per_adset_day)} floor — raise it first</td></tr>`)
+  ].join('');
+
+  const over=lrnAfter>capSpend;
+  $('afterK').innerHTML=`
+   <div><span class="lbl">Active : learning</span><b>${Math.round(100*(1-ratioAfter))} : ${Math.round(100*ratioAfter)}</b>
+     <small>from ${Math.round(100*(1-(L.ratio||0)))} : ${Math.round(100*(L.ratio||0))} today</small></div>
+   <div><span class="lbl">Learning spend</span><b class="${over?'neg':'goodc'}">${rs(lrnAfter)}</b>
+     <small>capacity ${rs(capSpend)}${over?' — OVER':''}</small></div>
+   <div><span class="lbl">New campaigns needed</span><b class="goodc">none</b><small>all toggles and budget edits</small></div>
+   <div><span class="lbl">Revenue week 1</span><b class="${wk1>wasRet?'goodc':'neg'}">${wk1.toFixed(2)}×</b>
+     <small>vs ${wasRet.toFixed(2)}× today — learning tax</small></div>
+   <div><span class="lbl">Revenue week 2+</span><b class="goodc">${wk2.toFixed(2)}×</b>
+     <small>+${rs(onRs*(wk2-wasRet))}/day once settled</small></div>`;
+  $('doNote').innerHTML=`<strong>Week one will look flat.</strong> Everything you switch on re-enters learning and runs at
+    ${Math.round(tax*100)}% of its proven number, so the gain is only about
+    ${rs(onRs*(wk1-wasRet))}/day at first. Once those campaigns clear learning the same money returns
+    <strong>${wk2.toFixed(2)}×</strong> — about <strong>${rs(onRs*(wk2-wasRet))}/day</strong>. Judge this after seven days,
+    not one. Nothing here needs a new campaign built: every step is a toggle or a budget edit on something that already
+    exists.`+
     (AU.false_positive_n?` Separately, <strong>${AU.false_positive_n} campaigns were auto-closed today despite a 7-day
-    ROAS above ${AU.protect_roas}×</strong> (${rs(AU.false_positive_budget)}) — those are worth reopening too.`:'');
+    ROAS above ${AU.protect_roas}×</strong> (${rs(AU.false_positive_budget)}) — worth reopening too.`:'');
 
 }
 function chart(lad){
