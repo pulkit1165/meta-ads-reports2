@@ -75,8 +75,31 @@ justify-content:space-between;gap:1rem;flex-wrap:wrap}
 
 <div class="plan" id="plan">
   <div class="top"><div class="big" id="planTxt"></div><div class="amt" id="planAmt"></div></div>
-  <ol id="planSteps"></ol>
+  <div class="kpis" id="planK" style="margin-top:1rem"></div>
 </div>
+
+<section id="doNow">
+  <span class="lbl">Do this tomorrow morning</span>
+  <h2 id="doH"></h2>
+  <p class="sub" style="font-size:.9rem" id="doSub"></p>
+
+  <h3 id="s1H"></h3>
+  <div class="scroll"><table><thead><tr><th>Switch OFF</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th></tr></thead>
+  <tbody id="s1B"></tbody></table></div>
+
+  <h3 id="s2H"></h3>
+  <div class="scroll"><table><thead><tr><th>Raise or kill</th><th>Portal</th><th>Now</th><th>Needs</th></tr></thead>
+  <tbody id="s2B"></tbody></table></div>
+
+  <h3 id="s3H"></h3>
+  <div class="scroll"><table><thead><tr><th>Switch ON</th><th>Portal</th><th>ROAS 7d</th><th>Week 1</th><th>Budget/day</th></tr></thead>
+  <tbody id="s3B"></tbody></table></div>
+
+  <h3 id="s4H"></h3>
+  <div class="scroll"><table><thead><tr><th>Portal</th><th>Spend now</th><th>Change</th><th>New spend</th><th>Last rupee earns</th></tr></thead>
+  <tbody id="s4B"></tbody></table></div>
+  <div class="note" id="doNote"></div>
+</section>
 
 <section>
   <span class="lbl">1 &middot; Where you stand</span>
@@ -277,22 +300,60 @@ function render(){
     Cutting spend would raise profit but shrink revenue — excluded here because you asked for no revenue loss.`;
 
   /* ---------- the plan ---------- */
-  const steps=[];
-  if(stuck.length) steps.push(`Fix ${stuck.length} adsets that cannot settle — raise each to ${rs(EC.min_per_adset_day)}/day or switch off (${rs(stuckRs)}/day freed).`);
-  if(AU.false_positive_n) steps.push(`Turn back on the ${AU.false_positive_n} campaigns auto-close killed today despite a 7-day ROAS above ${AU.protect_roas}× (${rs(AU.false_positive_budget)}).`);
-  if(rb&&rb.gain>0){
-    const mv=rb.keys.filter(p=>Math.abs(rb.alloc[p]-rb.cur[p])>1000)
-      .map(p=>`${p} ${rb.alloc[p]>rb.cur[p]?'+':''}${rs(rb.alloc[p]-rb.cur[p])}`).join(', ');
-    if(mv) steps.push(`Rebalance between portals: ${mv} — same total spend, +${rs(rb.gain)}/day.`);
-  }
-  if(take.length) steps.push(`Move ${rs(Math.min(pool,moved))}/day into the ${take.length} paused campaigns already proven above ${minR}×.`);
-  if(mode==='grow'&&pick.pct>0) steps.push(`Then add ${pick.pct}% (${rs(pick.ds)}/day) for ${rs(pick.dr)} more revenue — costing ${rs(Math.abs(pick.net))}/day.`);
-  $('planSteps').innerHTML=steps.map(s=>`<li>${s}</li>`).join('');
+  const offRs=losers.reduce((x,c)=>x+c.budget,0);
+  const onRs=take.reduce((x,w)=>x+w.budget,0);
+  const spare=Math.max(0,pool-onRs);
   const totalGain=freeGain+(mode==='grow'?pick.dr:0);
+
   $('planTxt').textContent=mode==='hold'
-    ? 'Hold spend. Move money out of what cannot pay — revenue rises without adding a rupee.'
-    : `Take the free moves first, then buy ${pick.pct}% of growth on top.`;
+    ? 'Free money that is stuck, put it where it already works. Spend stays the same.'
+    : `Free the stuck money, redeploy it, then buy ${pick.pct}% of growth on top.`;
   $('planAmt').innerHTML=`+${rs(totalGain)}<span style="font-size:.8rem;color:var(--ink3)"> revenue/day</span>`;
+  $('planK').innerHTML=`
+   <div><span class="lbl">You free up</span><b>${rs(pool)}</b><small>${losers.length} camps + ${stuck.length} adsets</small></div>
+   <div><span class="lbl">You redeploy</span><b>${rs(onRs)}</b><small>into ${take.length} proven camps</small></div>
+   <div><span class="lbl">Left over</span><b>${rs(spare)}</b><small>back into what works</small></div>
+   <div><span class="lbl">Total spend</span><b>unchanged</b><small>revenue cannot fall</small></div>
+   <div><span class="lbl">Revenue</span><b class="goodc">+${rs(totalGain)}</b><small>per day</small></div>`;
+
+  $('doH').textContent=`Four steps. About twenty minutes in Ads Manager.`;
+  $('doSub').innerHTML=`You free <strong>${rs(pool)}/day</strong>, put <strong>${rs(onRs)}</strong> of it into campaigns
+    already proven, and the remaining <strong>${rs(spare)}</strong> goes back into what is working.
+    <strong>Total spend does not change</strong>, so revenue cannot fall.`;
+
+  $('s1H').textContent=`1 · Switch off ${losers.length} campaigns that lose money — frees ${rs(offRs)}/day`;
+  $('s1B').innerHTML=losers.map(c=>`<tr class="bad"><td class="nm">${esc(c.name)}</td><td>${c.portal}</td>
+    <td class="n">${c.roas7.toFixed(2)}</td><td class="n">${rs(c.budget)}</td></tr>`).join('')||
+    '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:.9rem">nothing is under 1× right now</td></tr>';
+
+  $('s2H').textContent=`2 · Fix ${stuck.length} adsets too small to ever settle — frees ${rs(stuckRs)}/day`;
+  $('s2B').innerHTML=stuck.map(x=>`<tr class="bad"><td class="nm">${esc(x.name)}</td><td>${x.portal}</td>
+    <td class="n">${rs(x.spend)}</td><td class="n">${rs(EC.min_per_adset_day)}</td></tr>`).join('')||
+    '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:.9rem">every learning adset is funded properly</td></tr>';
+
+  $('s3H').textContent=`3 · Switch on ${take.length} proven campaigns — spends ${rs(onRs)}/day`;
+  $('s3B').innerHTML=take.map(w=>`<tr class="good"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+    <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${(w.roas7*tax).toFixed(2)}</td>
+    <td class="n">${rs(w.budget)}</td></tr>`).join('')||
+    `<tr><td colspan="5" style="text-align:center;color:var(--ink3);padding:.9rem">nothing paused clears ${minR}×</td></tr>`;
+
+  const moves=rb?rb.keys.filter(p=>Math.abs(rb.alloc[p]-rb.cur[p])>1000):[];
+  $('s4H').textContent=moves.length
+    ? `4 · Shift ${rs(Math.abs(rb.alloc[moves[0]]-rb.cur[moves[0]]))} between portals — +${rs(rb.gain)}/day`
+    : `4 · No portal shift needed today`;
+  $('s4B').innerHTML=rb?rb.keys.map(p=>{
+    const d=rb.alloc[p]-rb.cur[p];
+    if(Math.abs(d)<1000&&moves.length) return '';
+    return `<tr class="${d>0?'good':(d<0?'bad':'')}"><td>${p}</td><td class="n">${rs(rb.cur[p])}</td>
+      <td class="n ${d>0?'pos':(d<0?'neg':'')}">${Math.abs(d)<1000?'no change':(d>0?'+':'−')+rs(Math.abs(d))}</td>
+      <td class="n"><strong>${rs(rb.alloc[p])}</strong></td>
+      <td class="n">${marg(F[p],rb.alloc[p]).toFixed(2)}</td></tr>`}).join(''):'';
+  $('doNote').innerHTML=`Everything switched on re-enters learning, so week-one ROAS is
+    <strong>${Math.round(tax*100)}%</strong> of the proven number — measured from your own campaigns. Keep each one at or
+    above ${rs(EC.min_per_adset_day)}/day or it will not settle.`+
+    (AU.false_positive_n?` Separately, <strong>${AU.false_positive_n} campaigns were auto-closed today despite a 7-day
+    ROAS above ${AU.protect_roas}×</strong> (${rs(AU.false_positive_budget)}) — those are worth reopening too.`:'');
+
 }
 function chart(lad){
   const c=$('chart'), x=c.getContext('2d'), W=c.width, H=c.height;
