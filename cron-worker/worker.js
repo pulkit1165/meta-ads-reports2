@@ -363,6 +363,32 @@ async function sendReport(env, to, rep) {
   return `${to}:fallback:${f.status}`;
 }
 
+// Meta Cloud API text fallback — independent of Whapi, needs no phone scan.
+// Used when the Whapi channel is unlinked (QR state). Template-only: the
+// number is a Meta TEST number, so it reaches pre-registered recipients only.
+async function metaTemplate(env, to, title, body) {
+  const flat = body.replace(/[\n\t]+/g, ' · ').replace(/\s{4,}/g, ' ').slice(0, 900);
+  return fetch(`https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp', to, type: 'template',
+      template: { name: 'ntn_daily_meta_report', language: { code: 'en' },
+        components: [{ type: 'body', parameters: [
+          { type: 'text', text: title }, { type: 'text', text: flat } ] }] },
+    }),
+  });
+}
+
+async function whapiLive(env) {
+  try {
+    const r = await fetch('https://gate.whapi.cloud/health', {
+      headers: { 'Authorization': `Bearer ${env.WHAPI_TOKEN}` } });
+    const d = await r.json();
+    return (d?.status?.text || '') === 'AUTH';
+  } catch (e) { return false; }
+}
+
 async function hourlyPush(env, only) {
   const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
   if (!r.ok) return 'wa_table fetch failed ' + r.status;
@@ -382,6 +408,17 @@ async function hourlyPush(env, only) {
     caption += `\n\n*${label}:*\n` + t.hour_slice.map(line).join('\n');
   }
   const out = [];
+  // Whapi unlinked → fall back to Meta template text so the numbers still ship.
+  if (env.WHAPI_TOKEN && !(await whapiLive(env))) {
+    const flat = caption.replace(/\*/g, '');
+    for (const [to, subs] of Object.entries(RECIPIENTS)) {
+      if (only && to !== only) continue;
+      if (!only && !subs.hourly) continue;
+      const r = await metaTemplate(env, to, 'ROAS report (Whapi down)', flat);
+      out.push(`${to}:${r.ok ? 'meta' : 'meta-fail'}`);
+    }
+    return 'hourly via META fallback → ' + out.join(' ');
+  }
   for (const [to, subs] of Object.entries(RECIPIENTS)) {
     if (only && to !== only) continue;
     if (!only && !subs.hourly) continue;
