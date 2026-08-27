@@ -79,6 +79,9 @@ justify-content:space-between;gap:1rem;flex-wrap:wrap}
   <label><span class="lbl">Max move per portal</span>
     <input id="iStep" type="number" min="5" max="30" step="5" value="20">
     <span class="hint">Biggest budget change in one day. Over 20% resets Meta&rsquo;s learning — leave it at 20.</span></label>
+  <label><span class="lbl">ROAS goal</span>
+    <input id="iGoal" type="number" min="0.5" step="0.05" value="1.5">
+    <span class="hint">Where you want blended ROAS to land. The plan below works out what it takes.</span></label>
   <label><span class="lbl">Reactivate at ROAS &ge;</span>
     <input id="iReact" type="number" min="0" step="0.1" value="1.5">
     <span class="hint">The bar a paused campaign must clear to be switched back on. Below 1.0 it loses money — keep this at 1.5.</span></label>
@@ -147,6 +150,15 @@ justify-content:space-between;gap:1rem;flex-wrap:wrap}
   <div class="scroll"><table><thead><tr><th>Give to</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th>
   <th>Week-one ROAS</th></tr></thead><tbody id="toB"></tbody></table></div>
   <div class="note" id="freeNote"></div>
+</section>
+
+<section>
+  <span class="lbl">Reaching your ROAS goal</span>
+  <h2 id="goalH"></h2>
+  <div class="kpis" id="goalK"></div>
+  <div class="scroll"><table><thead><tr><th>What has to change</th><th>Amount</th><th>Effect on blended ROAS</th>
+  <th>Effect on revenue</th></tr></thead><tbody id="goalB"></tbody></table></div>
+  <div class="note" id="goalNote"></div>
 </section>
 
 <section>
@@ -344,6 +356,54 @@ function render(){
     <strong>${rs(Math.abs(pick.net))}/day</strong>. That is the honest price of volume while marginal ROAS sits under 1.
     Cutting spend would raise profit but shrink revenue — excluded here because you asked for no revenue loss.`;
 
+  /* ---------- goal seek: what it takes to hit a blended ROAS ---------- */
+  const goal=+$('iGoal').value||1.5;
+  const spendNow=rb?rb.spend0:0, revNow=rb?rb.rev0:0;
+  const blendNow=spendNow?revNow/spendNow:0;
+  const gapPer=Math.max(0.01,wk2-wasRet);          // roas gained per rupee moved, once settled
+  const needMove=Math.max(0,(goal*spendNow-revNow)/gapPer);
+  const canMove=Math.min(pool,needMove);
+  const reachable=needMove<=pool+1;
+  const maxBlend=spendNow?(revNow+pool*gapPer)/spendNow:0;
+  // if reallocation alone cannot get there, how much spend must come out?
+  const revAfterMove=revNow+canMove*gapPer;
+  const spendCut=Math.max(0,spendNow-revAfterMove/goal);
+  // cutting removes the worst spend first, so revenue lost rides the worst marginal
+  const worstMarg=Math.max(0.05,Math.min(...(rb?rb.keys.map(p=>Math.max(0.05,marg(F[p],rb.alloc[p]))):[0.5])));
+  const revLost=spendCut*worstMarg;
+  $('goalH').textContent=reachable
+    ? `Your ${goal}× goal is reachable by moving money — no spend cut needed.`
+    : `Your ${goal}× goal needs more than moving money can deliver.`;
+  $('goalK').innerHTML=`
+   <div><span class="lbl">Blended now</span><b>${blendNow.toFixed(2)}×</b><small>revenue ÷ spend</small></div>
+   <div><span class="lbl">Your goal</span><b>${goal.toFixed(2)}×</b><small>blended</small></div>
+   <div><span class="lbl">Must reallocate</span><b class="${reachable?'goodc':'neg'}">${rs(needMove)}</b>
+     <small>you have ${rs(pool)} available</small></div>
+   <div><span class="lbl">Ceiling on free moves</span><b>${maxBlend.toFixed(2)}×</b>
+     <small>if you move the whole pool</small></div>`;
+  const rows=[];
+  rows.push(`<tr class="good"><td>Move ${rs(canMove)} from campaigns under 1× into proven ones</td>
+    <td class="n">${rs(canMove)}</td>
+    <td class="n">${blendNow.toFixed(2)} → ${((revNow+canMove*gapPer)/spendNow).toFixed(2)}</td>
+    <td class="n goodc">+${rs(canMove*gapPer)}</td></tr>`);
+  if(!reachable){
+    rows.push(`<tr class="bad"><td>Then cut ${rs(spendCut)} of the weakest spend</td><td class="n">${rs(spendCut)}</td>
+      <td class="n">${((revNow+canMove*gapPer)/spendNow).toFixed(2)} → ${goal.toFixed(2)}</td>
+      <td class="n neg">−${rs(revLost)}</td></tr>`);
+    const lift=revNow?100*((goal*spendNow-(revNow+canMove*gapPer))/(revNow+canMove*gapPer)):0;
+    rows.push(`<tr><td>…or instead lift ROAS on what is already running</td><td class="n">+${lift.toFixed(0)}%</td>
+      <td class="n">${goal.toFixed(2)}</td><td class="n goodc">no loss</td></tr>`);
+  }
+  $('goalB').innerHTML=rows.join('');
+  $('goalNote').innerHTML=reachable
+    ? `Moving <strong>${rs(needMove)}</strong> of the <strong>${rs(pool)}</strong> you can free is enough to reach
+       <strong>${goal}×</strong> once the reactivated campaigns clear learning. Nothing has to be cut, so revenue does not
+       fall. In week one it will read lower — reactivated campaigns run at ${Math.round(tax*100)}% of proven ROAS.`
+    : `Moving the entire ${rs(pool)} pool takes you to <strong>${maxBlend.toFixed(2)}×</strong>, short of your
+       ${goal}× goal. Getting the rest means either cutting <strong>${rs(spendCut)}</strong> of the weakest spend — which
+       costs about <strong>${rs(revLost)}/day of revenue</strong> and breaks your no-loss rule — or lifting ROAS on the
+       campaigns already running through better creative and offers. Reallocation alone cannot do it.`;
+
   /* ---------- the plan ---------- */
   const offRs=losers.reduce((x,c)=>x+c.budget,0);
   const onRs=take.reduce((x,w)=>x+w.budget,0);
@@ -463,7 +523,7 @@ fetch('budget.json?t='+Date.now()).then(r=>r.json()).then(j=>{
   $('stamp').textContent='Budget Planner · data '+t+' IST';
   $('foot').textContent='generated '+t;
   $('iReact').value=j.reactivate_roas??1.5;
-  ['iMode','iGrow','iStep','iReact'].forEach(id=>$(id).addEventListener('input',render));
+  ['iMode','iGrow','iStep','iReact','iGoal'].forEach(id=>$(id).addEventListener('input',render));
   render();
 }).catch(e=>{$('err').innerHTML='<strong>Could not load budget.json.</strong> '+e});
 </script></body></html>
