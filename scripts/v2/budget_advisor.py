@@ -620,13 +620,15 @@ def main():
     print("\n" + "=" * 78)
     print("1. BUDGET BASE — what you allocate in the morning, not what survives the day")
     print("=" * 78)
-    print(f"  {'':<26}{'YESTERDAY (full day)':>22}{'TODAY (so far)':>20}")
-    print(f"  {'morning allocation':<26}{rs(morn_all['allocated']):>22}{rs(morn_today['allocated']):>20}")
-    print(f"  {'auto-closed during day':<26}{rs(morn_all['closed_budget'])+f" ({morn_all['closed_pct']}%)":>22}"
-          f"{rs(morn_today['closed_budget'])+f" ({morn_today['closed_pct']}%)":>20}")
-    print(f"  {'actually spent':<26}{rs(morn_all['spent']):>22}{rs(morn_today['spent']):>20}")
-    print(f"  {'delivery rate':<26}{f'{100*morn_all[chr(39)+chr(39)] if False else 100*morn_all["delivery_rate"]:.0f}%':>22}"
-          f"{f'{100*morn_today["delivery_rate"]:.0f}%':>20}")
+    _ca = "%s (%d%%)" % (rs(morn_all["closed_budget"]), morn_all["closed_pct"])
+    _ct = "%s (%d%%)" % (rs(morn_today["closed_budget"]), morn_today["closed_pct"])
+    _da = "%.0f%%" % (100 * morn_all["delivery_rate"])
+    _dt = "%.0f%%" % (100 * morn_today["delivery_rate"])
+    print("  %-26s%22s%20s" % ("", "YESTERDAY (full day)", "TODAY (so far)"))
+    print("  %-26s%22s%20s" % ("morning allocation", rs(morn_all["allocated"]), rs(morn_today["allocated"])))
+    print("  %-26s%22s%20s" % ("auto-closed during day", _ca, _ct))
+    print("  %-26s%22s%20s" % ("actually spent", rs(morn_all["spent"]), rs(morn_today["spent"])))
+    print("  %-26s%22s%20s" % ("delivery rate", _da, _dt))
     print(f"\n  >>> every rupee you allocate delivers {morn_all['delivery_rate']:.2f} of spend —")
     print(f"      to move spend by X you must move the morning allocation by X / {morn_all['delivery_rate']:.2f}")
     alloc = defaultdict(float); alloc_n = defaultdict(int)
@@ -769,17 +771,21 @@ def main():
         r = recommend_allocation(f, mp, a.target_roas) if f.get("ok") else dict(ok=False, reason=f.get("reason"))
         recs[p_] = dict(r, portal=p_, morning=mp)
         if not r.get("ok"):
-            print(f"  {p_:<6}{rs(mp['allocated']):>12}{rs(mp['spent']):>11}"
-                  f"{f'{100*mp[chr(100)+chr(101)+chr(108)+chr(105)+chr(118)+chr(101)+chr(114)+chr(121)+chr(95)+chr(114)+chr(97)+chr(116)+chr(101)]:.0f}%' if False else f'{100*mp["delivery_rate"]:.0f}%':>7}"
-                  f"{'—':>10}{'—':>9}  ->  {'hold':>12}{'':>8}  {r.get('reason','')}")
+            print("  %-6s%12s%11s%7s%10s%9s  ->  %12s%8s  %s" % (
+                p_, rs(mp["allocated"]), rs(mp["spent"]),
+                "%.0f%%" % (100 * mp["delivery_rate"]), "-", "-", "hold", "", r.get("reason", "")))
             continue
         if not r.get("solvable"):
-            print(f"  {p_:<6}{rs(mp['allocated']):>12}{rs(mp['spent']):>11}{f'{100*mp["delivery_rate"]:.0f}%':>7}"
-                  f"{r.get('marginal_now',0):>10.2f}{('R2 '+str(f['r2'])):>9}  ->  {'HOLD':>12}{'':>8}")
-            print(f"         {r.get('reason','')}")
+            print("  %-6s%12s%11s%7s%10.2f%9s  ->  %12s%8s" % (
+                p_, rs(mp["allocated"]), rs(mp["spent"]),
+                "%.0f%%" % (100 * mp["delivery_rate"]), r.get("marginal_now", 0),
+                "R2 " + str(f.get("r2")), "HOLD", ""))
+            print("         " + str(r.get("reason", "")))
             continue
-        print(f"  {p_:<6}{rs(r['allocated_now']):>12}{rs(r['spend_now']):>11}{f'{100*r["delivery_rate"]:.0f}%':>7}"
-              f"{r['marginal_now']:>10.2f}{('R2 '+str(f['r2'])):>9}  ->  {rs(r['allocate']):>12}{f'{r[chr(112)+chr(99)+chr(116)]:+.0f}%' if False else f'{r["pct"]:+.0f}%':>8}")
+        print("  %-6s%12s%11s%7s%10.2f%9s  ->  %12s%8s" % (
+            p_, rs(r["allocated_now"]), rs(r["spend_now"]),
+            "%.0f%%" % (100 * r["delivery_rate"]), r["marginal_now"],
+            "R2 " + str(f.get("r2")), rs(r["allocate"]), "%+.0f%%" % r["pct"]))
         if r["clamped"]:
             print(f"         (solver wanted {r['raw_pct']:+.0f}% on spend; capped at 20% — a bigger edit resets learning)")
     tot_alloc_now = sum(r["morning"]["allocated"] for r in recs.values())
