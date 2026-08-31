@@ -353,8 +353,44 @@ async function buildConfig(html) {
       messages: announcements.length ? announcements.slice(0, 3) : ['FREE SHIPPING ON PREPAID ORDERS'],
     },
     menu,
-    sections,
+    sections: rightSizeImages(sections),
   };
+}
+
+// ---- image right-sizing -----------------------------------------------------
+// Every parsed URL comes out at width=1200 because that is what the desktop
+// site serves. A 1200px file for a 70pt category icon is ~30x the pixels the
+// phone needs, and decoding 45 of them starves the JS thread -> taps stop
+// registering while native scrolling keeps working. Ask for what we render.
+const SECTION_IMG_WIDTH = {
+  hero: 1080,
+  imageBanner: 1080,   // full-bleed, must stay sharp on a 3x screen
+  categoryGrid: 540,   // two across
+  iconRow: 260,        // five or six across
+  logoStrip: 260,
+};
+
+function sizeUrl(u, w) {
+  if (typeof u !== 'string' || !u.includes('/cdn/shop/')) return u;
+  return /[?&]width=\d+/.test(u)
+    ? u.replace(/([?&])width=\d+/, `$1width=${w}`)
+    : `${u}${u.includes('?') ? '&' : '?'}width=${w}`;
+}
+
+function rightSizeImages(sections) {
+  for (const s of sections || []) {
+    const w = SECTION_IMG_WIDTH[s.type];
+    if (!w) continue;
+    if (s.image) s.image = sizeUrl(s.image, w);
+    for (const key of ['items', 'slides', 'images']) {
+      if (!Array.isArray(s[key])) continue;
+      s[key] = s[key].map((x) =>
+        typeof x === 'string' ? sizeUrl(x, w)
+        : x && x.image ? { ...x, image: sizeUrl(x.image, w) }
+        : x);
+    }
+  }
+  return sections;
 }
 
 module.exports = async (req, res) => {
