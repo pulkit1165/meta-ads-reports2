@@ -160,6 +160,36 @@ def main():
         print("previous snapshot left in place; the next run retries")
         raise SystemExit(1)
 
+    # Second guard: a SILENT empty. Meta sometimes answers a throttled account
+    # with an empty result set instead of an error, so ACCOUNT_ERRORS stays
+    # clean and the hour writes looking complete. 31 Aug: SM Fragrance 01 + SM
+    # SKIN returned nothing, the slot stored 120 of 245 campaigns, and the
+    # report showed SM budget/active/closed as Rs 0 while it had spent Rs 5.4L.
+    # An account with rows last slot and none now is a failure, not a real zero.
+    if os.path.exists(args.db):
+        try:
+            _c = sqlite3.connect(args.db)
+            _prev_slot = _c.execute(
+                "SELECT MAX(hour_slot) FROM campaign_hourly_snapshots").fetchone()[0]
+            _prev = dict(_c.execute(
+                "SELECT account_name, COUNT(*) FROM campaign_hourly_snapshots "
+                "WHERE hour_slot=? GROUP BY account_name", (_prev_slot,)).fetchall()
+            ) if _prev_slot else {}
+            _c.close()
+        except sqlite3.OperationalError:
+            _prev, _prev_slot = {}, None
+        _now = {}
+        for r in rows:
+            _now[r['account_name']] = _now.get(r['account_name'], 0) + 1
+        vanished = [(a, n) for a, n in _prev.items() if n >= 3 and _now.get(a, 0) == 0]
+        if vanished:
+            print(f"ABORTING WRITE: account(s) returned 0 campaigns but had rows at "
+                  f"{_prev_slot} — silent API failure:")
+            for a, n in vanished:
+                print(f"  - {a}: {n} campaigns last slot, 0 now")
+            print("previous snapshot left in place; the next run retries")
+            raise SystemExit(1)
+
     con = sqlite3.connect(args.db)
     con.executescript(SCHEMA)
     # add status column to a pre-existing table (idempotent migration)
