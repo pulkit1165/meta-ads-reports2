@@ -1,0 +1,36 @@
+{
+  "sections": {
+    "main": {
+      "type": "sm-destiny-landing",
+      "settings": {
+        "brand": "Destiny",
+        "eyebrow": "INSTANT • ACCURATE • PRIVATE",
+        "headline_1": "Real Answers for",
+        "headline_gold": "Love, Career",
+        "headline_violet": "Beyond",
+        "customers": "1,00,000+",
+        "hero_cta": true,
+        "hero_cta_label": "Buy Now",
+        "hero_price_note": "incl. of all taxes • one-time",
+        "bg_opacity": 100,
+        "cta_label": "Get Your Reading Now",
+        "show_topbar": true,
+        "topbar_logo_url": "https:\/\/studdmuffyn.com\/cdn\/shop\/files\/studdmuffyn-logo_1190x467.png",
+        "topbar_title": "6 Questions — Astro Reading",
+        "topbar_sub": "Free kundli included · English or Hindi",
+        "topbar_btn": "Buy now",
+        "topbar_note": "🙏 Grounded in your real birth chart, not a generic horoscope",
+        "hide_theme_chrome": true,
+        "mobile_mode": "responsive",
+        "sticky_cta": true,
+        "design_width": 1120,
+        "scale_below": 900,
+        "gold": "#D9A94A",
+        "violet": "#8B5CF6"
+      }
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

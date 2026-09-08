@@ -1,0 +1,704 @@
+{%- liquid
+  assign p = product
+  assign v = p.selected_or_first_available_variant
+  assign wa = section.settings.whatsapp_url
+-%}
+
+{%- if section.settings.hide_theme_chrome -%}
+  {%- comment -%}
+    Standalone landing page: hide the theme's header and footer groups.
+    This CSS only ships on templates that render this section, so it can't
+    leak onto the rest of the store. The overlay group is left alone so the
+    cart drawer still works when someone buys.
+  {%- endcomment -%}
+  <style>
+    .shopify-section-group-header-group,
+    .shopify-section-group-footer-group { display: none !important; }
+    body { padding-top: 0 !important; }
+  </style>
+{%- endif -%}
+
+{% style %}
+  .dst-{{ section.id }} {
+    --gold: {{ section.settings.gold }};
+    --violet: {{ section.settings.violet }};
+    --ink: #ffffff;
+    --muted: rgba(255,255,255,.72);
+    --card: rgba(255,255,255,.045);
+    --line: rgba(255,255,255,.12);
+    background:
+      radial-gradient(900px 500px at 80% 8%, rgba(139,92,246,.30), transparent 60%),
+      radial-gradient(700px 420px at 10% 40%, rgba(217,119,6,.16), transparent 60%),
+      linear-gradient(180deg, #0a0713 0%, #120a24 45%, #0a0713 100%);
+    color: var(--ink);
+    font-family: {{ section.settings.body_font }};
+    overflow: hidden;
+  }
+  .dst-{{ section.id }} * { box-sizing: border-box; }
+  .dst-{{ section.id }} a { color: inherit; }
+  .dst-{{ section.id }} .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  .dst-{{ section.id }} .serif { font-family: {{ section.settings.display_font }}; }
+
+  /* ---------- sticky page header (replaces the theme header) ---------- */
+  .dsthead-{{ section.id }} {
+    position:sticky; top:0; z-index:60;
+    background:{{ section.settings.topbar_bg }};
+    font-family:{{ section.settings.body_font }};
+  }
+  .dsthead-{{ section.id }} .row {
+    max-width:1120px; margin:0 auto; padding:12px 20px;
+    display:flex; align-items:center; gap:16px;
+  }
+  .dsthead-{{ section.id }} .brand { display:flex; align-items:center; gap:14px; min-width:0; }
+  .dsthead-{{ section.id }} .mark {
+    width:52px; height:52px; border-radius:12px; flex:none;
+    background:{{ section.settings.topbar_mark_bg }};
+    display:grid; place-items:center; overflow:hidden;
+  }
+  .dsthead-{{ section.id }} .mark { width:74px; height:52px; border-radius:12px; }
+  .dsthead-{{ section.id }} .mark img { width:100%; height:100%; object-fit:contain; padding:6px 8px; }
+  .dsthead-{{ section.id }} .mark span { font-size:9px; font-weight:800; letter-spacing:.06em; color:#111; text-align:center; line-height:1.1; }
+  .dsthead-{{ section.id }} .t { min-width:0; }
+  .dsthead-{{ section.id }} .t b { display:block; font-size:clamp(14px,1.5vw,19px); font-weight:700; color:{{ section.settings.topbar_ink }}; line-height:1.25; }
+  .dsthead-{{ section.id }} .t small { display:block; font-size:clamp(11.5px,1.15vw,14px); color:{{ section.settings.topbar_sub_ink }}; margin-top:3px; }
+  .dsthead-{{ section.id }} .buy { margin-left:auto; display:flex; align-items:center; gap:16px; flex:none; }
+  .dsthead-{{ section.id }} .buy .amt { font-size:clamp(16px,1.9vw,22px); font-weight:800; color:{{ section.settings.topbar_ink }}; }
+  .dsthead-{{ section.id }} .buy .btn {
+    border:0; cursor:pointer; font:inherit; font-weight:700;
+    font-size:clamp(13px,1.4vw,16px); color:{{ section.settings.topbar_btn_ink }};
+    background:{{ section.settings.topbar_btn_bg }};
+    padding:13px 30px; border-radius:12px; text-decoration:none;
+    transition:filter .18s, transform .15s; white-space:nowrap;
+  }
+  .dsthead-{{ section.id }} .buy .btn:hover { filter:brightness(1.06); transform:translateY(-1px); }
+  .dsthead-{{ section.id }} .note {
+    background:{{ section.settings.note_bg }}; color:{{ section.settings.note_ink }};
+    text-align:center; font-size:clamp(11.5px,1.2vw,14.5px); padding:11px 16px; line-height:1.4;
+  }
+  @media (max-width:760px) {
+    .dsthead-{{ section.id }} .row { padding:10px 14px; gap:11px; }
+    .dsthead-{{ section.id }} .mark { width:60px; height:42px; border-radius:10px; }
+    .dsthead-{{ section.id }} .t small { display:none; }
+    .dsthead-{{ section.id }} .buy { gap:10px; }
+    .dsthead-{{ section.id }} .buy .btn { padding:11px 18px; }
+    .dsthead-{{ section.id }} .note { padding:9px 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .dsthead-{{ section.id }} .buy .btn { transition:none; } }
+
+  /* ---------- top bar ---------- */
+  .dst-{{ section.id }} .top { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:26px 0 8px; flex-wrap:wrap; }
+  .dst-{{ section.id }} .logo { line-height:1; }
+  .dst-{{ section.id }} .logo b { font-family:{{ section.settings.display_font }}; font-size:clamp(30px,3.6vw,44px); font-weight:600; letter-spacing:.01em; }
+  .dst-{{ section.id }} .logo span { display:block; font-size:10px; letter-spacing:.34em; color:var(--muted); margin-top:4px; }
+  .dst-{{ section.id }} .pills { display:flex; gap:10px; flex-wrap:wrap; }
+  .dst-{{ section.id }} .pill { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:999px; padding:8px 14px; font-size:12.5px; color:var(--muted); background:rgba(255,255,255,.03); }
+  .dst-{{ section.id }} .pill svg { width:14px; height:14px; color:var(--gold); flex:none; }
+
+  /* ---------- hero ---------- */
+  .dst-{{ section.id }} .hero { display:grid; grid-template-columns:1.02fr .98fr; gap:36px; align-items:center; padding:22px 0 54px; }
+  .dst-{{ section.id }} .eyebrow { font-size:12px; letter-spacing:.22em; color:var(--gold); font-weight:700; margin:0 0 14px; }
+  .dst-{{ section.id }} h1 { font-family:{{ section.settings.display_font }}; font-weight:600; font-size:clamp(32px,4.6vw,54px); line-height:1.1; margin:0 0 18px; }
+  .dst-{{ section.id }} h1 .g { color:var(--gold); }
+  .dst-{{ section.id }} h1 .v { color:#c4a2ff; }
+  .dst-{{ section.id }} .hero-buy {
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    margin:0 0 22px; padding:16px 18px;
+    border:1px solid rgba(212,175,55,.38); border-radius:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+    max-width:520px;
+  }
+  .dst-{{ section.id }} .hero-buy .p b { font-size:clamp(27px,3.2vw,36px); font-weight:800; line-height:1; display:block; }
+  .dst-{{ section.id }} .hero-buy .p s { font-size:14px; color:var(--muted); font-weight:400; margin-right:8px; }
+  .dst-{{ section.id }} .hero-buy .p small { display:block; font-size:11.5px; color:var(--muted); margin-top:5px; }
+  .dst-{{ section.id }} .hero-buy .cta { width:auto; flex:1; min-width:170px; padding:14px 20px; font-size:15.5px; }
+  .dst-{{ section.id }} .lede { color:var(--muted); font-size:clamp(14px,1.25vw,16px); line-height:1.65; margin:0 0 14px; max-width:52ch; }
+  .dst-{{ section.id }} .feat { display:flex; gap:0; border:1px solid var(--line); border-radius:14px; overflow:hidden; margin:22px 0 24px; background:rgba(255,255,255,.03); max-width:520px; }
+  .dst-{{ section.id }} .feat div { flex:1; padding:12px 14px; font-size:12.5px; line-height:1.35; display:flex; gap:9px; align-items:center; }
+  .dst-{{ section.id }} .feat div + div { border-left:1px solid var(--line); }
+  .dst-{{ section.id }} .feat svg { width:17px; height:17px; color:var(--gold); flex:none; }
+  .dst-{{ section.id }} .social { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .dst-{{ section.id }} .avatars { display:flex; }
+  .dst-{{ section.id }} .avatars i,
+  .dst-{{ section.id }} .avatars img {
+    width:34px; height:34px; border-radius:50%; border:2px solid #150c28;
+    margin-left:-10px; display:block; object-fit:cover; background:#2a1b45;
+  }
+  .dst-{{ section.id }} .avatars i {
+    background:linear-gradient(135deg,#f0b27a,#c46b9b);
+    position:relative; overflow:hidden;
+  }
+  /* fallback silhouette so empty slots read as people, not blobs */
+  .dst-{{ section.id }} .avatars i::before {
+    content:""; position:absolute; left:50%; top:22%; width:34%; aspect-ratio:1;
+    transform:translateX(-50%); border-radius:50%; background:rgba(255,255,255,.62);
+  }
+  .dst-{{ section.id }} .avatars i::after {
+    content:""; position:absolute; left:50%; bottom:-14%; width:66%; aspect-ratio:1;
+    transform:translateX(-50%); border-radius:50%; background:rgba(255,255,255,.62);
+  }
+  .dst-{{ section.id }} .avatars i:first-child { margin-left:0; }
+  .dst-{{ section.id }} .stars { color:var(--gold); letter-spacing:2px; font-size:15px; }
+  .dst-{{ section.id }} .count b { display:block; font-size:16px; }
+  .dst-{{ section.id }} .count span { font-size:12.5px; color:var(--muted); }
+
+  /* ---------- hero backdrop (real artwork if supplied, else SVG) ---------- */
+  .dst-{{ section.id }} .stagewrap { position:relative; display:flex; justify-content:center; align-items:center; }
+  .dst-{{ section.id }} .heroart {
+    display:block; width:100%; height:auto; max-width:520px;
+    border-radius:18px;
+    -webkit-mask-image: radial-gradient(120% 100% at 50% 45%, #000 62%, transparent 100%);
+            mask-image: radial-gradient(120% 100% at 50% 45%, #000 62%, transparent 100%);
+  }
+  .dst-{{ section.id }} .bgart {
+    position:absolute; inset:-26% -22%; z-index:0; pointer-events:none;
+    background-position:center; background-repeat:no-repeat; background-size:contain;
+    opacity:{{ section.settings.bg_opacity | divided_by: 100.0 }};
+  }
+  .dst-{{ section.id }} .bgart svg { width:100%; height:100%; display:block; }
+  .dst-{{ section.id }} .stagewrap .phone { position:relative; z-index:1; }
+  .dst-{{ section.id }} .zodiac { animation: dst-spin-{{ section.id }} 150s linear infinite; transform-origin:310px 310px; }
+  .dst-{{ section.id }} .galaxy { animation: dst-drift-{{ section.id }} 26s ease-in-out infinite alternate; transform-origin:50% 50%; }
+  @keyframes dst-spin-{{ section.id }} { to { transform: rotate(360deg); } }
+  @keyframes dst-drift-{{ section.id }} { from { transform: scale(1); opacity:.9 } to { transform: scale(1.06); opacity:1 } }
+  @media (prefers-reduced-motion: reduce) {
+    .dst-{{ section.id }} .zodiac, .dst-{{ section.id }} .galaxy { animation:none; }
+  }
+
+  /* ---------- phone ---------- */
+  .dst-{{ section.id }} .phone { justify-self:center; width:min(330px,100%); border-radius:38px; border:9px solid #1c1830; background:#0d0a18; box-shadow:0 30px 90px rgba(88,28,135,.45); overflow:hidden; }
+  .dst-{{ section.id }} .phone-top { display:flex; align-items:center; gap:9px; padding:12px 13px; background:#141024; border-bottom:1px solid var(--line); }
+  .dst-{{ section.id }} .phone-top .av { width:30px; height:30px; border-radius:50%; background:var(--gold); color:#241500; font-weight:800; font-size:11px; display:grid; place-items:center; flex:none; }
+  .dst-{{ section.id }} .phone-top b { font-size:13px; display:block; }
+  .dst-{{ section.id }} .phone-top small { font-size:10.5px; color:#7ee08a; }
+  .dst-{{ section.id }} .chat { padding:14px 12px 18px; background:#0f0b1c; display:flex; flex-direction:column; gap:10px; }
+  .dst-{{ section.id }} .msg { max-width:86%; padding:10px 12px; border-radius:12px; font-size:12.5px; line-height:1.5; }
+  .dst-{{ section.id }} .msg.me { align-self:flex-end; background:#dcf8c6; color:#0d2b12; border-bottom-right-radius:4px; }
+  .dst-{{ section.id }} .msg.bot { align-self:flex-start; background:#f6f3ec; color:#1a1a1a; border-bottom-left-radius:4px; }
+  .dst-{{ section.id }} .msg time { display:block; font-size:9.5px; opacity:.55; margin-top:5px; text-align:right; }
+
+  /* ---------- stats ---------- */
+  .dst-{{ section.id }} .stats { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--line); border-radius:16px; background:var(--card); overflow:hidden; }
+  .dst-{{ section.id }} .stats div { padding:24px 16px; text-align:center; }
+  .dst-{{ section.id }} .stats div + div { border-left:1px solid var(--line); }
+  .dst-{{ section.id }} .stats svg { width:30px; height:30px; color:var(--gold); margin-bottom:10px; }
+  .dst-{{ section.id }} .stats b { display:block; font-size:clamp(17px,2vw,23px); font-weight:700; }
+  .dst-{{ section.id }} .stats span { font-size:12.5px; color:var(--muted); }
+
+  /* ---------- section heads ---------- */
+  .dst-{{ section.id }} .head { text-align:center; margin:64px 0 8px; }
+  .dst-{{ section.id }} .head h2 { font-family:{{ section.settings.display_font }}; font-size:clamp(23px,2.8vw,32px); font-weight:600; margin:0; }
+  .dst-{{ section.id }} .head h2::before, .dst-{{ section.id }} .head h2::after { content:"✦"; color:var(--gold); font-size:.6em; margin:0 14px; vertical-align:middle; }
+  .dst-{{ section.id }} .head p { color:var(--muted); font-size:13.5px; margin:8px 0 26px; }
+
+  /* ---------- chat examples ---------- */
+  .dst-{{ section.id }} .cards3 { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .dst-{{ section.id }} .cc { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--card); }
+  .dst-{{ section.id }} .cc .hd { display:flex; align-items:center; gap:9px; padding:11px 12px; background:rgba(255,255,255,.05); border-bottom:1px solid var(--line); }
+  .dst-{{ section.id }} .cc .bd { padding:12px; display:flex; flex-direction:column; gap:9px; background:#0f0b1c; }
+
+  /* ---------- steps ---------- */
+  .dst-{{ section.id }} .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .dst-{{ section.id }} .step { border:1px solid var(--line); border-radius:14px; background:var(--card); padding:20px; display:flex; gap:14px; }
+  .dst-{{ section.id }} .step .n { width:34px; height:34px; border-radius:50%; background:var(--gold); color:#241500; font-weight:800; display:grid; place-items:center; flex:none; }
+  .dst-{{ section.id }} .step b { display:block; margin-bottom:6px; font-size:14.5px; }
+  .dst-{{ section.id }} .step p { margin:0; color:var(--muted); font-size:13px; line-height:1.6; }
+
+  /* ---------- offer ---------- */
+  .dst-{{ section.id }} .offer { display:grid; grid-template-columns:1fr 1.05fr; gap:34px; align-items:center; margin-top:56px; }
+  .dst-{{ section.id }} .offer h3 { font-family:{{ section.settings.display_font }}; font-size:clamp(21px,2.4vw,28px); color:var(--gold); font-weight:600; margin:0 0 14px; }
+  .dst-{{ section.id }} .offer p { color:var(--muted); font-size:13.5px; line-height:1.75; margin:0; }
+  .dst-{{ section.id }} .price-card { position:relative; border:1px solid rgba(212,175,55,.45); border-radius:18px; padding:26px; background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); }
+  .dst-{{ section.id }} .badge { position:absolute; top:-11px; left:22px; background:var(--gold); color:#241500; font-size:10.5px; font-weight:800; letter-spacing:.08em; padding:5px 11px; border-radius:5px; }
+  .dst-{{ section.id }} .amt { font-size:clamp(34px,4.4vw,46px); font-weight:800; line-height:1; }
+  .dst-{{ section.id }} .amt small { font-size:13px; font-weight:400; color:var(--muted); margin-left:9px; }
+  .dst-{{ section.id }} .ticks { list-style:none; padding:0; margin:18px 0 22px; display:flex; flex-direction:column; gap:11px; }
+  .dst-{{ section.id }} .ticks li { display:flex; gap:10px; font-size:13.5px; line-height:1.5; color:var(--muted); }
+  .dst-{{ section.id }} .ticks svg { width:17px; height:17px; color:var(--gold); flex:none; margin-top:1px; }
+  .dst-{{ section.id }} .ticks b { color:var(--ink); font-weight:600; }
+  .dst-{{ section.id }} .cta { display:flex; align-items:center; justify-content:center; gap:11px; width:100%; border:0; cursor:pointer;
+    background:linear-gradient(180deg,#e8c063,#c9992f); color:#241500; font:inherit; font-weight:800; font-size:16px;
+    padding:15px 20px; border-radius:11px; text-decoration:none; transition:filter .2s, transform .15s; }
+  .dst-{{ section.id }} .cta svg { width:20px; height:20px; flex:none; }
+  .dst-{{ section.id }} .wa svg { width:17px; height:17px; flex:none; }
+  .dst-{{ section.id }} .pill svg, .dst-{{ section.id }} .feat svg,
+  .dst-{{ section.id }} .ticks svg, .dst-{{ section.id }} .trust svg { flex:none; }
+  .dst-{{ section.id }} .cc .hd svg { width:16px; height:16px; }
+  .dst-{{ section.id }} .cta:hover { filter:brightness(1.07); transform:translateY(-1px); }
+  .dst-{{ section.id }} .cta[disabled] { opacity:.7; cursor:default; }
+
+  /* ---------- trust + footer ---------- */
+  .dst-{{ section.id }} .trust { display:grid; grid-template-columns:repeat(3,1fr) auto; gap:22px; align-items:center; border-top:1px solid var(--line); margin-top:56px; padding:26px 0; }
+  .dst-{{ section.id }} .trust .t { display:flex; gap:11px; align-items:flex-start; }
+  .dst-{{ section.id }} .trust svg { width:22px; height:22px; color:var(--gold); flex:none; }
+  .dst-{{ section.id }} .trust b { display:block; font-size:13.5px; }
+  .dst-{{ section.id }} .trust span { font-size:12.5px; color:var(--muted); }
+  .dst-{{ section.id }} .wa { display:inline-flex; align-items:center; gap:8px; background:#25d366; color:#07240f; font-weight:700; font-size:13.5px; padding:10px 16px; border-radius:8px; text-decoration:none; }
+  .dst-{{ section.id }} .foot { border-top:1px solid var(--line); padding:30px 0 34px; display:grid; grid-template-columns:1.2fr repeat(3,1fr) 1fr; gap:24px; }
+  .dst-{{ section.id }} .foot h4 { font-size:11px; letter-spacing:.16em; color:var(--muted); margin:0 0 12px; font-weight:700; }
+  .dst-{{ section.id }} .foot ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .dst-{{ section.id }} .foot a { font-size:13px; color:var(--muted); text-decoration:none; }
+  .dst-{{ section.id }} .foot a:hover { color:var(--ink); }
+  .dst-{{ section.id }} .pay { display:flex; gap:7px; flex-wrap:wrap; }
+  .dst-{{ section.id }} .pay span { border:1px solid var(--line); border-radius:5px; padding:5px 9px; font-size:10.5px; color:var(--muted); background:rgba(255,255,255,.04); }
+  .dst-{{ section.id }} .copy { text-align:center; color:rgba(255,255,255,.45); font-size:11.5px; padding-bottom:26px; }
+
+  {%- if section.settings.mobile_mode == 'responsive' -%}
+  @media (max-width: 1000px) {
+    .dst-{{ section.id }} .hero { grid-template-columns:1fr; gap:30px; padding:14px 0 44px; text-align:center; }
+    .dst-{{ section.id }} .lede { margin-left:auto; margin-right:auto; }
+    .dst-{{ section.id }} .feat { margin-left:auto; margin-right:auto; }
+    .dst-{{ section.id }} .hero-buy { margin-left:auto; margin-right:auto; justify-content:center; text-align:center; }
+    .dst-{{ section.id }} .hero-buy .p { width:100%; }
+    .dst-{{ section.id }} .social { justify-content:center; }
+    .dst-{{ section.id }} .phone { order:-1; width:min(300px,86%); }
+    .dst-{{ section.id }} .offer { grid-template-columns:1fr; gap:26px; }
+    .dst-{{ section.id }} .steps { grid-template-columns:1fr; }
+  }
+  @media (max-width: 760px) {
+    .dst-{{ section.id }} .wrap { padding:0 16px; }
+    .dst-{{ section.id }} .top { justify-content:center; text-align:center; gap:14px; padding:22px 0 4px; }
+    .dst-{{ section.id }} .pills { justify-content:center; }
+    .dst-{{ section.id }} .pill { font-size:11.5px; padding:7px 11px; }
+
+    /* stats: 2x2 with clean dividers */
+    .dst-{{ section.id }} .stats { grid-template-columns:1fr 1fr; }
+    .dst-{{ section.id }} .stats div { padding:18px 12px; border-left:0 !important; border-top:0; }
+    .dst-{{ section.id }} .stats div:nth-child(even) { border-left:1px solid var(--line) !important; }
+    .dst-{{ section.id }} .stats div:nth-child(n+3) { border-top:1px solid var(--line); }
+
+    /* chat examples become a swipeable carousel that peeks the next card */
+    .dst-{{ section.id }} .cards3 {
+      grid-template-columns:none; display:flex; gap:12px;
+      overflow-x:auto; scroll-snap-type:x mandatory;
+      margin:0 -16px; padding:2px 16px 10px;
+      -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    }
+    .dst-{{ section.id }} .cards3::-webkit-scrollbar { display:none; }
+    .dst-{{ section.id }} .cc { flex:0 0 86%; scroll-snap-align:center; }
+
+    .dst-{{ section.id }} .head { margin:46px 0 6px; }
+    .dst-{{ section.id }} .head h2::before, .dst-{{ section.id }} .head h2::after { margin:0 9px; }
+    .dst-{{ section.id }} .step { padding:16px; }
+    .dst-{{ section.id }} .price-card { padding:22px 18px; }
+    .dst-{{ section.id }} .cta { padding:16px 18px; font-size:16.5px; }
+
+    .dst-{{ section.id }} .trust { grid-template-columns:1fr; gap:16px; padding:22px 0; text-align:left; }
+    .dst-{{ section.id }} .foot { grid-template-columns:1fr 1fr; gap:22px 18px; }
+    .dst-{{ section.id }} .foot > div:first-child { grid-column:1 / -1; }
+    .dst-{{ section.id }} .feat { flex-direction:row; }
+    .dst-{{ section.id }} .feat div { flex-direction:column; align-items:center; text-align:center; gap:6px; font-size:11.5px; padding:12px 8px; }
+    .dst-{{ section.id }} .feat div + div { border-left:1px solid var(--line); border-top:0; }
+  }
+  @media (max-width: 430px) {
+    .dst-{{ section.id }} .cc { flex:0 0 90%; }
+    .dst-{{ section.id }} .avatars i { width:30px; height:30px; }
+  }
+
+  /* sticky buy bar on mobile — keeps the offer reachable the whole way down */
+  .dst-{{ section.id }} .sticky { display:none; }
+  {%- if section.settings.sticky_cta -%}
+  @media (max-width: 760px) {
+    .dst-{{ section.id }} .sticky {
+      display:flex; position:fixed; left:0; right:0; bottom:0; z-index:40;
+      align-items:center; gap:12px; padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+      background:rgba(12,8,24,.94); backdrop-filter:blur(10px);
+      border-top:1px solid var(--line);
+    }
+    .dst-{{ section.id }} .sticky b { font-size:19px; }
+    .dst-{{ section.id }} .sticky small { display:block; font-size:10.5px; color:var(--muted); }
+    .dst-{{ section.id }} .sticky .cta { width:auto; flex:1; padding:13px 16px; font-size:15px; }
+    .dst-{{ section.id }} .foot { padding-bottom:96px; }
+  }
+  {%- endif -%}
+  {%- endif -%}
+  /* "Same as desktop" mode: render the desktop composition at a fixed width
+     and scale it to fit, so mobile is an exact miniature rather than a reflow. */
+  .dst-fit-{{ section.id }} { overflow:hidden; width:100%; }
+  .dst-stage-{{ section.id }} { transform-origin: top left; }
+  @media (prefers-reduced-motion: reduce) { .dst-{{ section.id }} .cta { transition:none; } }
+{% endstyle %}
+
+{%- capture ic_lock -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{%- endcapture -%}
+{%- capture ic_check -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>{%- endcapture -%}
+{%- capture ic_shield -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>{%- endcapture -%}
+{%- capture ic_chart -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>{%- endcapture -%}
+{%- capture ic_users -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="10" r="2.6"/><path d="M15 19a4.6 4.6 0 0 1 6 0"/></svg>{%- endcapture -%}
+{%- capture ic_search -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.2-4.2"/></svg>{%- endcapture -%}
+{%- capture ic_globe -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 15h5"/></svg>{%- endcapture -%}
+{%- capture ic_wa -%}<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8 8 0 1 1 12 20zm4.4-5.8c-.2-.1-1.4-.7-1.6-.8s-.4-.1-.5.1-.6.8-.7 1-.3.2-.5.1a6.5 6.5 0 0 1-3.2-2.8c-.2-.4.2-.4.6-1.2.1-.2 0-.3 0-.5s-.5-1.3-.7-1.7-.4-.4-.5-.4h-.5a1 1 0 0 0-.7.3A3 3 0 0 0 7 8.6a5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4 5.3 5.3 0 0 0 2.4.5 2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c0-.1-.2-.2-.5-.2z"/></svg>{%- endcapture -%}
+
+{%- if section.settings.show_topbar -%}
+<div class="dsthead-{{ section.id }}">
+  <div class="row">
+    <span class="brand">
+      <span class="mark">
+        {%- if section.settings.topbar_logo != blank -%}
+          <img src="{{ section.settings.topbar_logo | image_url: width: 160 }}" alt="Studd Muffyn">
+        {%- else -%}
+          {%- comment -%} Falls back to the store logo already on the Shopify CDN {%- endcomment -%}
+          <img src="{{ section.settings.topbar_logo_url }}" alt="Studd Muffyn"
+               loading="eager" decoding="async"
+               onerror="this.outerHTML='<span>STUDD<br>MUFFYN</span>'">
+        {%- endif -%}
+      </span>
+      <span class="t">
+        <b>{{ section.settings.topbar_title }}</b>
+        <small>{{ section.settings.topbar_sub }}</small>
+      </span>
+    </span>
+    {%- if v and v.available -%}
+      <span class="buy">
+        <span class="amt">{{ v.price | money_without_trailing_zeros }}</span>
+        {%- form 'product', product -%}
+          <input type="hidden" name="id" value="{{ v.id }}">
+          <input type="hidden" name="quantity" value="1">
+          <div class="shiprocket-headless" data-type="product">
+            <button type="button" class="sr-headless-checkout btn" onclick="shiprocketCheckoutEvents.buyProduct(event)">
+              <span class="sr-checkout-visible2">{{ section.settings.topbar_btn }}</span>
+              <div class="loader5"></div>
+            </button>
+          </div>
+        {%- endform -%}
+      </span>
+    {%- endif -%}
+  </div>
+  {%- if section.settings.topbar_note != blank -%}
+    <div class="note">{{ section.settings.topbar_note }}</div>
+  {%- endif -%}
+</div>
+{%- endif -%}
+
+<div class="dst-{{ section.id }}">
+  <div class="dst-fit-{{ section.id }}" data-dst-fit>
+  <div class="dst-stage-{{ section.id }}" data-dst-stage>
+  <div class="wrap">
+
+    <div class="top">
+      <div class="logo"><b class="serif">{{ section.settings.brand }}</b><span>BY STUDD MUFFYN</span></div>
+      <div class="pills">
+        <span class="pill">{{ ic_lock }} 100% Private</span>
+        <span class="pill">{{ ic_shield }} Double Checked</span>
+        <span class="pill">{{ ic_check }} Real Answers</span>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div>
+        <p class="eyebrow">{{ section.settings.eyebrow }}</p>
+        <h1>{{ section.settings.headline_1 }}<br><span class="g">{{ section.settings.headline_gold }}</span> &amp; <span class="v">{{ section.settings.headline_violet }}</span></h1>
+        {%- if section.settings.hero_cta and v and v.available -%}
+          <div class="hero-buy">
+            <span class="p">
+              <b>
+                {%- if v.compare_at_price > v.price -%}<s>{{ v.compare_at_price | money_without_trailing_zeros }}</s>{%- endif -%}
+                {{ v.price | money_without_trailing_zeros }}
+              </b>
+              <small>{{ section.settings.hero_price_note }}</small>
+            </span>
+            {%- form 'product', product, style: 'display:contents' -%}
+              <input type="hidden" name="id" value="{{ v.id }}">
+              <input type="hidden" name="quantity" value="1">
+              <div class="shiprocket-headless" data-type="product" style="display:contents">
+                <button type="button" class="sr-headless-checkout cta" onclick="shiprocketCheckoutEvents.buyProduct(event)">
+                  <span class="sr-checkout-visible2">{{ section.settings.hero_cta_label }}</span>
+                  <div class="loader5"></div>
+                </button>
+              </div>
+            {%- endform -%}
+          </div>
+        {%- endif -%}
+
+        <p class="lede">{{ section.settings.lede_1 }}</p>
+        <p class="lede">{{ section.settings.lede_2 }}</p>
+        <div class="feat">
+          <div>{{ ic_chart }} Real chart,<br>not a template</div>
+          <div>{{ ic_shield }} Double<br>fact-checked</div>
+          <div>{{ ic_globe }} English<br>or Hindi</div>
+        </div>
+        <div class="social">
+          <span class="avatars">
+            {%- for n in (1..4) -%}
+              {%- assign k = 'avatar_' | append: n -%}
+              {%- assign img = section.settings[k] -%}
+              {%- if img != blank -%}
+                <img src="{{ img | image_url: width: 96 }}" width="34" height="34"
+                     alt="{{ section.settings.customers }} happy customers" loading="lazy" decoding="async">
+              {%- else -%}
+                <i></i>
+              {%- endif -%}
+            {%- endfor -%}
+          </span>
+          <span>
+            <span class="stars">★★★★★</span>
+            <span class="count"><b>{{ section.settings.customers }}</b><span>Happy Customers</span></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="stagewrap">
+        <div class="bgart">
+          {%- if section.settings.hero_bg_image != blank -%}
+            <img class="galaxy" src="{{ section.settings.hero_bg_image | image_url: width: 1200 }}"
+                 alt="{{ section.settings.hero_art_alt }}" loading="lazy" decoding="async"
+                 style="width:100%;height:100%;object-fit:contain;">
+          {%- else -%}
+            <svg class="zodiac" viewBox="0 0 620 620" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="310" cy="310" r="288" fill="none" stroke="var(--gold)" stroke-opacity=".22"/>
+              <circle cx="310" cy="310" r="228" fill="none" stroke="var(--violet)" stroke-opacity=".18" stroke-dasharray="1 11" stroke-linecap="round"/>
+              <circle cx="310" cy="310" r="168" fill="none" stroke="var(--gold)" stroke-opacity=".16"/>
+              <circle cx="310" cy="310" r="108" fill="none" stroke="var(--violet)" stroke-opacity=".14" stroke-dasharray="1 9" stroke-linecap="round"/>
+              {%- for i in (0..11) -%}
+                {%- assign deg = i | times: 30 -%}
+                <circle cx="310" cy="22" r="2.2" fill="var(--gold)" fill-opacity=".5"
+                        transform="rotate({{ deg }} 310 310)"/>
+              {%- endfor -%}
+              <circle cx="310" cy="22" r="6" fill="var(--gold)"/>
+              <circle cx="598" cy="310" r="4.5" fill="var(--violet)"/>
+              <circle cx="310" cy="598" r="4" fill="var(--gold)" fill-opacity=".85"/>
+              <circle cx="22" cy="310" r="5" fill="var(--violet)"/>
+              <circle cx="142" cy="478" r="3.5" fill="var(--gold)" fill-opacity=".8"/>
+              <circle cx="478" cy="142" r="4" fill="var(--violet)" fill-opacity=".8"/>
+              <circle cx="478" cy="478" r="3" fill="var(--gold)" fill-opacity=".7"/>
+              <circle cx="142" cy="142" r="3.5" fill="var(--violet)" fill-opacity=".7"/>
+            </svg>
+          {%- endif -%}
+        </div>
+        <div class="phone">
+          <div class="phone-top"><span class="av">SM</span><span><b>Studd Muffyn Astro</b><small>online</small></span></div>
+          <div class="chat">
+            <div class="msg me">{{ section.settings.chat_q }}<time>6:04 pm ✓✓</time></div>
+            <div class="msg bot">{{ section.settings.chat_a }}<time>6:05 pm</time></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div>{{ ic_chart }}<b>6+ Years</b><span>Experience</span></div>
+      <div>{{ ic_lock }}<b>100% Data</b><span>Privacy</span></div>
+      <div>{{ ic_search }}<b>Double</b><span>Fact-Checked</span></div>
+      <div>{{ ic_users }}<b>1 Lakh+</b><span>Happy Customers</span></div>
+    </div>
+
+    <div class="head"><h2 class="serif">See it in action</h2><p>Real conversations, straight from the bot — nothing staged</p></div>
+    <div class="cards3">
+      {%- for i in (1..3) -%}
+        {%- assign qk = 'ex' | append: i | append: '_q' -%}
+        {%- assign ak = 'ex' | append: i | append: '_a' -%}
+        <div class="cc">
+          <div class="hd"><span class="av" style="width:28px;height:28px;border-radius:50%;background:var(--gold);color:#241500;font-weight:800;font-size:10px;display:grid;place-items:center">SM</span><span><b style="font-size:12.5px">Studd Muffyn Astro</b><br><small style="font-size:10px;color:#7ee08a">online</small></span></div>
+          <div class="bd">
+            <div class="msg me">{{ section.settings[qk] }}</div>
+            <div class="msg bot">{{ section.settings[ak] }}</div>
+          </div>
+        </div>
+      {%- endfor -%}
+    </div>
+
+    <div class="head"><h2 class="serif">How it works</h2></div>
+    <div class="steps">
+      {%- for i in (1..3) -%}
+        {%- assign tk = 'step' | append: i | append: '_t' -%}
+        {%- assign bk = 'step' | append: i | append: '_b' -%}
+        <div class="step"><span class="n">{{ i }}</span><span><b>{{ section.settings[tk] }}</b><p>{{ section.settings[bk] }}</p></span></div>
+      {%- endfor -%}
+    </div>
+
+    <div class="offer">
+      <div>
+        <h3 class="serif">{{ section.settings.why_title }}</h3>
+        <p>{{ section.settings.why_body }}</p>
+      </div>
+      <div class="price-card">
+        <span class="badge">BEST VALUE</span>
+        <div class="amt">{{ v.price | money_without_trailing_zeros }}<small>incl. of all taxes</small></div>
+        <ul class="ticks">
+          <li>{{ ic_check }}<span><b>{{ section.settings.b1_b }}</b> {{ section.settings.b1_r }}</span></li>
+          <li>{{ ic_check }}<span>Your <b>full kundli, dasha timeline</b> and numerology — free, included</span></li>
+          <li>{{ ic_check }}<span>Works in <b>English or Hindi</b>, whichever you're comfortable in</span></li>
+          <li>{{ ic_check }}<span>Answers land on WhatsApp, usually within a minute or two</span></li>
+        </ul>
+        {%- if v and v.available -%}
+          {%- form 'product', product -%}
+            <input type="hidden" name="id" value="{{ v.id }}">
+            <input type="hidden" name="quantity" value="1">
+            <div class="shiprocket-headless" data-type="product">
+              <button type="button" class="sr-headless-checkout cta" onclick="shiprocketCheckoutEvents.buyProduct(event)">
+                <span class="sr-checkout-visible2">{{ ic_wa }} {{ section.settings.cta_label }}</span>
+                <div class="loader5"></div>
+              </button>
+            </div>
+          {%- endform -%}
+        {%- else -%}
+          <span class="cta" style="opacity:.6">Currently unavailable</span>
+        {%- endif -%}
+      </div>
+    </div>
+
+    <div class="trust">
+      <span class="t">{{ ic_lock }}<span><b>100% Private</b><span>Your data is always safe.</span></span></span>
+      <span class="t">{{ ic_shield }}<span><b>Double Checked</b><span>Every answer is verified twice.</span></span></span>
+      <span class="t">{{ ic_check }}<span><b>Real Answers</b><span>From your chart, not a template.</span></span></span>
+      <span>
+        <b style="display:block;font-size:13.5px;margin-bottom:4px">Have questions?</b>
+        <span style="font-size:12.5px;color:var(--muted);display:block;margin-bottom:9px">Chat with us on WhatsApp</span>
+        {%- if wa != blank -%}<a class="wa" href="{{ wa }}" target="_blank" rel="noopener">{{ ic_wa }} Chat Now</a>{%- endif -%}
+      </span>
+    </div>
+
+    <div class="foot">
+      <div class="logo"><b class="serif">{{ section.settings.brand }}</b><span>BY STUDD MUFFYN</span></div>
+      <div><h4>PRODUCT</h4><ul><li><a href="#">How it Works</a></li><li><a href="#">Pricing</a></li><li><a href="#">FAQs</a></li></ul></div>
+      <div><h4>READINGS</h4><ul><li><a href="#">Love &amp; Relationships</a></li><li><a href="#">Career &amp; Business</a></li><li><a href="#">Money &amp; Finance</a></li><li><a href="#">Health &amp; Well-being</a></li></ul></div>
+      <div><h4>COMPANY</h4><ul><li><a href="/pages/about-us">About Us</a></li><li><a href="/pages/contact">Contact Us</a></li><li><a href="/policies/privacy-policy">Privacy Policy</a></li><li><a href="/policies/terms-of-service">Terms &amp; Conditions</a></li></ul></div>
+      <div><h4>WE ACCEPT</h4><div class="pay"><span>UPI</span><span>VISA</span><span>Mastercard</span><span>RuPay</span></div></div>
+    </div>
+    {%- if section.settings.sticky_cta and v and v.available -%}
+      <div class="sticky">
+        <span><b>{{ v.price | money_without_trailing_zeros }}</b><small>incl. of all taxes</small></span>
+        {%- form 'product', product, style: 'display:contents' -%}
+          <input type="hidden" name="id" value="{{ v.id }}">
+          <input type="hidden" name="quantity" value="1">
+          <div class="shiprocket-headless" data-type="product" style="display:contents">
+            <button type="button" class="sr-headless-checkout cta" onclick="shiprocketCheckoutEvents.buyProduct(event)">
+              <span class="sr-checkout-visible2">{{ section.settings.cta_label }}</span>
+              <div class="loader5"></div>
+            </button>
+          </div>
+        {%- endform -%}
+      </div>
+    {%- endif -%}
+
+    <p class="copy">© {{ 'now' | date: '%Y' }} {{ section.settings.brand }} by Studd Muffyn. All rights reserved.</p>
+
+  </div>
+  </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var root=document.querySelector('.dst-{{ section.id }}');
+  var MODE='{{ section.settings.mobile_mode }}';
+  var DESIGN={{ section.settings.design_width }};
+  var BP={{ section.settings.scale_below }};
+  var fit=root?root.querySelector('[data-dst-fit]'):null;
+  var stage=root?root.querySelector('[data-dst-stage]'):null;
+  function fitStage(){
+    if(!fit||!stage) return;
+    var avail=fit.clientWidth;
+    if(MODE!=='same'||avail>=BP){
+      stage.style.width=''; stage.style.transform=''; fit.style.height='';
+      return;
+    }
+    stage.style.width=DESIGN+'px';
+    var k=avail/DESIGN;
+    stage.style.transform='scale('+k+')';
+    fit.style.height=Math.ceil(stage.getBoundingClientRect().height)+'px';
+  }
+  fitStage();
+  window.addEventListener('resize',fitStage);
+  window.addEventListener('load',fitStage);
+  if(window.ResizeObserver&&stage){ new ResizeObserver(function(){ fitStage(); }).observe(stage); }
+  setTimeout(fitStage,600); setTimeout(fitStage,1800);
+  // Buy buttons call shiprocketCheckoutEvents.buyProduct(event) directly (see the
+  // .shiprocket-headless / .sr-headless-checkout markup below) — verified against a real,
+  // working "BUY NOW" button elsewhere on this store. That global function is Fastrr's own
+  // checkout trigger; it reads the current product/variant from Shopify's standard page
+  // context itself, no id/quantity needs to be passed in. The earlier fetch()+redirect and
+  // form-submit attempts both bypassed Fastrr entirely, landing on native Shopify checkout —
+  // that was the "buy now not working" bug, twice over.
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Destiny landing",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "brand", "label": "Brand name", "default": "Destiny" },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "INSTANT • ACCURATE • PRIVATE" },
+    { "type": "text", "id": "headline_1", "label": "Headline line 1", "default": "Real Answers for" },
+    { "type": "text", "id": "headline_gold", "label": "Headline gold words", "default": "Love, Career" },
+    { "type": "text", "id": "headline_violet", "label": "Headline violet word", "default": "Beyond" },
+    { "type": "textarea", "id": "lede_1", "label": "Intro line 1", "default": "Facing a confusing decision about your career, relationship, or money?" },
+    { "type": "textarea", "id": "lede_2", "label": "Intro line 2", "default": "Ask your own AI Vedic astrologer on WhatsApp — answers read from your actual chart, double-checked before they reach you." },
+    { "type": "text", "id": "customers", "label": "Customer count", "default": "1,00,000+" },
+    { "type": "image_picker", "id": "avatar_1", "label": "Customer face 1", "info": "Square crops work best. Empty slots show a silhouette." },
+    { "type": "image_picker", "id": "avatar_2", "label": "Customer face 2" },
+    { "type": "image_picker", "id": "avatar_3", "label": "Customer face 3" },
+    { "type": "image_picker", "id": "avatar_4", "label": "Customer face 4" },
+    { "type": "header", "content": "Hero price & button" },
+    { "type": "checkbox", "id": "hero_cta", "label": "Show price + Buy Now in hero", "default": true },
+    { "type": "text", "id": "hero_cta_label", "label": "Hero button label", "default": "Buy Now" },
+    { "type": "text", "id": "hero_price_note", "label": "Note under price", "default": "incl. of all taxes • one-time" },
+    { "type": "header", "content": "Hero backdrop" },
+    { "type": "image_picker", "id": "hero_bg_image", "label": "Backdrop artwork behind the phone",
+      "info": "Zodiac wheel / crystals / planets. Transparent PNG, about 1200px square. Leave empty to use the built-in SVG wheel." },
+    { "type": "text", "id": "hero_art_alt", "label": "Hero artwork alt text", "default": "WhatsApp astrology reading on a phone, framed by a zodiac wheel" },
+    { "type": "range", "id": "bg_opacity", "label": "Backdrop opacity", "min": 10, "max": 100, "step": 5, "unit": "%", "default": 85 },
+    { "type": "header", "content": "Phone mockup" },
+    { "type": "text", "id": "chat_q", "label": "Question", "default": "will i get a promotion this year" },
+    { "type": "textarea", "id": "chat_a", "label": "Answer", "default": "Your 10th house (career house) is Gemini, holding both Mars and Venus — drive plus charm showing up in your work life. You're in Mars mahadasha, and Venus antardasha is running now — this stretch especially supports work opportunities and recognition. Stay steady, push forward with confidence 🙏" },
+    { "type": "header", "content": "See it in action" },
+    { "type": "text", "id": "ex1_q", "label": "Example 1 question", "default": "kab shaadi" },
+    { "type": "textarea", "id": "ex1_a", "label": "Example 1 answer", "default": "Dekho, shaadi ka significance aapki kundli mein 7th house hai — Jupiter khud usi house mein baitha hai, apni hi rashi mein — strong placement hai. Abhi aap Mars mahadasha mein chal rahe ho, aur uske andar Venus antardasha chal raha hai — ye period shaadi ki baat aage badhne ke liye kaafi supportive hai 🙂" },
+    { "type": "text", "id": "ex2_q", "label": "Example 2 question", "default": "will i get a promotion this year" },
+    { "type": "textarea", "id": "ex2_a", "label": "Example 2 answer", "default": "Your 10th house (career house) is Gemini, holding both Mars and Venus — drive plus charm showing up in your work life. You're in Mars mahadasha, and Venus antardasha is running now — this stretch especially supports work opportunities and recognition." },
+    { "type": "text", "id": "ex3_q", "label": "Example 3 question", "default": "is business good for me?" },
+    { "type": "textarea", "id": "ex3_a", "label": "Example 3 answer", "default": "Your 7th lord Jupiter placed in your own rashi in the lagna, and 10th lord Venus in the 10th — both support leadership and visibility. Business yoga is strong, especially in creative, consulting, or advisory spaces. Start small, network smart, and grow steadily." },
+    { "type": "header", "content": "How it works" },
+    { "type": "text", "id": "step1_t", "label": "Step 1 title", "default": "Buy this pack." },
+    { "type": "textarea", "id": "step1_b", "label": "Step 1 body", "default": "Message us on WhatsApp with your order and your order number (from your confirmation email) to unlock your questions instantly." },
+    { "type": "text", "id": "step2_t", "label": "Step 2 title", "default": "Share your birth details" },
+    { "type": "textarea", "id": "step2_b", "label": "Step 2 body", "default": "Date, time and place — and get your full kundli and numerology reading back free, before you spend a single question." },
+    { "type": "text", "id": "step3_t", "label": "Step 3 title", "default": "Ask anything" },
+    { "type": "textarea", "id": "step3_b", "label": "Step 3 body", "default": "Career, marriage, money, health, business. Answers usually land within a minute or two, in English or Hindi." },
+    { "type": "header", "content": "Why it's accurate" },
+    { "type": "text", "id": "why_title", "label": "Title", "default": "Why it's actually accurate" },
+    { "type": "textarea", "id": "why_body", "label": "Body", "default": "Every reply is checked twice against your real chart before it ever reaches you — once by a strict rules check, once by a second, independent AI reading it cold. If either check can't confirm an answer, you get the honest facts from your chart instead of a guess. Nothing is ever made up." },
+    { "type": "header", "content": "Offer" },
+    { "type": "text", "id": "b1_b", "label": "Bullet 1 bold part", "default": "6 questions" },
+    { "type": "text", "id": "b1_r", "label": "Bullet 1 rest", "default": "— ask them whenever you like, no time limit" },
+    { "type": "text", "id": "cta_label", "label": "Button label", "default": "Get Your Reading Now" },
+    { "type": "url", "id": "whatsapp_url", "label": "WhatsApp link" },
+    { "type": "header", "content": "Page chrome" },
+    { "type": "checkbox", "id": "show_topbar", "label": "Show sticky page header", "default": true },
+    { "type": "image_picker", "id": "topbar_logo", "label": "Header logo", "info": "Overrides the store logo below." },
+    { "type": "text", "id": "topbar_logo_url", "label": "…or logo URL",
+      "default": "https://studdmuffyn.com/cdn/shop/files/studdmuffyn-logo_1190x467.png" },
+    { "type": "text", "id": "topbar_title", "label": "Header title", "default": "6 Questions — Astro Reading" },
+    { "type": "text", "id": "topbar_sub", "label": "Header subtitle", "default": "Free kundli included · English or Hindi" },
+    { "type": "text", "id": "topbar_btn", "label": "Header button label", "default": "Buy now" },
+    { "type": "text", "id": "topbar_note", "label": "Strip under the header", "default": "🙏 Grounded in your real birth chart, not a generic horoscope" },
+    { "type": "color", "id": "topbar_bg", "label": "Header background", "default": "#FFFFFF" },
+    { "type": "color", "id": "topbar_mark_bg", "label": "Logo tile background", "default": "#F7EFE7" },
+    { "type": "color", "id": "topbar_ink", "label": "Header text", "default": "#14342A" },
+    { "type": "color", "id": "topbar_sub_ink", "label": "Header subtitle text", "default": "#5B6B63" },
+    { "type": "color", "id": "topbar_btn_bg", "label": "Header button", "default": "#CE9A62" },
+    { "type": "color", "id": "topbar_btn_ink", "label": "Header button text", "default": "#FFFFFF" },
+    { "type": "color", "id": "note_bg", "label": "Strip background", "default": "#173A2C" },
+    { "type": "color", "id": "note_ink", "label": "Strip text", "default": "#F3EDE3" },
+    { "type": "checkbox", "id": "hide_theme_chrome", "label": "Hide theme header & footer", "default": true,
+      "info": "Makes this a standalone landing page. The cart drawer still works." },
+    { "type": "header", "content": "Mobile" },
+    { "type": "select", "id": "mobile_mode", "label": "Mobile layout",
+      "options": [
+        { "value": "same", "label": "Same as desktop — scaled to fit" },
+        { "value": "responsive", "label": "Reflow — stack into one column" }
+      ], "default": "responsive" },
+    { "type": "checkbox", "id": "sticky_cta", "label": "Sticky buy bar on mobile", "default": true },
+    { "type": "range", "id": "design_width", "label": "Design width", "min": 900, "max": 1400, "step": 20, "unit": "px", "default": 1120 },
+    { "type": "range", "id": "scale_below", "label": "Scale below", "min": 600, "max": 1200, "step": 20, "unit": "px", "default": 900 },
+    { "type": "header", "content": "Colours & type" },
+    { "type": "color", "id": "gold", "label": "Gold", "default": "#D9A94A" },
+    { "type": "color", "id": "violet", "label": "Violet", "default": "#8B5CF6" },
+    { "type": "text", "id": "display_font", "label": "Display font stack", "default": "\"Instrument Serif\", Georgia, serif" },
+    { "type": "text", "id": "body_font", "label": "Body font stack", "default": "\"Instrument Sans\", -apple-system, Segoe UI, sans-serif" }
+  ],
+  "presets": [{ "name": "Destiny landing" }]
+}
+{% endschema %}
+
+
+
