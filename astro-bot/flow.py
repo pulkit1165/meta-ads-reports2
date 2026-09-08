@@ -26,13 +26,21 @@ import shopify_verify
 
 log = logging.getLogger(__name__)
 
-PACK_SKUS = {          # handle → questions granted
-    "3-questions-for-399": 3,
-    "6-questions-for-299": 6,   # SKU NTN1130
-    "10-questions-for-999": 10,
-    "15-questions-for-1399": 15,
-    "20-questions-for-1699": 20,
-    "ai-astro-bot": 5,
+# Keyed by the product TITLE slugified (see shopify_verify._handle_of) — not the Shopify
+# handle, which has drifted out of sync with the title on SM ("6 Questions for 299" sits at
+# /products/3-questions-for-399). The bot serves both SM and SML through one WhatsApp number,
+# and the two stores name the same NTN SKU differently, so both spellings live here:
+# NTN1130 is "6 Questions for 299" on SM but "3 Questions for 399" on SML, and NTN1131 is
+# ₹169 on SM against ₹599 on SML. Slugs are unique across the two, so one flat map is safe.
+PACK_SKUS = {          # title-slug → questions granted
+    "3-questions-for-399": 3,   # NTN1130 · SML
+    "6-questions-for-299": 6,   # NTN1130 · SM
+    "5-questions-for-169": 5,   # NTN1131 · SM
+    "5-questions-for-599": 5,   # NTN1131 · SML
+    "10-questions-for-999": 10, # NTN1132 · both
+    "15-questions-for-1399": 15,# NTN1133 · both
+    "20-questions-for-1699": 20,# NTN1134 · both
+    "ai-astro-bot": 5,          # NTN1129 · SM
 }
 SHOP_URL = "https://studdmuffyn.com/products/10-questions-for-999"
 
