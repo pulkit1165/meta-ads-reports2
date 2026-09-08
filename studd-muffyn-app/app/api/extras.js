@@ -8,10 +8,11 @@
 // freshness. The pre-built /extras/<handle>.json files remain as a
 // fallback for when the site is unreachable.
 
-const SITE = 'https://studdmuffyn.com';
+const { brandOf } = require('./_brands');
+const DEFAULT_SITE = 'https://studdmuffyn.com';
 const CACHE_SECONDS = 300; // 5 min at the CDN, stale-while-revalidate for a day
 
-const SHOP = 'studd-muffyn.myshopify.com';
+const DEFAULT_SHOP = 'studd-muffyn.myshopify.com';
 const UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
@@ -98,9 +99,9 @@ async function staticSnapshot(handle, origin) {
 
 /** Judge.me renders reviews client-side, so the raw product HTML has none.
  * Their public widget endpoint returns the same markup server-side. */
-async function fetchJudgeMeReviews(productId) {
+async function fetchJudgeMeReviews(productId, shop) {
   try {
-    const u = `https://judge.me/reviews/reviews_for_widget?url=${SHOP}&shop_domain=${SHOP}&platform=shopify&product_id=${productId}&page=1`;
+    const u = `https://judge.me/reviews/reviews_for_widget?url=${shop}&shop_domain=${shop}&platform=shopify&product_id=${productId}&page=1`;
     const r = await fetch(u, { headers: { 'User-Agent': UA } });
     if (!r.ok) return null;
     const j = await r.json();
@@ -229,12 +230,13 @@ function parseExtras(html, handle) {
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  const brand = brandOf(req);
   const handle = String((req.query && req.query.handle) || '').trim();
   if (!/^[a-z0-9-]{2,120}$/.test(handle)) {
     return res.status(400).json({ error: 'valid handle required' });
   }
   try {
-    const r = await fetch(`${SITE}/products/${handle}`, {
+    const r = await fetch(`${brand.site}/products/${handle}`, {
       headers: { 'User-Agent': UA, Accept: 'text/html' },
     });
     if (!r.ok) throw new Error('upstream ' + r.status);
@@ -248,7 +250,7 @@ module.exports = async (req, res) => {
                  html.match(/\bproductId["']?\s*[:=]\s*["']?(\d{10,})/))?.[1];
     const origin = `https://${req.headers.host || 'studd-muffyn-app.vercel.app'}`;
     const [jm, snap] = await Promise.all([
-      pid ? fetchJudgeMeReviews(pid) : null,
+      pid ? fetchJudgeMeReviews(pid, brand.shop) : null,
       staticSnapshot(handle, origin),
     ]);
     if (jm && jm.reviewCount) {

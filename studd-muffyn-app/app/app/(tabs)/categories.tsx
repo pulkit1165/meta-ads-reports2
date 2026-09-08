@@ -9,6 +9,7 @@ import * as WebBrowser from 'expo-web-browser';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useHomeConfig } from '../../src/api/remoteConfig';
 import { colors, type as t } from '../../src/theme';
+import { SITE } from '../../src/config/brand';
 
 interface MenuItem {
   title: string;
@@ -41,7 +42,7 @@ export default function Categories() {
     const c = url.match(/\/collections\/([a-z0-9-]+)/);
     if (c) return router.push(`/collection/${c[1]}`);
     if (/^\/?pages\/|^https?:/.test(url) || url.startsWith('/pages')) {
-      const full = url.startsWith('http') ? url : `https://studdmuffyn.com${url}`;
+      const full = url.startsWith('http') ? url : `${SITE}${url}`;
       WebBrowser.openBrowserAsync(full);
     }
   };

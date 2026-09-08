@@ -2,8 +2,9 @@
 // Judge.me review data, Pairs-well-with, and theme detail sections.
 // Served as static JSON from the app's Vercel deployment.
 import { useEffect, useState } from 'react';
+import { APP_API } from '../config/brand';
 
-const APP_API = 'https://studd-muffyn-app.vercel.app';
+// APP_API comes from the brand config
 const EXTRAS_BASE = `${APP_API}/extras`;
 // Live endpoint reads the real product page on demand; the static snapshot
 // under /extras is the offline/last-resort fallback.

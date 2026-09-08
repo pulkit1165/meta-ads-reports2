@@ -11,6 +11,7 @@
 // X-Api-Key + X-Api-HMAC-SHA256 (base64 HMAC of the raw body, keyed by secret).
 
 const crypto = require('crypto');
+const { brandOf } = require('./_brands');
 
 const FASTRR_BASE = 'https://checkout-api.shiprocket.com';
 const APP_BASE = 'https://studd-muffyn-app.vercel.app';
@@ -22,8 +23,9 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const apiKey = process.env.FASTRR_API_KEY;
-  const apiSecret = process.env.FASTRR_API_SECRET;
+  const brand = brandOf(req);
+  const apiKey = process.env[brand.fastrrKeyEnv];
+  const apiSecret = process.env[brand.fastrrSecretEnv];
   if (!apiKey || !apiSecret) {
     return res.status(503).json({ error: 'fastrr-not-configured' });
   }

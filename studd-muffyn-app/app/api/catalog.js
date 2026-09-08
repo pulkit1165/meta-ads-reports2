@@ -7,12 +7,13 @@
 // Fields are kept minimal (search + card rendering only); full product
 // detail is always fetched live per product page.
 
-const SITE = 'https://studdmuffyn.com';
+const { brandOf } = require('./_brands');
+const DEFAULT_SITE = 'https://studdmuffyn.com';
 const CACHE_SECONDS = 600; // 10 min at the CDN
 const MAX_PAGES = 12;
 
-async function page(n) {
-  const r = await fetch(`${SITE}/products.json?limit=250&page=${n}`, {
+async function page(n, site) {
+  const r = await fetch(`${site}/products.json?limit=250&page=${n}`, {
     headers: { 'User-Agent': 'Mozilla/5.0 StuddMuffynApp' },
   });
   if (!r.ok) throw new Error(`products page ${n}: ${r.status}`);
@@ -50,9 +51,10 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
+    const brand = brandOf(req);
     // fetch pages in parallel, stop at the first empty one
     const batches = await Promise.all(
-      Array.from({ length: MAX_PAGES }, (_, i) => page(i + 1).catch(() => []))
+      Array.from({ length: MAX_PAGES }, (_, i) => page(i + 1, brand.site).catch(() => []))
     );
     const products = [];
     for (const b of batches) products.push(...b);

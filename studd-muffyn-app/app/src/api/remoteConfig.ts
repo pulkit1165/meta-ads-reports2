@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import bundled from '../config/home.json';
+import { APP_API, BRAND_KEY } from '../config/brand';
 
-export const CONFIG_URL = 'https://studd-muffyn-app.vercel.app/api/home-config';
+export const CONFIG_URL = `${APP_API}/api/home-config?brand=${BRAND_KEY}`;
 const STORE_KEY = 'sm-home-config-v1';
 
 export interface HomeConfig {

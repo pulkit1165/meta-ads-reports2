@@ -29,6 +29,7 @@ function AppStack() {
       >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="cart" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="checkout" options={{ animation: 'slide_from_bottom', gestureEnabled: false }} />
       </Stack>
     </GestureHandlerRootView>
   );

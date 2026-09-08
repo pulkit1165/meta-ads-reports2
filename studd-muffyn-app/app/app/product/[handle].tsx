@@ -204,7 +204,8 @@ export default function ProductScreen() {
   const buyNow = async () => {
     if (!variant) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    await WebBrowser.openBrowserAsync(await startCheckoutUrl([{ variantId: variant.id, qty: 1 }]));
+    const url = await startCheckoutUrl([{ variantId: variant.id, qty: 1 }]);
+    router.push({ pathname: '/checkout', params: { url } });
   };
 
   return (

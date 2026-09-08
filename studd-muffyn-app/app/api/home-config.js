@@ -3,7 +3,8 @@
 // homepage in Shopify's theme customizer and the app follows within minutes.
 // GET /api/home-config  →  { announcement, sections[], generatedAt, source }
 
-const SITE = 'https://studdmuffyn.com';
+const { brandOf } = require('./_brands');
+const DEFAULT_SITE = 'https://studdmuffyn.com';
 const CACHE_SECONDS = 600; // CDN caches the response for 10 min
 
 // Site sections that link to the sister site — map to on-store collections.
@@ -42,21 +43,22 @@ async function fetchText(url) {
   return r.text();
 }
 
-async function collectionTitle(handle) {
-  if (titleCache.has(handle)) return titleCache.get(handle);
+async function collectionTitle(handle, site) {
+  const ck = `${site}|${handle}`;
+  if (titleCache.has(ck)) return titleCache.get(ck);
   try {
-    const r = await fetch(`${SITE}/collections/${handle}.json`);
+    const r = await fetch(`${site}/collections/${handle}.json`);
     if (r.ok) {
       const j = await r.json();
       const t = j.collection && j.collection.title;
       if (t) {
-        titleCache.set(handle, t);
+        titleCache.set(ck, t);
         return t;
       }
     }
   } catch {}
   const t = prettify(handle);
-  titleCache.set(handle, t);
+  titleCache.set(ck, t);
   return t;
 }
 
@@ -155,7 +157,7 @@ function imgAspect(seg, imageUrl) {
   return null;
 }
 
-function collectionLinks(seg) {
+function collectionLinks(seg, host) {
   const out = [];
   const seen = new Set();
   const re = /href="(?:https?:\/\/([a-z.]+))?\/collections\/([a-z0-9-]+)/g;
@@ -163,7 +165,7 @@ function collectionLinks(seg) {
   while ((m = re.exec(seg))) {
     const domain = m[1];
     let handle = m[2];
-    if (domain && !domain.includes('studdmuffyn.com')) {
+    if (domain && !domain.includes(host)) {
       handle = EXTERNAL_HANDLE_MAP[handle] || handle;
     }
     if (!seen.has(handle)) {
@@ -174,7 +176,7 @@ function collectionLinks(seg) {
   return out;
 }
 
-function linkImagePairs(seg) {
+function linkImagePairs(seg, host) {
   // href → next cdn image within the anchor's chunk
   const pairs = [];
   const chunks = seg.split(/<a\s/i).slice(1);
@@ -188,7 +190,7 @@ function linkImagePairs(seg) {
     const cm = href.match(/^(?:https?:\/\/([a-z.]+))?\/collections\/([a-z0-9-]+)/);
     if (cm) {
       handle = cm[2];
-      if (cm[1] && !cm[1].includes('studdmuffyn.com')) handle = EXTERNAL_HANDLE_MAP[handle] || handle;
+      if (cm[1] && !cm[1].includes(host)) handle = EXTERNAL_HANDLE_MAP[handle] || handle;
     }
     if (handle) {
       const rawHandle = cm[2];
@@ -235,7 +237,8 @@ function parseMenu(html) {
 
 // ---- main parser ------------------------------------------------------------
 
-async function buildConfig(html) {
+async function buildConfig(html, site = DEFAULT_SITE) {
+  const host = new URL(site).host.replace(/^www\./, '');
   const sections = [];
 
   // announcement bar
@@ -255,7 +258,7 @@ async function buildConfig(html) {
     const name = (p.match(/id="shopify-section-template--\d+__([a-zA-Z0-9_-]+)"/) || [])[1] || '';
 
     if (name.startsWith('featured_collection')) {
-      const handle = collectionLinks(p)[0];
+      const handle = collectionLinks(p, host)[0];
       if (handle) {
         sections.push({ type: 'productRail', handle, title: null });
         railHandles.push(handle);
@@ -270,8 +273,8 @@ async function buildConfig(html) {
       // Everything else (image_hero, slideshow, blocks_*, any custom section):
       // decide by content, not by name, so new site sections never get dropped.
       const imgs = firstImages(p, 8);
-      const links = collectionLinks(p);
-      const pairs = linkImagePairs(p);
+      const links = collectionLinks(p, host);
+      const pairs = linkImagePairs(p, host);
 
       // ornamental section heading (e.g. "Crystal Decor") if present
       const orn = (seg => {
@@ -334,11 +337,11 @@ async function buildConfig(html) {
   // resolve rail titles (warm-cached; fallback = prettified handle)
   await Promise.all(
     railHandles.map((h) =>
-      Promise.race([collectionTitle(h), new Promise((res) => setTimeout(() => res(prettify(h)), 4000))])
+      Promise.race([collectionTitle(h, site), new Promise((res) => setTimeout(() => res(prettify(h)), 4000))])
     )
   );
   for (const s of sections) {
-    if (s.type === 'productRail') s.title = decodeEntities(titleCache.get(s.handle) || prettify(s.handle));
+    if (s.type === 'productRail') s.title = decodeEntities(titleCache.get(`${site}|${s.handle}`) || prettify(s.handle));
   }
 
   sections.push({ type: 'recentlyViewed', title: 'Recently Viewed' });
@@ -397,8 +400,10 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
-    const html = await fetchText(`${SITE}/`);
-    const cfg = await buildConfig(html);
+    const brand = brandOf(req);
+    const html = await fetchText(`${brand.site}/`);
+    const cfg = await buildConfig(html, brand.site);
+    cfg.brand = brand.key;
     // sanity: a homepage should yield a healthy number of sections
     if (!cfg.sections || cfg.sections.length < 4) throw new Error('parse produced too few sections');
     res.setHeader('Cache-Control', `s-maxage=${CACHE_SECONDS}, stale-while-revalidate=86400`);

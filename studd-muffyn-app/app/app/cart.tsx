@@ -6,7 +6,6 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import { startCheckoutUrl } from '../src/api/shopify';
 import { GoldButton } from '../src/components/ui';
@@ -28,7 +27,7 @@ export default function Cart() {
       cart.map((l) => ({ variantId: l.variantId, qty: l.qty })),
       coupon.trim() || undefined
     );
-    await WebBrowser.openBrowserAsync(url);
+    router.push({ pathname: '/checkout', params: { url } });
   };
 
   return (

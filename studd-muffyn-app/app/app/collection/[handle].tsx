@@ -10,6 +10,7 @@ import type { Product } from '../../src/api/types';
 import { ProductCard } from '../../src/components/ProductCard';
 import { Skeleton } from '../../src/components/ui';
 import { colors, radius, type as t, SCREEN_W } from '../../src/theme';
+import { SITE } from '../../src/config/brand';
 
 const W = SCREEN_W;
 const CARD_W = (W - 52) / 2;
@@ -31,7 +32,7 @@ export default function CollectionScreen() {
   useEffect(() => {
     if (collection?.title) return;
     let alive = true;
-    fetch(`https://studdmuffyn.com/collections/${handle}.json`)
+    fetch(`${SITE}/collections/${handle}.json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => alive && j?.collection?.title && setLiveTitle(j.collection.title))
       .catch(() => {});

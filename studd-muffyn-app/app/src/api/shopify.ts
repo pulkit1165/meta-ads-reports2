@@ -5,8 +5,9 @@
 // Checkout is 100% Shopify via cart permalinks.
 import catalogJson from '../data/catalog.json';
 import type { Catalog, Product, Collection } from './types';
+import { APP_API, SITE } from '../config/brand';
 
-export const BASE = 'https://studdmuffyn.com';
+export const BASE = SITE;
 
 const catalog = catalogJson as unknown as Catalog;
 
@@ -107,7 +108,7 @@ export function checkoutUrl(lines: { variantId: number; qty: number }[], discoun
   return `${BASE}/cart/${path}?${params.toString()}`;
 }
 
-const APP_API = 'https://studd-muffyn-app.vercel.app';
+// APP_API comes from the brand config
 
 /** Preferred checkout: Shiprocket (Fastrr) — same 1-click checkout the website
  * uses. Falls back to the Shopify cart-permalink checkout if Fastrr isn't
