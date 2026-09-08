@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Overlay TODAY's Shopify orders (pulled live from all 3 stores) onto an
+"""Overlay recent Shopify orders (pulled live from all 3 stores) onto an
 ntn.db copy, so the hourly WhatsApp table has sales complete through the :58
 measurement moment instead of lagging behind the last full ingest.
+
+Two days by default, not one: the day table compares today against the same
+clock time YESTERDAY, and with the ingest lagging, yesterday is not in the
+state-branch DB either — a one-day overlay left the baseline at zero and the
+sales/orders/ROAS chips silently vanished.
 
 Env: SHOPIFY_ACCESS_TOKEN(+_NBP,_SML), SHOPIFY_STORE_URL(+_NBP,_SML)
 """
@@ -31,8 +36,12 @@ def pull(store_url, token, day):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ntn-db', required=True)
+    ap.add_argument('--days', type=int, default=2,
+                    help='how many days back to overlay (default 2: today + yesterday)')
     args = ap.parse_args()
-    day = datetime.now(IST).strftime('%Y-%m-%d')
+    now = datetime.now(IST)
+    day = now.strftime('%Y-%m-%d')
+    since = (now - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
     stores = [
         ('SM', os.environ['SHOPIFY_STORE_URL'], os.environ['SHOPIFY_ACCESS_TOKEN']),
         ('NBP', os.environ['SHOPIFY_STORE_URL_NBP'], os.environ['SHOPIFY_ACCESS_TOKEN_NBP']),
@@ -42,7 +51,7 @@ def main():
     n = 0
     for portal, dom, tok in stores:
         try:
-            orders = pull(dom, tok, day)
+            orders = pull(dom, tok, since)
         except Exception as e:
             print(f'{portal}: pull failed ({e}) — keeping ingest data for it')
             continue
@@ -57,7 +66,7 @@ def main():
                  o.get('currency'), o.get('source_name')))
             n += 1
     con.commit()
-    print(f'overlaid {n} live orders for {day}')
+    print(f'overlaid {n} live orders for {since} .. {day}')
 
 
 if __name__ == '__main__':
