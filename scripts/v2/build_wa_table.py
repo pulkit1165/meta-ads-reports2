@@ -29,7 +29,8 @@ def yesterday_roas(finals_path, yday):
         return {}
 
 
-def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_label=None):
+def render_png(rows, out_png, stamp, hour_slice=None, data_through=None,
+               window_label=None, today_label=None):
     """Branded report card — Studd Muffyn cream/gold. Template drawn in code,
     numbers overlaid each hour (pixel-exact, no AI drift)."""
     from PIL import Image, ImageDraw, ImageFont
@@ -66,6 +67,27 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
     f_h, f_c, f_cb = sans(15, True), sans(16), sans(16, True)
     f_d = sans(12, True)     # up/down % chip
 
+    # up/down chip drawn to the right of a value: green ▲ / red ▼ / grey =
+    DELTA_KEY = {'Sales': 'sales', 'Orders': 'orders', 'Spend': 'spend',
+                 'ROAS': 'roas', 'Budget': 'budget', 'Budget live': 'budget_live'}
+
+    def delta_text(r, hname):
+        dv = (r.get('delta') or {}).get(DELTA_KEY.get(hname, ''))
+        if dv is None:
+            return None, None
+        if dv > 0:
+            return f'\u25b2{dv}%', OK
+        if dv < 0:
+            return f'\u25bc{abs(dv)}%', BAD
+        return '=', INK2
+
+    def val_w(text, r, hname):
+        """Width of a cell = the value plus its up/down chip, so nothing clips."""
+        w = probe.textlength(str(text), font=f_cb)
+        dt, _ = delta_text(r, hname)
+        return w + (probe.textlength(dt, font=f_d) + 7 * SC if dt else 0)
+
+
     headers = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Yday', 'Budget live',
                'Budget left', 'Left %', 'Active %', 'Day %', 'Closed', 'Products']
     def cellvals(r):
@@ -80,7 +102,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
     for i, h in enumerate(headers):
         w = probe.textlength(h, font=f_h)
         for r in rows:
-            w = max(w, probe.textlength(cellvals(r)[i], font=f_cb))
+            w = max(w, val_w(cellvals(r)[i], r, h))
         widths.append(int(w) + pad)
 
     M = 18 * SC                      # outer margin
@@ -88,7 +110,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
     table_w = sum(widths)
     W = table_w + 2 * (M + P)
     rowh, headh = 40 * SC, 36 * SC
-    top_band = 74 * SC
+    top_band = 92 * SC
     card1_h = headh + rowh * len(rows) + 2 * P
     card2_h = (headh + (rowh) * len(hour_slice) + 2 * P + 30 * SC) if hour_slice else 0
     H = top_band + card1_h + (14 * SC + card2_h if hour_slice else 0) + 30 * SC
@@ -122,20 +144,6 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
         d.rounded_rectangle([x_right - tw - 16 * SC, ymid - 11 * SC, x_right, ymid + 11 * SC],
                             radius=11 * SC, fill=col)
         d.text((x_right - 8 * SC, ymid), txt, font=f_cb, fill='#ffffff', anchor='rm')
-
-    # up/down chip drawn to the right of a value: green ▲ / red ▼ / grey =
-    DELTA_KEY = {'Sales': 'sales', 'Orders': 'orders', 'Spend': 'spend',
-                 'ROAS': 'roas', 'Budget': 'budget'}
-
-    def delta_text(r, hname):
-        d = (r.get('delta') or {}).get(DELTA_KEY.get(hname, ''))
-        if d is None:
-            return None, None
-        if d > 0:
-            return f'\u25b2{d}%', OK
-        if d < 0:
-            return f'\u25bc{abs(d)}%', BAD
-        return '=', INK2
 
     def draw_table(y0, hdrs, wds, datarows, vals_fn, deltas=False):
         x0 = M
@@ -174,7 +182,11 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
             y += rowh
         return y + P
 
-    y_end = draw_table(top_band, headers, widths, rows, cellvals)
+    if today_label:
+        d.text((M + P, top_band - 12 * SC), today_label, font=sans(13, True),
+               fill=GOLD_D, anchor='lm')
+    y_end = draw_table(top_band, headers, widths, rows, cellvals,
+                       deltas=bool(today_label))
 
     if hour_slice:
         y2 = y_end + 14 * SC
@@ -187,11 +199,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
         for i, h in enumerate(mheads):
             w = probe.textlength(h, font=f_h)
             for r in hour_slice:
-                w = max(w, probe.textlength(str(mvals(r)[i]), font=f_cb))
-                dt, _ = delta_text(r, h)
-                if dt:
-                    w = max(w, probe.textlength(str(mvals(r)[i]), font=f_cb)
-                            + probe.textlength(dt, font=f_d) + 7 * SC)
+                w = max(w, val_w(mvals(r)[i], r, h))
             mw.append(int(w) + pad)
         # stretch mini table to full width for symmetry
         stretch = (table_w - sum(mw)) // len(mw)
@@ -235,6 +243,36 @@ def main():
         "SELECT MAX(ts) FROM campaign_hourly_snapshots WHERE hour_slot LIKE ?",
         (day + '%',)).fetchone()
     data_through = max_ts[11:16] if max_ts else None
+    def spend_at(slot, dprefix=None):
+        # Carry-forward cumulative: a campaign paused mid-day drops out of
+        # later snapshots, but its day-spend must stay in the baseline —
+        # summing only the slot's rows made the next hour's delta absorb the
+        # whole account (6 Aug: SML "last hour" showed ₹50k of a ₹53k day).
+        # MAX(spend) per campaign across all slots up to `slot` == the same
+        # `running` logic portal_hourly uses for the dashboard.
+        out = {}
+        for name, sp in scon.execute(
+                "SELECT account_name, MAX(COALESCE(spend,0)) AS sp "
+                "FROM campaign_hourly_snapshots WHERE hour_slot LIKE ? AND hour_slot <= ? "
+                "GROUP BY campaign_id, account_name", ((dprefix or day) + '%', slot)):
+            pcode = ph.portal_of(name)
+            if pcode: out[pcode] = out.get(pcode, 0) + (sp or 0)
+        return out
+
+    # Point-in-time live budget per portal, so budget can be compared
+    # like-for-like across time (spend/sales are cumulative, budget is not).
+    def active_budget_at(slot):
+        out = {}
+        for name, bud in scon.execute(
+                "SELECT account_name, COALESCE(SUM(daily_budget),0) "
+                "FROM campaign_hourly_snapshots WHERE hour_slot=? AND status='Active' "
+                "GROUP BY account_name", (slot,)):
+            pcode = ph.portal_of(name)
+            if pcode:
+                out[pcode] = out.get(pcode, 0) + (bud or 0)
+        return out
+
+    ncon = _sq.connect(args.ntn_db)
     hour_slice = []
     prev_slice = []
     w_start = w_end = None
@@ -255,36 +293,6 @@ def main():
         prev = min(cands, key=lambda c: abs(_age(c) - 60)) if cands else snap_hours[-2]
         prev_ts = slot_ts[prev]
         window_min = int(round(_age(prev)))
-        def spend_at(slot):
-            # Carry-forward cumulative: a campaign paused mid-day drops out of
-            # later snapshots, but its day-spend must stay in the baseline —
-            # summing only the slot's rows made the next hour's delta absorb the
-            # whole account (6 Aug: SML "last hour" showed ₹50k of a ₹53k day).
-            # MAX(spend) per campaign across all slots up to `slot` == the same
-            # `running` logic portal_hourly uses for the dashboard.
-            out = {}
-            for name, sp in scon.execute(
-                    "SELECT account_name, MAX(COALESCE(spend,0)) AS sp "
-                    "FROM campaign_hourly_snapshots WHERE hour_slot LIKE ? AND hour_slot <= ? "
-                    "GROUP BY campaign_id, account_name", (day + '%', slot)):
-                pcode = ph.portal_of(name)
-                if pcode: out[pcode] = out.get(pcode, 0) + (sp or 0)
-            return out
-        # Point-in-time live budget per portal, so budget can be compared
-        # hour-over-hour like the flow metrics (spend/sales are cumulative).
-        def active_budget_at(slot):
-            out = {}
-            for name, bud in scon.execute(
-                    "SELECT account_name, COALESCE(SUM(daily_budget),0) "
-                    "FROM campaign_hourly_snapshots WHERE hour_slot=? AND status='Active' "
-                    "GROUP BY account_name", (slot,)):
-                pcode = ph.portal_of(name)
-                if pcode:
-                    out[pcode] = out.get(pcode, 0) + (bud or 0)
-            return out
-
-        ncon = _sq.connect(args.ntn_db)
-
         def window_rows(slot_a, slot_b, ts_a, ts_b):
             """Sales/orders/spend per portal for the window (slot_a → slot_b]."""
             spend_a, spend_b = spend_at(slot_a), spend_at(slot_b)
@@ -327,7 +335,6 @@ def main():
                         datetime.fromisoformat(slot_ts[c])).total_seconds() / 60.0
             prev2 = min(cands2, key=lambda c: abs(_age2(c) - window_min))
             prev_slice = window_rows(prev2, prev, slot_ts[prev2], prev_ts)
-        ncon.close()
 
         # attach % change vs the previous window onto each current row
         if prev_slice:
@@ -343,7 +350,6 @@ def main():
                         continue
                     d[k] = round((curv - prevv) / prevv * 100)
                 r['delta'] = d
-    scon.close()
 
     out_rows = []
     for p in ('SM', 'SML', 'NBP', 'ALL'):
@@ -361,6 +367,64 @@ def main():
             'closed': round(t.get('closed_budget', 0)),
             'products': t.get('products', 0),
         })
+
+    # ── day table: same clock time yesterday, so "today so far" has a baseline ──
+    # Day-to-date numbers only mean something against the same point of the
+    # previous day — 11am sales vs a full yesterday would always read as a
+    # collapse. Spend/budget come from yesterday's snapshot nearest that time,
+    # sales/orders from Shopify with the identical filter the day table uses.
+    yday_rows = []
+    try:
+        cut = data_through or now.strftime('%H:%M')
+        yslots = [h for (h,) in scon.execute(
+            "SELECT DISTINCT hour_slot FROM campaign_hourly_snapshots "
+            "WHERE hour_slot LIKE ? ORDER BY hour_slot", (yday + '%',))]
+        yts = dict(scon.execute(
+            "SELECT hour_slot, MAX(ts) FROM campaign_hourly_snapshots "
+            "WHERE hour_slot LIKE ? GROUP BY hour_slot", (yday + '%',)).fetchall())
+        ymatch = ([h for h in yslots if yts[h][11:16] <= cut] or [None])[-1]
+        if ymatch:
+            y_spend, y_bud = spend_at(ymatch, yday), active_budget_at(ymatch)
+            y_sal, y_ord = {}, {}
+            for pcode, sal, orr in ncon.execute(
+                    "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
+                    "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)<? AND "
+                    + ph.SALES_FILTER + " GROUP BY portal", (yday, cut)):
+                y_sal[pcode] = sal
+                y_ord[pcode] = orr
+            a_s = a_p = a_o = a_b = 0
+            for pcode in ('SM', 'SML', 'NBP'):
+                sal, orr = y_sal.get(pcode, 0), y_ord.get(pcode, 0)
+                spd, bud = y_spend.get(pcode, 0), y_bud.get(pcode, 0)
+                a_s += sal; a_p += spd; a_o += orr; a_b += bud
+                yday_rows.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
+                                  'orders': orr, 'spend': round(spd),
+                                  'roas': round(sal / spd, 2) if spd else None,
+                                  'budget_live': round(bud)})
+            yday_rows.append({'website': 'All', 'sales': round(a_s), 'orders': a_o,
+                              'spend': round(a_p),
+                              'roas': round(a_s / a_p, 2) if a_p else None,
+                              'budget_live': round(a_b)})
+            ymap = {r['website']: r for r in yday_rows}
+            for r in out_rows:
+                b = ymap.get(r['website'])
+                if not b:
+                    continue
+                dd = {}
+                for k in ('sales', 'orders', 'spend', 'roas', 'budget_live'):
+                    curv, prevv = r.get(k), b.get(k)
+                    if curv is None or prevv in (None, 0):
+                        continue
+                    dd[k] = round((curv - prevv) / prevv * 100)
+                r['delta'] = dd
+    except Exception as e:                       # comparison is a nicety —
+        yday_rows = []                           # never let it kill the send
+        print(f'yday baseline skipped: {e}', file=sys.stderr)
+    today_label = (f'TODAY SO FAR  ·  vs same time yesterday ({cut} IST)'
+                   if yday_rows else None)
+    scon.close()
+    ncon.close()
+
     # The slice card must state the window it actually measured, not assume 1h.
     if hour_slice:
         vs = '   vs previous window' if prev_slice else ''
@@ -375,15 +439,18 @@ def main():
     else:
         window_label = None
 
-    stamp = (f'{now.strftime("%d %b")} · data through {data_through} IST'
+    day_dt = datetime.strptime(day, '%Y-%m-%d')
+    stamp = (f'{day_dt.strftime("%d %b")} · data through {data_through} IST'
              if data_through else now.strftime('%d %b, %H:%M IST'))
     json.dump({'built_at': now.isoformat(timespec='seconds'), 'stamp': stamp,
                'day': day, 'data_through': data_through,
                'window_minutes': (window_min if hour_slice else None),
                'window_label': window_label,
-               'hour_slice': hour_slice, 'prev_slice': prev_slice, 'rows': out_rows},
+               'today_label': today_label, 'hour_slice': hour_slice,
+               'prev_slice': prev_slice, 'rows': out_rows, 'yday_rows': yday_rows},
               open(args.out_json, 'w'), indent=1)
-    render_png(out_rows, args.out_png, stamp, hour_slice, data_through, window_label)
+    render_png(out_rows, args.out_png, stamp, hour_slice, data_through,
+               window_label, today_label)
     print(f'wrote {args.out_json} + {args.out_png} — ALL roas {out_rows[-1]["roas"]}')
 
 

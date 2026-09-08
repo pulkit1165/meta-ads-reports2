@@ -396,14 +396,18 @@ async function hourlyPush(env, only) {
   const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
   // hour rows carry `delta` = % change vs the previous equal-length window
   const arrow = v => v > 0 ? `▲${v}%` : v < 0 ? `▼${Math.abs(v)}%` : '=';
-  const hline = x => {
+  const cmp = (x, keys, label) => {
     const d = x.delta || {};
-    const bits = ['sales', 'spend', 'roas', 'orders', 'budget']
-      .filter(k => d[k] !== undefined)
-      .map(k => `${k} ${arrow(d[k])}`);
-    return line(x) + (bits.length ? `\n   vs prev: ${bits.join(' · ')}` : '');
+    const bits = keys.filter(k => d[k] !== undefined)
+      .map(k => `${k.replace('budget_live', 'budget')} ${arrow(d[k])}`);
+    return line(x) + (bits.length ? `\n   ${label}: ${bits.join(' · ')}` : '');
   };
-  let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*\n` + t.rows.map(line).join('\n');
+  const hline = x => cmp(x, ['sales', 'spend', 'roas', 'orders', 'budget'], 'vs prev');
+  // day rows carry `delta` = % change vs the same clock time yesterday
+  const dline = x => cmp(x, ['sales', 'spend', 'roas', 'orders', 'budget_live'], 'vs yday');
+  let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*`
+    + (t.rows.some(x => x.delta) ? `  _(vs same time yesterday)_` : '')
+    + `\n` + t.rows.map(dline).join('\n');
   if (t.hour_slice?.length) {
     // Trust the builder's window label — the slice is NOT always an hour or
     // 30 min: a missing snapshot widens it (22 Aug sent a 2.5h window, 289
