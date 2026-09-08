@@ -27,8 +27,7 @@ const BRANDS = {
     scheme: 'studdmuffynlife',
     bundleIdentifier: 'com.StuddMuffynLife',
     ascAppId: '6771284915',
-    // filled in by `eas init` for the SML app — see SETUP-NEW-BRAND.md
-    easProjectId: process.env.EAS_PROJECT_ID_SML || null,
+    easProjectId: process.env.EAS_PROJECT_ID_SML || '99e92f83-b27f-4cf5-88be-5214186fa909',
     icon: './assets/sml/icon.png',
     splashImage: './assets/sml/splash-logo.png',
     splashBackground: '#ffffff',
@@ -57,6 +56,10 @@ module.exports = () => ({
   extra: {
     ...base.extra,
     brand: b.brand,
-    eas: { ...(base.extra && base.extra.eas), projectId: b.easProjectId },
+    // A brand without a provisioned EAS project must omit the key entirely —
+    // a null projectId makes the CLI reject the config instead of creating one.
+    ...(b.easProjectId
+      ? { eas: { ...(base.extra && base.extra.eas), projectId: b.easProjectId } }
+      : { eas: undefined }),
   },
 });
