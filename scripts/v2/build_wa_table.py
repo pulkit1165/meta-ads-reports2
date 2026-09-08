@@ -64,6 +64,7 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
 
     probe = ImageDraw.Draw(Image.new('RGB', (8, 8)))
     f_h, f_c, f_cb = sans(15, True), sans(16), sans(16, True)
+    f_d = sans(12, True)     # up/down % chip
 
     headers = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Yday', 'Budget live',
                'Budget left', 'Left %', 'Active %', 'Day %', 'Closed', 'Products']
@@ -122,7 +123,21 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
                             radius=11 * SC, fill=col)
         d.text((x_right - 8 * SC, ymid), txt, font=f_cb, fill='#ffffff', anchor='rm')
 
-    def draw_table(y0, hdrs, wds, datarows, vals_fn):
+    # up/down chip drawn to the right of a value: green ▲ / red ▼ / grey =
+    DELTA_KEY = {'Sales': 'sales', 'Orders': 'orders', 'Spend': 'spend',
+                 'ROAS': 'roas', 'Budget': 'budget'}
+
+    def delta_text(r, hname):
+        d = (r.get('delta') or {}).get(DELTA_KEY.get(hname, ''))
+        if d is None:
+            return None, None
+        if d > 0:
+            return f'\u25b2{d}%', OK
+        if d < 0:
+            return f'\u25bc{abs(d)}%', BAD
+        return '=', INK2
+
+    def draw_table(y0, hdrs, wds, datarows, vals_fn, deltas=False):
         x0 = M
         card(x0, y0, W - M, y0 + headh + rowh * len(datarows) + 2 * P)
         y = y0 + P
@@ -144,12 +159,15 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
             x = x0 + P
             ymid = y + rowh // 2 + 2 * SC
             for hname, w, val in zip(hdrs, wds, vals):
+                dtxt, dcol = delta_text(r, hname) if deltas else (None, None)
+                dw = (probe.textlength(dtxt, font=f_d) + 7 * SC) if dtxt else 0
+                if dtxt:
+                    d.text((x + w - 8 * SC, ymid), dtxt, font=f_d, fill=dcol, anchor='rm')
                 if hname == 'ROAS':
-                    rv = r['roas']
-                    roas_chip(x + w - 8 * SC, ymid, rv)
+                    roas_chip(x + w - 8 * SC - dw, ymid, r['roas'])
                 else:
                     anc = 'lm' if hname == 'Website' else 'rm'
-                    tx = x if hname == 'Website' else x + w - 8 * SC
+                    tx = x if hname == 'Website' else x + w - 8 * SC - dw
                     d.text((tx, ymid), str(val), font=(f_cb if bold else f_c),
                            fill=INK, anchor=anc)
                 x += w
@@ -160,22 +178,27 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None, window_
 
     if hour_slice:
         y2 = y_end + 14 * SC
-        mheads = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS']
+        mheads = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Budget']
         def mvals(r):
             return [r['website'], f"Rs {r['sales']:,.0f}", f"{r['orders']}",
-                    f"Rs {r['spend']:,.0f}", r['roas']]
+                    f"Rs {r['spend']:,.0f}", r['roas'],
+                    f"Rs {r.get('budget', 0):,.0f}"]
         mw = []
         for i, h in enumerate(mheads):
             w = probe.textlength(h, font=f_h)
             for r in hour_slice:
                 w = max(w, probe.textlength(str(mvals(r)[i]), font=f_cb))
+                dt, _ = delta_text(r, h)
+                if dt:
+                    w = max(w, probe.textlength(str(mvals(r)[i]), font=f_cb)
+                            + probe.textlength(dt, font=f_d) + 7 * SC)
             mw.append(int(w) + pad)
         # stretch mini table to full width for symmetry
         stretch = (table_w - sum(mw)) // len(mw)
         mw = [w + stretch for w in mw]
         d.text((M + P, y2 + 12 * SC), window_label or f'LAST HOUR  ·  window ending {data_through} IST',
                font=sans(13, True), fill=GOLD_D, anchor='lm')
-        draw_table(y2 + 26 * SC, mheads, mw, hour_slice, mvals)
+        draw_table(y2 + 26 * SC, mheads, mw, hour_slice, mvals, deltas=True)
 
     d.text((cx, H - 14 * SC),
            'Sales: Shopify (cancelled excluded)  ·  Spend: Meta  ·  full-hour aligned',
@@ -190,11 +213,12 @@ def main():
     ap.add_argument('--finals', required=True)
     ap.add_argument('--out-json', default='roas-live/wa_table.json')
     ap.add_argument('--out-png', default='roas-live/wa_table.png')
+    ap.add_argument('--day', help='YYYY-MM-DD override (testing/backfill; default today IST)')
     args = ap.parse_args()
 
     now = datetime.now(IST)
-    day = now.strftime('%Y-%m-%d')
-    yday = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+    day = args.day or now.strftime('%Y-%m-%d')
+    yday = (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
     rows = ph.build_rows(args.snap_db, args.ntn_db, day)
     tot = ph.summarise(rows)
     yd = yesterday_roas(args.finals, yday)
@@ -212,6 +236,8 @@ def main():
         (day + '%',)).fetchone()
     data_through = max_ts[11:16] if max_ts else None
     hour_slice = []
+    prev_slice = []
+    w_start = w_end = None
     if len(snap_hours) >= 2:
         cur = snap_hours[-1]
         # Baseline = the capture CLOSEST to one hour back (min 25 min away so a
@@ -244,28 +270,79 @@ def main():
                 pcode = ph.portal_of(name)
                 if pcode: out[pcode] = out.get(pcode, 0) + (sp or 0)
             return out
-        sc, sp_ = spend_at(cur), spend_at(prev)
+        # Point-in-time live budget per portal, so budget can be compared
+        # hour-over-hour like the flow metrics (spend/sales are cumulative).
+        def active_budget_at(slot):
+            out = {}
+            for name, bud in scon.execute(
+                    "SELECT account_name, COALESCE(SUM(daily_budget),0) "
+                    "FROM campaign_hourly_snapshots WHERE hour_slot=? AND status='Active' "
+                    "GROUP BY account_name", (slot,)):
+                pcode = ph.portal_of(name)
+                if pcode:
+                    out[pcode] = out.get(pcode, 0) + (bud or 0)
+            return out
+
         ncon = _sq.connect(args.ntn_db)
-        w_start = prev_ts[11:16] if prev_ts else prev[-5:]
-        w_end = max_ts[11:16] if max_ts else cur[-5:]
-        sales_h, orders_h = {}, {}
-        for pcode, sal, orr in ncon.execute(
-                "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
-                "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)>=? AND substr(created_at,12,5)<? "
-                "AND cancelled_at IS NULL AND COALESCE(source_name,'') != 'Matrixify App' GROUP BY portal",
-                (day, w_start, w_end)):
-            sales_h[pcode] = sal; orders_h[pcode] = orr
+
+        def window_rows(slot_a, slot_b, ts_a, ts_b):
+            """Sales/orders/spend per portal for the window (slot_a → slot_b]."""
+            spend_a, spend_b = spend_at(slot_a), spend_at(slot_b)
+            t0 = ts_a[11:16] if ts_a else slot_a[-5:]
+            t1 = ts_b[11:16] if ts_b else slot_b[-5:]
+            sal_m, ord_m = {}, {}
+            for pcode, sal, orr in ncon.execute(
+                    "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
+                    "WHERE substr(created_at,1,10)=? AND substr(created_at,12,5)>=? "
+                    "AND substr(created_at,12,5)<? AND cancelled_at IS NULL "
+                    "AND COALESCE(source_name,'') != 'Matrixify App' GROUP BY portal",
+                    (day, t0, t1)):
+                sal_m[pcode] = sal; ord_m[pcode] = orr
+            rows_ = []
+            ts_, tsp_, to_ = 0, 0, 0
+            for pcode in ('SM', 'SML', 'NBP'):
+                sal = sal_m.get(pcode, 0); orr = ord_m.get(pcode, 0)
+                spd = max(0, spend_b.get(pcode, 0) - spend_a.get(pcode, 0))
+                ts_ += sal; tsp_ += spd; to_ += orr
+                rows_.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
+                              'orders': orr, 'spend': round(spd),
+                              'roas': round(sal / spd, 2) if spd else None,
+                              'budget': round(active_budget_at(slot_b).get(pcode, 0))})
+            rows_.append({'website': 'All', 'sales': round(ts_), 'orders': to_,
+                          'spend': round(tsp_),
+                          'roas': round(ts_ / tsp_, 2) if tsp_ else None,
+                          'budget': round(sum(active_budget_at(slot_b).values()))})
+            return rows_
+
+        hour_slice = window_rows(prev, cur, prev_ts, max_ts)
+
+        # ── same-length window immediately before, for the up/down comparison ──
+        prev_slice = []
+        cands2 = [c for c in snap_hours if slot_ts[c] < prev_ts and
+                  (datetime.fromisoformat(prev_ts) -
+                   datetime.fromisoformat(slot_ts[c])).total_seconds() / 60.0 >= 25]
+        if cands2:
+            def _age2(c):
+                return (datetime.fromisoformat(prev_ts) -
+                        datetime.fromisoformat(slot_ts[c])).total_seconds() / 60.0
+            prev2 = min(cands2, key=lambda c: abs(_age2(c) - window_min))
+            prev_slice = window_rows(prev2, prev, slot_ts[prev2], prev_ts)
         ncon.close()
-        tot_s = tot_sp = tot_o = 0
-        for pcode in ('SM', 'SML', 'NBP'):
-            sal = sales_h.get(pcode, 0); orr = orders_h.get(pcode, 0)
-            spd = max(0, sc.get(pcode, 0) - sp_.get(pcode, 0))
-            tot_s += sal; tot_sp += spd; tot_o += orr
-            hour_slice.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
-                'orders': orr, 'spend': round(spd),
-                'roas': round(sal / spd, 2) if spd else None})
-        hour_slice.append({'website': 'All', 'sales': round(tot_s), 'orders': tot_o,
-            'spend': round(tot_sp), 'roas': round(tot_s / tot_sp, 2) if tot_sp else None})
+
+        # attach % change vs the previous window onto each current row
+        if prev_slice:
+            pmap = {r['website']: r for r in prev_slice}
+            for r in hour_slice:
+                b = pmap.get(r['website'])
+                if not b:
+                    continue
+                d = {}
+                for k in ('sales', 'orders', 'spend', 'roas', 'budget'):
+                    curv, prevv = r.get(k), b.get(k)
+                    if curv is None or prevv in (None, 0):
+                        continue
+                    d[k] = round((curv - prevv) / prevv * 100)
+                r['delta'] = d
     scon.close()
 
     out_rows = []
@@ -286,14 +363,15 @@ def main():
         })
     # The slice card must state the window it actually measured, not assume 1h.
     if hour_slice:
+        vs = '   vs previous window' if prev_slice else ''
         if 50 <= window_min <= 75:
-            window_label = f'LAST HOUR  ·  window ending {data_through} IST'
+            window_label = f'LAST HOUR  ·  window ending {data_through} IST{vs}'
         elif window_min < 50:
-            window_label = f'LAST {window_min} MIN  ·  {w_start}–{w_end} IST'
+            window_label = f'LAST {window_min} MIN  ·  {w_start}–{w_end} IST{vs}'
         else:
             _h, _m = divmod(window_min, 60)
             _d = f'{_h}H {_m}M' if _m else f'{_h}H'
-            window_label = f'LAST {_d}  ·  {w_start}–{w_end} IST  (snapshot gap)'
+            window_label = f'LAST {_d}  ·  {w_start}–{w_end} IST  (snapshot gap){vs}'
     else:
         window_label = None
 
@@ -303,7 +381,7 @@ def main():
                'day': day, 'data_through': data_through,
                'window_minutes': (window_min if hour_slice else None),
                'window_label': window_label,
-               'hour_slice': hour_slice, 'rows': out_rows},
+               'hour_slice': hour_slice, 'prev_slice': prev_slice, 'rows': out_rows},
               open(args.out_json, 'w'), indent=1)
     render_png(out_rows, args.out_png, stamp, hour_slice, data_through, window_label)
     print(f'wrote {args.out_json} + {args.out_png} — ALL roas {out_rows[-1]["roas"]}')

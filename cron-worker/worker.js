@@ -394,6 +394,15 @@ async function hourlyPush(env, only) {
   if (!r.ok) return 'wa_table fetch failed ' + r.status;
   const t = await r.json();
   const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
+  // hour rows carry `delta` = % change vs the previous equal-length window
+  const arrow = v => v > 0 ? `▲${v}%` : v < 0 ? `▼${Math.abs(v)}%` : '=';
+  const hline = x => {
+    const d = x.delta || {};
+    const bits = ['sales', 'spend', 'roas', 'orders', 'budget']
+      .filter(k => d[k] !== undefined)
+      .map(k => `${k} ${arrow(d[k])}`);
+    return line(x) + (bits.length ? `\n   vs prev: ${bits.join(' · ')}` : '');
+  };
   let caption = `⏱ *Report @ ${t.data_through || '?'} IST — day so far*\n` + t.rows.map(line).join('\n');
   if (t.hour_slice?.length) {
     // Trust the builder's window label — the slice is NOT always an hour or
@@ -405,7 +414,7 @@ async function hourlyPush(env, only) {
       : (/:5\d$/.test(t.data_through || '')
           ? `Last hour (${String(parseInt(t.data_through) - 1).padStart(2, '0')}:00–${String(parseInt(t.data_through) - 1).padStart(2, '0')}:59)`
           : `Last 30 min (through ${t.data_through})`);
-    caption += `\n\n*${label}:*\n` + t.hour_slice.map(line).join('\n');
+    caption += `\n\n*${label}:*\n` + t.hour_slice.map(hline).join('\n');
   }
   const out = [];
   // Whapi unlinked → fall back to Meta template text so the numbers still ship.
