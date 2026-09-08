@@ -44,3 +44,17 @@ build/
 .vercel/
 listing-studio/worker_jobs/
 sheet-archives/
+
+# astro-bot: customer PII (names, DOB, phone numbers) — never committed
+astro-bot/*.db
+astro-bot/*.db-shm
+astro-bot/*.db-wal
+astro-bot/backups/
+# ...and secrets. This repo is PUBLIC: the plain `.env` rule above does not
+# match `.env.bak.<stamp>`, which holds a live WA_ACCESS_TOKEN.
+astro-bot/.env.bak*
+astro-bot/.whatsapp_2fa_pin
+astro-bot/.tunnel_url
+# Runtime output — server.out and the logs carry customer messages and charts.
+astro-bot/server.out
+astro-bot/*.log
