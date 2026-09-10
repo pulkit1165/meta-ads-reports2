@@ -294,8 +294,10 @@ def _share(v):
     return f"{v / T['alloc'] * 100:.0f}%" if T["alloc"] else "-"
 
 
-table([("State", 262), ("Camps", 100), ("Budget", 150), ("% of total", 118),
-       ("Spend", 150), ("Revenue", 150), ("ROAS", 122)],
+# widths must total 1012 as before — the canvas is a fixed 1080 and the ROAS
+# pill is drawn 9px past its text, so any overflow shaves the pill's round edge
+table([("State", 250), ("Camps", 95), ("Budget", 145), ("% of total", 105),
+       ("Spend", 145), ("Revenue", 150), ("ROAS", 122)],
       [[("STILL RUNNING", GOOD, GOOD_BG), str(L["n"]), money(L["alloc"]), _share(L["alloc"]),
         money(L["spend"]), money(L["rev"]), roas_cell(L["roas"])],
        [("CLOSED TODAY", BAD, BAD_BG), str(S_["n"]), money(S_["alloc"]), _share(S_["alloc"]),
