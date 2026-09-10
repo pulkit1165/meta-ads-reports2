@@ -219,7 +219,22 @@ y = HEADER_H
 def kpi(x, w, label, value, sub, vcol=INK):
     d.text((x, y + 16), label.upper(), font=F["tiny"], fill=INK3)
     d.text((x, y + 36), value, font=F["kpi"], fill=vcol)
-    d.text((x, y + 78), sub, font=F["sm"], fill=INK2)
+    # The CI runner falls back to DejaVu, which is wider than the Mac's Arial,
+    # so a sub line measured locally can still run off its column there. Wrap
+    # on word boundaries into the two lines the band has room for (sub sits at
+    # +78, KPI_H is 118) instead of letting it bleed past the canvas edge.
+    maxw, lines, cur = w - 12, [], ""
+    for word in sub.split(" "):
+        trial = f"{cur} {word}".strip()
+        if cur and d.textlength(trial, font=F["sm"]) > maxw:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+    if cur:
+        lines.append(cur)
+    for i, line in enumerate(lines[:2]):
+        d.text((x, y + 78 + i * 17), line, font=F["sm"], fill=INK2)
 
 
 d.rectangle([0, y, W, y + KPI_H], fill=BAND)
