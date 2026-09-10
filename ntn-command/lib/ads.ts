@@ -49,7 +49,7 @@ export interface CampDay {
  * so it is compared as a date and never against CURRENT_DATE — the session is
  * UTC and would silently shift the boundary by five and a half hours.
  */
-export async function campDays(days: number): Promise<CampDay[]> {
+export async function campDays(from: string, to: string): Promise<CampDay[]> {
   const rows = await q(
     `SELECT date::text AS date, portal, campaign_id, campaign_name,
             COALESCE(NULLIF(sale_block, ''), 'Loose')      AS sale_block,
@@ -57,10 +57,10 @@ export async function campDays(days: number): Promise<CampDay[]> {
             COALESCE(NULLIF(camp_type, ''), 'unknown')     AS camp_type,
             budget_rs, spend, revenue
        FROM meta_analysis_campaign_daily
-      WHERE date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - $1::int
-        AND portal = ANY($2)
+      WHERE date BETWEEN $1::date AND $2::date
+        AND portal = ANY($3)
       ORDER BY date`,
-    [days, PORTALS as unknown as string[]],
+    [from, to, PORTALS as unknown as string[]],
   );
   return rows.map((r) => {
     const spend = n(r.spend), revenue = n(r.revenue);
@@ -110,12 +110,11 @@ export interface ClosingSnapshot {
  * part of today's book, and folding it in understates closed% badly — on a
  * typical day it is ~8 lakh of parked budget against ~13 lakh genuinely live.
  */
-export async function closingToday(): Promise<ClosingSnapshot> {
+export async function closingOn(day: string): Promise<ClosingSnapshot> {
   const rows = await q(
     `WITH today AS (
        SELECT * FROM meta_campaign_snapshot
-        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date
-              = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
      ),
      latest AS (SELECT max(snapshot_at) AS ts FROM today),
      ever   AS (SELECT DISTINCT campaign_id FROM today WHERE effective_status = 'ACTIVE'),
@@ -129,7 +128,7 @@ export async function closingToday(): Promise<ClosingSnapshot> {
               COALESCE(NULLIF(sale_block, ''), 'Loose')      AS sale_block,
               COALESCE(NULLIF(creative_type, ''), 'unknown') AS creative_type
          FROM meta_analysis_campaign_daily
-        WHERE date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        WHERE date = $2::date
           AND portal = ANY($1)
      )
      SELECT b.portal, s.campaign_id, s.campaign_name, b.sale_block, b.creative_type,
@@ -140,7 +139,7 @@ export async function closingToday(): Promise<ClosingSnapshot> {
        FROM snap s
        JOIN blk b ON b.campaign_id = s.campaign_id
        LEFT JOIN ever e ON e.campaign_id = s.campaign_id`,
-    [PORTALS as unknown as string[]],
+    [PORTALS as unknown as string[], day],
   );
 
   const live = rows.filter((r) => r.ever_active);
@@ -221,4 +220,49 @@ export function familyOf(saleBlock: string): string {
   if (inc) return 'Inclusion only (retarget)';
   if (exc) return 'Exclusion only (prospecting)';
   return 'Other';
+}
+
+/* ── product mapping ────────────────────────────────────────────────────── */
+
+/**
+ * campaign_id -> product name. Maintained by the classifier pipeline; a
+ * campaign with no row is genuinely unclassified rather than product-less, so
+ * it is surfaced as "unmapped" instead of being dropped.
+ */
+export async function productMap(): Promise<Map<string, string>> {
+  const rows = await q(
+    `SELECT campaign_id, COALESCE(NULLIF(product_name, ''), 'unmapped') AS product
+       FROM meta_camp_product_map`,
+  );
+  return new Map(rows.map((r) => [String(r.campaign_id), String(r.product)]));
+}
+
+/** Budget bands used when asking what launch size works. */
+export function budgetBand(b: number): string {
+  if (b <= 0) return 'unset';
+  if (b < 2000) return 'under 2k';
+  if (b < 5000) return '2k–5k';
+  if (b < 7500) return '5k–7.5k';
+  if (b < 10000) return '7.5k–10k';
+  if (b < 15000) return '10k–15k';
+  if (b < 20000) return '15k–20k';
+  return '20k+';
+}
+
+export const BUDGET_BANDS = [
+  'under 2k', '2k–5k', '5k–7.5k', '7.5k–10k', '10k–15k', '15k–20k', '20k+', 'unset',
+];
+
+/**
+ * Creative types arrive as pipe-joined combinations ("Paras | Motion"), which
+ * fragments the counts. Splitting into individual tags means a campaign using
+ * two creative styles counts toward both, which is the honest reading: the
+ * question is which styles appear in winners, not which exact combination.
+ */
+export function creativeTags(ct: string): string[] {
+  const parts = (ct || '')
+    .split('|')
+    .map((p) => p.trim())
+    .filter((p) => p && p.toLowerCase() !== 'unknown');
+  return parts.length ? parts : ['unclassified'];
 }

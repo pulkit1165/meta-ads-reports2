@@ -1,26 +1,34 @@
 import { paymentsByDay, isCOD, istDates, storeLabel } from '@/lib/commerce';
 import { ShareBar, Line, BarList } from '@/components/charts';
-import { Page, Card, Grid, Stat, Table, Note, lakh, rs, pct, num, type Col } from '@/components/ui';
+import { resolveRange, type SearchParams } from '@/lib/range';
+import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
+import PageControls from '@/components/PageControls';
+import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const WINDOW = 14;
-
-export default async function PaymentsPage() {
+export default async function PaymentsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const spar = await searchParams;
+  const range = resolveRange(spar, 14);
+  const controls = <PageControls range={range} />;
   const { today, yesterday } = await istDates();
-  const from = new Date(new Date(today).getTime() - WINDOW * 86400000).toISOString().slice(0, 10);
-  const rows = await paymentsByDay(from, today);
+  const rows = await paymentsByDay(range.from, range.to);
 
   if (!rows.length) {
     return (
-      <Page title="Payments" subtitle="No orders in the window">
-        <Note kind="warn">shopify_orders returned nothing between {from} and {today}.</Note>
+      <Page title="Payments" subtitle={range.label} actions={controls}>
+        <Note kind="warn">shopify_orders returned nothing between {range.from} and {range.to}.</Note>
       </Page>
     );
   }
 
-  const yday = rows.filter((r) => r.date === yesterday);
+  // In a custom window the chosen end may not be yesterday; fall back to the
+  // last day that actually has rows so the headline is never blank.
+  const focus = rows.some((r) => r.date === yesterday)
+    ? yesterday
+    : [...new Set(rows.map((r) => r.date))].sort().pop()!;
+  const yday = rows.filter((r) => r.date === focus);
   const rev = (rs_: typeof rows) => rs_.reduce((s, r) => s + r.revenue, 0);
   const ord = (rs_: typeof rows) => rs_.reduce((s, r) => s + r.orders, 0);
 
@@ -73,10 +81,60 @@ export default async function PaymentsPage() {
   const codAov = codOrd ? codRev / codOrd : 0;
   const preAov = preOrd ? preRev / preOrd : 0;
 
+  /* ── findings ─────────────────────────────────────────────────────────── */
+  const findings: Finding[] = [];
+  const codPct = pctOf(codRev, yRev);
+  const codSeries = dates.map(codShareOn);
+  const codTrend = trend(codSeries);
+
+  if (codPct >= 30) {
+    findings.push({
+      severity: codPct >= 45 ? 'critical' : 'watch',
+      headline: `COD took ${codPct.toFixed(0)}% of the day's value`,
+      detail: `${money(codRev)} across ${num(codOrd)} orders. COD carries return and RTO risk that prepaid does not, so this share is a cost that never shows up in ROAS.`,
+      action: 'If this is drifting up, a prepaid incentive is usually cheaper than the RTO it prevents.',
+    });
+  } else if (codPct <= 12) {
+    findings.push({
+      severity: 'good',
+      headline: `COD is only ${codPct.toFixed(0)}% of value`,
+      detail: `${money(codRev)} of ${money(yRev)}. A low COD share means less RTO exposure and faster cash.`,
+    });
+  }
+
+  if (codTrend != null && Math.abs(codTrend) > 4) {
+    findings.push({
+      severity: codTrend > 0 ? 'watch' : 'good',
+      headline: `COD share is ${codTrend > 0 ? 'rising' : 'falling'} across the window`,
+      detail: `About ${Math.abs(codTrend).toFixed(1)}% per day, ${codSeries[0].toFixed(0)}% → ${codSeries[codSeries.length - 1].toFixed(0)}%.`,
+    });
+  }
+
+  if (preAov > 0 && codAov / preAov >= 1.2) {
+    findings.push({
+      severity: 'neutral',
+      headline: `COD baskets are ${(codAov / preAov).toFixed(2)}× larger than prepaid`,
+      detail: `${rs(codAov)} against ${rs(preAov)}. Bigger COD orders mean the RTO exposure is concentrated in the most valuable baskets.`,
+    });
+  }
+
+  const heavy = srows.filter((s) => s.revenue > 20000 && s.cod / s.revenue >= 0.4);
+  for (const st of heavy.slice(0, 2)) {
+    findings.push({
+      severity: 'watch',
+      headline: `${storeLabel(st.store)} runs ${pctOf(st.cod, st.revenue).toFixed(0)}% COD`,
+      detail: `${money(st.cod)} of ${money(st.revenue)} on ${num(st.codOrders)} orders — well above the ${codPct.toFixed(0)}% group average.`,
+    });
+  }
+
   return (
-    <Page title="Payments" subtitle={`Yesterday, ${yesterday} · ${WINDOW}-day trend · cancelled and Matrixify re-imports excluded`}>
+    <Page
+      title="Payments"
+      subtitle={`${focus} · ${range.label} trend · cancelled and Matrixify re-imports excluded`}
+      actions={controls}
+    >
       <Grid cols={4}>
-        <Stat label="Orders yesterday" value={num(yOrd)} sub={`${lakh(yRev)} · AOV ${rs(yOrd ? yRev / yOrd : 0)}`} />
+        <Stat label="Orders" value={num(yOrd)} sub={`${lakh(yRev)} · AOV ${rs(yOrd ? yRev / yOrd : 0)}`} />
         <Stat label="Prepaid" value={pct(yRev ? (preRev / yRev) * 100 : 0)} sub={`${rs(preRev)} · ${num(preOrd)} orders`} />
         <Stat label="COD" value={pct(yRev ? (codRev / yRev) * 100 : 0)} sub={`${rs(codRev)} · ${num(codOrd)} orders`} />
         <Stat
@@ -86,7 +144,9 @@ export default async function PaymentsPage() {
         />
       </Grid>
 
-      <Card title="Prepaid vs COD" note={`${yesterday}, by revenue`}>
+      <Analysis findings={rank(findings)} basis={`${focus}, ${num(yOrd)} orders`} />
+
+      <Card title="Prepaid vs COD" note={`${focus}, by revenue`}>
         <ShareBar
           fmt={rs}
           parts={[
@@ -104,7 +164,7 @@ export default async function PaymentsPage() {
             series={[{ label: 'COD % of revenue', color: '#eb6834', values: dates.map(codShareOn) }]}
           />
         </Card>
-        <Card title="COD share by store" note={`${yesterday}, % of that store's revenue`}>
+        <Card title="COD share by store" note={`${focus}, % of that store's revenue`}>
           <BarList
             fmt={(v) => pct(v)}
             max={100}
@@ -118,15 +178,15 @@ export default async function PaymentsPage() {
         </Card>
       </div>
 
-      <Card title="By store" note={yesterday}>
+      <Card title="By store" note={focus}>
         <Table cols={cols} rows={srows} footer={totalRow} />
       </Card>
 
       <Note>
-        <span className="text-[#c3ccd7]">payment_gateway</span> is empty on every row in this
+        <span className="text-text">payment_gateway</span> is empty on every row in this
         database — checked across a full quarter of orders — so there is no per-processor split to
         show. The prepaid/COD cut comes from{' '}
-        <span className="text-[#c3ccd7]">payment_mode</span>, which is populated on every order.
+        <span className="text-text">payment_mode</span>, which is populated on every order.
         Processor-level detail would have to be pulled from the Shopify API; it is not stored here.
       </Note>
     </Page>

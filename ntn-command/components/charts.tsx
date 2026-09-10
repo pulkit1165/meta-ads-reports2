@@ -51,12 +51,12 @@ export function BarList({
       {rows.map((r) => (
         <div key={r.label}>
           <div className="mb-1 flex items-baseline justify-between gap-3 text-[12px]">
-            <span className="truncate text-[#dbe3ec]" title={r.label}>{r.label}</span>
+            <span className="truncate text-text-strong" title={r.label}>{r.label}</span>
             <span className="shrink-0 tabular-nums text-muted">
               {fmt(r.value)}{r.sub && <span className="ml-2 text-[11px]">{r.sub}</span>}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div className="h-1.5 overflow-hidden rounded-full bg-tint">
             <div
               className="h-full rounded-full"
               style={{ width: `${Math.max(1.5, (r.value / top) * 100)}%`, background: r.color ?? color }}
@@ -149,7 +149,7 @@ export function ShareBar({
         {parts.map((p) => (
           <div key={p.label} className="flex items-center gap-1.5 text-[11px]">
             <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: p.color }} />
-            <span className="text-[#c3ccd7]">{p.label}</span>
+            <span className="text-text">{p.label}</span>
             <span className="tabular-nums text-muted">{((p.value / total) * 100).toFixed(1)}%</span>
           </div>
         ))}
@@ -214,7 +214,7 @@ export function Line({
             s.values.map((v, i) =>
               v == null ? null : (
                 <circle key={`${s.label}-${i}`} cx={x(i)} cy={y(v)} r={3.5}
-                        fill="#0d0f12" stroke={s.color} strokeWidth={2}
+                        fill="var(--panel)" stroke={s.color} strokeWidth={2}
                         vectorEffect="non-scaling-stroke" />
               ),
             ),
@@ -229,7 +229,7 @@ export function Line({
           {series.map((s) => (
             <div key={s.label} className="flex items-center gap-1.5 text-[11px]">
               <span className="h-0.5 w-4" style={{ background: s.color }} />
-              <span className="text-[#c3ccd7]">{s.label}</span>
+              <span className="text-text">{s.label}</span>
             </div>
           ))}
         </div>
@@ -244,7 +244,7 @@ export function Legend({ items }: { items: { label: string; color: string }[] })
       {items.map((i) => (
         <div key={i.label} className="flex items-center gap-1.5 text-[11px]">
           <span className="h-2 w-2 rounded-sm" style={{ background: i.color }} />
-          <span className="text-[#c3ccd7]">{i.label}</span>
+          <span className="text-text">{i.label}</span>
         </div>
       ))}
     </div>

@@ -60,7 +60,7 @@ export default function Orders() {
                 key={w.h}
                 onClick={() => setHours(w.h)}
                 className={`rounded-md px-2.5 py-1 text-[12px] ${
-                  hours === w.h ? 'bg-gold/20 text-gold' : 'text-muted hover:text-[#e6ebf1]'
+                  hours === w.h ? 'bg-gold/20 text-gold' : 'text-muted hover:text-text'
                 }`}
               >{w.label}</button>
             ))}
@@ -125,7 +125,7 @@ export default function Orders() {
               key={k}
               onClick={() => setOnly(k)}
               className={`rounded-md px-2.5 py-1 text-[11.5px] ${
-                only === k ? 'bg-gold/20 text-gold' : 'text-muted hover:text-[#e6ebf1]'
+                only === k ? 'bg-gold/20 text-gold' : 'text-muted hover:text-text'
               }`}
             >{k === 'all' ? 'All' : 'App only'}</button>
           ))}
@@ -155,7 +155,7 @@ export default function Orders() {
                 <td className="whitespace-nowrap px-3 py-2 text-muted">{o.store}</td>
                 <td className="px-3 py-2">
                   <span className={`rounded px-1.5 py-0.5 text-[10.5px] ${
-                    o.channel === 'app' ? 'bg-gold/20 text-gold' : 'bg-white/5 text-muted'}`}>
+                    o.channel === 'app' ? 'bg-gold/20 text-gold' : 'bg-hover text-muted'}`}>
                     {o.channel === 'app' ? 'App' : 'Web'}
                   </span>
                 </td>

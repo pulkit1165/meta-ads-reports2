@@ -1,26 +1,32 @@
 import { channelsByDay, istDates, storeLabel } from '@/lib/commerce';
 import { ShareBar, BarList, SERIES } from '@/components/charts';
-import { Page, Card, Grid, Stat, Table, Note, lakh, rs, pct, num, type Col } from '@/components/ui';
+import { resolveRange, type SearchParams } from '@/lib/range';
+import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
+import PageControls from '@/components/PageControls';
+import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const WINDOW = 14;
-
-export default async function ChannelsPage() {
-  const { today, yesterday } = await istDates();
-  const from = new Date(new Date(today).getTime() - WINDOW * 86400000).toISOString().slice(0, 10);
-  const rows = await channelsByDay(from, today);
+export default async function ChannelsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const spar = await searchParams;
+  const range = resolveRange(spar, 14);
+  const controls = <PageControls range={range} />;
+  const { yesterday } = await istDates();
+  const rows = await channelsByDay(range.from, range.to);
 
   if (!rows.length) {
     return (
-      <Page title="Channels" subtitle="No data">
-        <Note kind="warn">No orders between {from} and {today}.</Note>
+      <Page title="Channels" subtitle={range.label} actions={controls}>
+        <Note kind="warn">No orders between {range.from} and {range.to}.</Note>
       </Page>
     );
   }
 
-  const yday = rows.filter((r) => r.date === yesterday);
+  const focus = rows.some((r) => r.date === yesterday)
+    ? yesterday
+    : [...new Set(rows.map((r) => r.date))].sort().pop()!;
+  const yday = rows.filter((r) => r.date === focus);
   const ord = (xs: typeof rows) => xs.reduce((s, r) => s + r.orders, 0);
   const rev = (xs: typeof rows) => xs.reduce((s, r) => s + r.revenue, 0);
 
@@ -51,9 +57,9 @@ export default async function ChannelsPage() {
   const storefront = rev(yday.filter((r) => r.channel === 'Headless storefront'));
 
   return (
-    <Page title="Channels" subtitle={`Sales channel, ${yesterday} · from source_name`}>
+    <Page title="Channels" subtitle={`Sales channel, ${focus} · from source_name`} actions={controls}>
       <Grid cols={3}>
-        <Stat label="Orders yesterday" value={num(yOrd)} sub={lakh(yRev)} />
+        <Stat label="Orders" value={num(yOrd)} sub={lakh(yRev)} />
         <Stat label="Channels in use" value={num(crows.length)} sub="excluding the Matrixify importer" />
         <Stat
           label="Storefront share"
@@ -62,14 +68,34 @@ export default async function ChannelsPage() {
         />
       </Grid>
 
-      <Card title="Channel mix" note={`${yesterday}, by revenue`}>
+      <Analysis
+        findings={rank([
+          {
+            severity: 'watch' as const,
+            headline: 'App orders cannot be separated from web',
+            detail:
+              'The app marker lives in note_attributes and landing_site, and the ingest stores neither column, so every warehouse order reads as web regardless of where it came from.',
+            action: 'One extra column at ingest would make this module answer the question you actually asked.',
+          },
+          ...(crows.length === 1
+            ? [{
+                severity: 'neutral' as const,
+                headline: 'Everything came through a single channel',
+                detail: `All ${num(yOrd)} orders on ${focus} carry the same source_name, so there is no mix to compare.`,
+              }]
+            : []),
+        ])}
+        basis={`${focus}, ${num(yOrd)} orders`}
+      />
+
+      <Card title="Channel mix" note={`${focus}, by revenue`}>
         <ShareBar
           fmt={rs}
           parts={crows.map((c, i) => ({ label: c.channel, value: c.revenue, color: SERIES[i % SERIES.length] }))}
         />
       </Card>
 
-      <Card title="By store" note={`${yesterday}, revenue per store`}>
+      <Card title="By store" note={`${focus}, revenue per store`}>
         <BarList
           fmt={rs}
           rows={stores
@@ -83,18 +109,18 @@ export default async function ChannelsPage() {
         />
       </Card>
 
-      <Card title="Channel detail" note={yesterday}>
+      <Card title="Channel detail" note={focus}>
         <Table cols={cols} rows={crows} footer={totalRow} />
       </Card>
 
       <Note kind="warn">
-        <b className="text-[#e8d3a8]">This is not an app-versus-website split, and it cannot be one
+        <b className="text-warn">This is not an app-versus-website split, and it cannot be one
         yet.</b> The mobile app tags its carts with{' '}
-        <span className="text-[#e8d3a8]">utm_medium=mobile_app</span>, but that marker lives in{' '}
-        <span className="text-[#e8d3a8]">note_attributes</span> and{' '}
-        <span className="text-[#e8d3a8]">landing_site</span>, and the ingest stores neither column,
+        <span className="text-warn">utm_medium=mobile_app</span>, but that marker lives in{' '}
+        <span className="text-warn">note_attributes</span> and{' '}
+        <span className="text-warn">landing_site</span>, and the ingest stores neither column,
         so every order in the warehouse reads as web. What{' '}
-        <span className="text-[#e8d3a8]">source_name</span> does hold is the Shopify sales-channel
+        <span className="text-warn">source_name</span> does hold is the Shopify sales-channel
         id, which is what this page reports. Making the app split real needs one extra column at
         ingest, not a change on this page.
       </Note>

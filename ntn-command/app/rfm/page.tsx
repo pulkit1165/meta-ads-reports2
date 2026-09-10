@@ -1,6 +1,8 @@
 import { BANDS, cohortHistory, c1Inflow, frequency } from '@/lib/rfm';
 import { ShareBar, Line, BarList, StackedBars } from '@/components/charts';
-import { Page, Card, Grid, Stat, Table, Note, lakh, rs, pct, num, Delta, type Col } from '@/components/ui';
+import { rank, pctOf, type Finding } from '@/lib/insights';
+import PageControls from '@/components/PageControls';
+import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, Delta, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -14,7 +16,7 @@ export default async function RfmPage() {
 
   if (!now.length) {
     return (
-      <Page title="RFM Cohorts" subtitle="Snapshot not built yet">
+      <Page title="RFM Cohorts" subtitle="Snapshot not built yet" actions={<PageControls dates={false} />}>
         <Note kind="warn">
           cohort_daily is empty. Sizes are snapshotted rather than derived live because computing a
           single as-of date costs about 19 seconds across 3.4M orders.
@@ -67,10 +69,54 @@ export default async function RfmPage() {
   const oneTime = freq.find((f) => f.orders === 1);
   const freqTotal = freq.reduce((s, f) => s + f.customers, 0);
 
+  /* ── findings ─────────────────────────────────────────────────────────── */
+  const findings: Finding[] = [];
+  const warmPct = pctOf(warm, total);
+  const dormantPct = pctOf(size('c6'), total);
+  const recent = inflow.slice(-14);
+  const winBackShare = recent.reduce((s, i) => s + i.entered, 0)
+    ? pctOf(recent.reduce((s, i) => s + i.reactivated, 0), recent.reduce((s, i) => s + i.entered, 0))
+    : 0;
+
+  if (dormantPct >= 50) {
+    findings.push({
+      severity: 'watch',
+      headline: `${dormantPct.toFixed(0)}% of the base has not bought in over a year`,
+      detail: `${num(size('c6'))} customers sit in C6. Prior cohort work found C6 win-back is low-yield for everything except crystals, which are bimodal.`,
+      action: 'Treat C6 as a list to mine selectively, not a reactivation campaign to run wholesale.',
+    });
+  }
+
+  if (warmPct <= 5) {
+    findings.push({
+      severity: 'watch',
+      headline: `Only ${warmPct.toFixed(1)}% of the base is warm`,
+      detail: `${num(warm)} customers bought within 45 days. C1+C2 is where roughly 55-60% of all future repurchases come from, so this is the pool worth working.`,
+    });
+  }
+
+  if (oneTime && pctOf(oneTime.customers, freqTotal) >= 70) {
+    findings.push({
+      severity: 'critical',
+      headline: `${pctOf(oneTime.customers, freqTotal).toFixed(0)}% of customers never bought twice`,
+      detail: `${num(oneTime.customers)} of ${num(freqTotal)} have exactly one lifetime order. Every point of second-purchase rate is worth more than the same point of new acquisition.`,
+      action: 'The 0-15 day window after a first order is the highest-yield intervention available.',
+    });
+  }
+
+  if (winBackShare >= 15) {
+    findings.push({
+      severity: 'good',
+      headline: `${winBackShare.toFixed(0)}% of recent intake was a win-back`,
+      detail: 'Customers whose previous order was more than 45 days earlier. Genuine reactivation rather than regular repeat buying.',
+    });
+  }
+
   return (
     <Page
       title="RFM Cohorts"
       subtitle={`Recency bands as at ${latest} · ${num(total)} customers with a phone number on file`}
+      actions={<PageControls dates={false} />}
     >
       <Grid cols={4}>
         <Stat label="Customer base" value={num(total)} sub="reachable, matched on phone" />
@@ -97,6 +143,8 @@ export default async function RfmPage() {
         />
       </Grid>
 
+      <Analysis findings={rank(findings)} basis={`${num(total)} customers as at ${latest}`} />
+
       <Card title="Where the base sits today" note={`as at ${latest}`}>
         <ShareBar
           fmt={num}
@@ -119,7 +167,7 @@ export default async function RfmPage() {
             {BANDS.map((b) => (
               <div key={b.key} className="flex items-center gap-1.5 text-[11px]">
                 <span className="h-2 w-2 rounded-sm" style={{ background: b.color }} />
-                <span className="text-[#c3ccd7]">{b.label}</span>
+                <span className="text-text">{b.label}</span>
               </div>
             ))}
           </div>
@@ -157,7 +205,7 @@ export default async function RfmPage() {
       <Note>
         Bands are the ones the WhatsApp cohort work already uses, so a list pulled here describes
         the same people as a list pulled there. Sizes are snapshotted into{' '}
-        <span className="text-[#c3ccd7]">cohort_daily</span> rather than computed on the page: a
+        <span className="text-text">cohort_daily</span> rather than computed on the page: a
         single as-of date costs about 19 seconds across 3.4M orders, because there is no index on
         the phone number and it has to be normalised row by row. The trend deepens as snapshots
         accumulate.

@@ -35,7 +35,7 @@ export default function Nav() {
                     <Link
                       href={href}
                       className={`flex items-center gap-2 rounded-lg px-3 py-1.5 transition ${
-                        on ? 'bg-gold/15 text-gold' : 'text-[#c3ccd7] hover:bg-white/5'
+                        on ? 'bg-gold/15 text-gold' : 'text-text hover:bg-hover'
                       }`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[m.status]}`} />

@@ -1,21 +1,24 @@
 import { repeatRate, istDates, storeLabel } from '@/lib/commerce';
 import { Line, ShareBar, BarList } from '@/components/charts';
-import { Page, Card, Grid, Stat, Table, Note, lakh, rs, pct, num, type Col } from '@/components/ui';
+import { resolveRange, type SearchParams } from '@/lib/range';
+import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
+import PageControls from '@/components/PageControls';
+import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const WINDOW = 21;
-
-export default async function CohortsPage() {
+export default async function CohortsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const spar = await searchParams;
+  const range = resolveRange(spar, 21);
+  const controls = <PageControls range={range} />;
   const { today, yesterday } = await istDates();
-  const from = new Date(new Date(today).getTime() - WINDOW * 86400000).toISOString().slice(0, 10);
-  const rows = await repeatRate(from, today);
+  const rows = await repeatRate(range.from, range.to);
 
   if (!rows.length) {
     return (
-      <Page title="New vs Returning" subtitle="No data">
-        <Note kind="warn">No attributable orders between {from} and {today}.</Note>
+      <Page title="New vs Returning" subtitle={range.label} actions={controls}>
+        <Note kind="warn">No attributable orders between {range.from} and {range.to}.</Note>
       </Page>
     );
   }
@@ -32,13 +35,16 @@ export default async function CohortsPage() {
     return t ? (sum(day, 'repeatOrders') / t) * 100 : 0;
   };
 
-  const yday = on(yesterday);
+  const focus = dates.includes(yesterday) ? yesterday : dates[dates.length - 1];
+  const yday = on(focus);
   const yNew = sum(yday, 'newOrders'), yRep = sum(yday, 'repeatOrders');
   const yNewRev = sum(yday, 'newRevenue'), yRepRev = sum(yday, 'repeatRevenue');
   const yTot = yNew + yRep;
 
   // Complete days only for the trend — today is still filling.
-  const complete = dates.filter((d) => d !== today);
+  const complete = dates.filter((d) => d !== today).length
+    ? dates.filter((d) => d !== today)
+    : dates;
   const avgRepeat = complete.length
     ? complete.reduce((s, d) => s + repeatShare(d), 0) / complete.length
     : 0;
@@ -77,13 +83,57 @@ export default async function CohortsPage() {
   const newAov = yNew ? yNewRev / yNew : 0;
   const repAov = yRep ? yRepRev / yRep : 0;
 
+  /* ── findings ─────────────────────────────────────────────────────────── */
+  const findings: Finding[] = [];
+  const repPct = pctOf(yRep, yTot);
+  const series = complete.map(repeatShare);
+  const tr = trend(series);
+
+  if (repPct >= 55) {
+    findings.push({
+      severity: 'good',
+      headline: `${repPct.toFixed(0)}% of orders came from someone who bought before`,
+      detail: `${num(yRep)} of ${num(yTot)} orders, worth ${money(yRepRev)}. A repeat share this high means acquisition spend is compounding rather than renting demand.`,
+    });
+  } else if (repPct <= 35) {
+    findings.push({
+      severity: 'watch',
+      headline: `Only ${repPct.toFixed(0)}% of orders were repeat buyers`,
+      detail: `${num(yRep)} of ${num(yTot)}. The book is leaning on new acquisition, which is the expensive half.`,
+      action: 'Worth checking the C1/C2 cohorts — the 0–45 day window is where repeat purchase actually happens.',
+    });
+  }
+
+  if (tr != null && Math.abs(tr) > 2) {
+    findings.push({
+      severity: tr > 0 ? 'good' : 'watch',
+      headline: `Repeat share is ${tr > 0 ? 'climbing' : 'slipping'}`,
+      detail: `About ${Math.abs(tr).toFixed(1)}% per day across ${complete.length} days, ${series[0].toFixed(0)}% → ${series[series.length - 1].toFixed(0)}%.`,
+    });
+  }
+
+  if (newAov > 0 && repAov / newAov >= 1.15) {
+    findings.push({
+      severity: 'good',
+      headline: `Returning customers spend ${(repAov / newAov).toFixed(2)}× more per order`,
+      detail: `${rs(repAov)} against ${rs(newAov)} on a first order. Every retained customer is worth more than the acquisition number alone suggests.`,
+    });
+  } else if (newAov > 0 && repAov / newAov <= 0.85) {
+    findings.push({
+      severity: 'watch',
+      headline: `Returning baskets are smaller than first orders`,
+      detail: `${rs(repAov)} against ${rs(newAov)}. Repeat buyers are topping up rather than buying the full set — an upsell gap rather than a retention one.`,
+    });
+  }
+
   return (
     <Page
       title="New vs Returning"
-      subtitle={`Yesterday, ${yesterday} · ${WINDOW}-day trend · matched on phone number against the full order history`}
+      subtitle={`${focus} · ${range.label} trend · matched on phone number against the full order history`}
+      actions={controls}
     >
       <Grid cols={4}>
-        <Stat label="Orders yesterday" value={num(yTot)} sub={`${lakh(yNewRev + yRepRev)} attributed`} />
+        <Stat label="Orders" value={num(yTot)} sub={`${lakh(yNewRev + yRepRev)} attributed`} />
         <Stat
           label="Returning"
           value={pct(yTot ? (yRep / yTot) * 100 : 0)}
@@ -99,7 +149,9 @@ export default async function CohortsPage() {
         />
       </Grid>
 
-      <Card title="Repeat share by day" note={`${WINDOW}-day average is ${pct(avgRepeat, 1)}; today excluded as partial`}>
+      <Analysis findings={rank(findings)} basis={`${focus}, ${num(yTot)} attributable orders`} />
+
+      <Card title="Repeat share by day" note={`${range.label} average is ${pct(avgRepeat, 1)}; today excluded as partial`}>
         <Line
           fmt={(v) => `${v.toFixed(0)}%`}
           categories={complete.map(label)}
@@ -109,7 +161,7 @@ export default async function CohortsPage() {
       </Card>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card title="Yesterday's mix" note="by order count">
+        <Card title={`${focus} mix`} note="by order count">
           <ShareBar
             fmt={num}
             parts={[
@@ -118,7 +170,7 @@ export default async function CohortsPage() {
             ]}
           />
         </Card>
-        <Card title="Repeat share by store" note={yesterday}>
+        <Card title="Repeat share by store" note={focus}>
           <BarList
             fmt={(v) => pct(v)}
             max={100}
@@ -132,7 +184,7 @@ export default async function CohortsPage() {
         </Card>
       </div>
 
-      <Card title="By store" note={yesterday}>
+      <Card title="By store" note={focus}>
         <Table cols={cols} rows={srows} footer={totalRow} />
       </Card>
 

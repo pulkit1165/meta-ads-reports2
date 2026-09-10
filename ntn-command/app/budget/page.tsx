@@ -1,18 +1,23 @@
 import { campDays, bandOf, BAND_KEYS, LOSING, PORTAL_NAME, PORTALS, roasOf, share } from '@/lib/ads';
 import { ROAS_BANDS, StackedBars, Line, ShareBar } from '@/components/charts';
-import { Page, Card, Grid, Stat, Table, Roas, Note, lakh, rs, pct, num, type Col } from '@/components/ui';
+import { resolveRange, type SearchParams } from '@/lib/range';
+import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
+import PageControls from '@/components/PageControls';
+import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const DAYS = 14;
-
-export default async function BudgetPage() {
-  const all = await campDays(DAYS);
+export default async function BudgetPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
+  const range = resolveRange(sp, 14);
+  const DAYS = range.days;
+  const controls = <PageControls range={range} />;
+  const all = await campDays(range.from, range.to);
   if (!all.length) {
     return (
-      <Page title="Budget & ROAS" subtitle="No data">
-        <Note kind="warn">meta_analysis_campaign_daily returned nothing for the last {DAYS} days.</Note>
+      <Page title="Budget & ROAS" subtitle={range.label} actions={controls}>
+        <Note kind="warn">meta_analysis_campaign_daily returned nothing between {range.from} and {range.to}.</Note>
       </Page>
     );
   }
@@ -38,9 +43,11 @@ export default async function BudgetPage() {
 
   // Yesterday is the last complete day; today is still filling and its ROAS
   // reads low because revenue lags spend inside the day.
-  const complete = dates.slice(0, -1);
+  // A one-day window has no earlier day to compare against; fall back to the
+  // only day present rather than indexing off the end of the array.
+  const complete = dates.length > 1 ? dates.slice(0, -1) : dates;
   const lastComplete = complete[complete.length - 1];
-  const prevComplete = complete[complete.length - 2];
+  const prevComplete = complete[complete.length - 2] ?? lastComplete;
 
   type DRow = { date: string; budget: number; spend: number; rev: number; losing: number };
   const drows: DRow[] = dates.map((d) => ({
@@ -69,10 +76,67 @@ export default async function BudgetPage() {
   const dToday = share(dayLosing(lastComplete), daySpend(lastComplete));
   const dPrev = share(dayLosing(prevComplete), daySpend(prevComplete));
 
+  /* ── findings ─────────────────────────────────────────────────────────── */
+  const findings: Finding[] = [];
+  const roasSeries = complete.map((d) => roasOf(dayRev(d), daySpend(d)));
+  const losingSeries = complete.map((d) => share(dayLosing(d), daySpend(d)));
+  const roasTrend = trend(roasSeries);
+  const losingTrend = trend(losingSeries);
+
+  if (dToday >= 45) {
+    findings.push({
+      severity: dToday >= 55 ? 'critical' : 'watch',
+      headline: `${dToday.toFixed(0)}% of ${lastComplete}'s spend returned under 1.0`,
+      detail: `${money(dayLosing(lastComplete))} of ${money(daySpend(lastComplete))} went to campaigns that did not break even, against ${dPrev.toFixed(0)}% the day before.`,
+      action: 'The closing ladder gates on spend, not on share. A day this heavy usually means volume arrived faster than the gates could cut it.',
+    });
+  } else if (dToday <= 30) {
+    findings.push({
+      severity: 'good',
+      headline: `Only ${dToday.toFixed(0)}% of spend fell under 1.0`,
+      detail: `${money(dayLosing(lastComplete))} of ${money(daySpend(lastComplete))} on ${lastComplete}, against ${dPrev.toFixed(0)}% the day before. The blended day closed at ${roasOf(dayRev(lastComplete), daySpend(lastComplete)).toFixed(3)}.`,
+    });
+  }
+
+  if (losingTrend != null && Math.abs(losingTrend) > 3) {
+    findings.push({
+      severity: losingTrend > 0 ? 'watch' : 'good',
+      headline: `Below-1.0 spend is ${losingTrend > 0 ? 'climbing' : 'falling'} across the window`,
+      detail: `The share of spend under break-even is moving about ${Math.abs(losingTrend).toFixed(1)}% per day over ${complete.length} complete days, from ${losingSeries[0].toFixed(0)}% to ${losingSeries[losingSeries.length - 1].toFixed(0)}%.`,
+    });
+  }
+
+  if (roasTrend != null && Math.abs(roasTrend) > 1.5) {
+    findings.push({
+      severity: roasTrend > 0 ? 'good' : 'watch',
+      headline: `Blended ROAS is ${roasTrend > 0 ? 'improving' : 'drifting down'}`,
+      detail: `About ${Math.abs(roasTrend).toFixed(1)}% per day over the window, ${roasSeries[0].toFixed(2)} → ${roasSeries[roasSeries.length - 1].toFixed(2)}.`,
+    });
+  }
+
+  const util = share(daySpend(lastComplete), dayBudget(lastComplete));
+  if (util < 35) {
+    findings.push({
+      severity: 'neutral',
+      headline: `Only ${util.toFixed(0)}% of the budget on the book was spent`,
+      detail: 'Budget on the book counts every campaign seen that day, including ones paused early, so it overstates what was simultaneously live. A low number here is usually the ladder working rather than delivery failing.',
+    });
+  }
+
+  const zeroShare = share(cell(lastComplete, 'zero'), daySpend(lastComplete));
+  if (zeroShare >= 4) {
+    findings.push({
+      severity: 'watch',
+      headline: `${zeroShare.toFixed(1)}% of spend returned nothing at all`,
+      detail: `${money(cell(lastComplete, 'zero'))} on ${lastComplete} went to campaigns with zero revenue. The flat gate cuts these at Rs 1,700, so this is spend that arrived before the gate could act.`,
+    });
+  }
+
   return (
     <Page
       title="Budget & ROAS"
-      subtitle={`Last ${DAYS} days · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')} · ${lastComplete} is the last complete day`}
+      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')} · ${lastComplete} is the last complete day`}
+      actions={controls}
     >
       <Grid cols={4}>
         <Stat
@@ -102,6 +166,8 @@ export default async function BudgetPage() {
         />
       </Grid>
 
+      <Analysis findings={rank(findings)} basis={`${dates.length} days, ${num(spent.length)} campaign-days with spend`} />
+
       <Card title="Spend by ROAS band, day by day" note="the shape of the book over time">
         <StackedBars
           height={230}
@@ -116,7 +182,7 @@ export default async function BudgetPage() {
           {ROAS_BANDS.map((b) => (
             <div key={b.key} className="flex items-center gap-1.5 text-[11px]">
               <span className="h-2 w-2 rounded-sm" style={{ background: b.color }} />
-              <span className="text-[#c3ccd7]">{b.label}</span>
+              <span className="text-text">{b.label}</span>
             </div>
           ))}
         </div>
@@ -144,7 +210,7 @@ export default async function BudgetPage() {
           />
           <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
             The three lowest bands are what the closing ladder exists to squeeze. They took{' '}
-            <span className="text-[#dbe3ec]">
+            <span className="text-text-strong">
               {pct(share(
                 BAND_KEYS.slice(0, 3).reduce((s, b) => s + cell(lastComplete, b), 0),
                 daySpend(lastComplete),

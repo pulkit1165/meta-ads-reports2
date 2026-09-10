@@ -2,6 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { background: #0d0f12; color: #e6ebf1; }
+/*
+ * Three themes, one token set.
+ *
+ * Every colour in the app resolves through these variables, so a theme is a
+ * palette swap rather than a second stylesheet. Dark is the default because
+ * that is what the console shipped as; light and cream are opt-in and stored
+ * per browser.
+ *
+ * Cream deliberately matches the printed report images (the WhatsApp PNGs and
+ * the yesterday report) so a screenshot from the dashboard sits beside one of
+ * those without clashing.
+ */
+:root,
+:root[data-theme='dark'] {
+  --ink: #0d0f12;          /* page ground */
+  --panel: #14181d;        /* card ground */
+  --panel-solid: #14181d;
+  --edge: #232a32;         /* hairlines */
+  --text: #e6ebf1;
+  --text-strong: #eef3f9;
+  --muted: #8b97a5;
+  --gold: #c79353;
+  --gold-deep: #c79353;
+  --good: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --hover: rgba(255, 255, 255, 0.05);
+  --tint: rgba(255, 255, 255, 0.04);
+  --grid: #232a32;
+  --shadow: none;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --ink: #f7f8fa;
+  --panel: #ffffff;
+  --panel-solid: #ffffff;
+  --edge: #dfe4ea;
+  --text: #1b2028;
+  --text-strong: #0d1117;
+  --muted: #667283;
+  --gold: #9a6b28;
+  --gold-deep: #7d5620;
+  --good: #15803d;
+  --warn: #a16207;
+  --bad: #b91c1c;
+  --hover: rgba(15, 23, 42, 0.04);
+  --tint: rgba(15, 23, 42, 0.035);
+  --grid: #e6eaf0;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  color-scheme: light;
+}
+
+:root[data-theme='cream'] {
+  --ink: #f7efe0;
+  --panel: #fffdf7;
+  --panel-solid: #fffdf7;
+  --edge: #e3d3b4;
+  --text: #2f2a22;
+  --text-strong: #1e1a14;
+  --muted: #857a66;
+  --gold: #9a7430;
+  --gold-deep: #7a5a22;
+  --good: #1f7a46;
+  --warn: #96690a;
+  --bad: #a83226;
+  --hover: rgba(122, 90, 34, 0.06);
+  --tint: rgba(122, 90, 34, 0.05);
+  --grid: #ece0c8;
+  --shadow: 0 1px 2px rgba(122, 90, 34, 0.07);
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--ink);
+  color: var(--text);
+}
+
+/* Charts are SVG and inherit these directly. */
+.chart-grid { border-color: var(--grid); }
+
 ::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: #2a323b; border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/*
+ * Theme is applied by an inline script before paint, so there is no flash of
+ * the wrong palette. Until it runs the document has no data-theme and :root
+ * above supplies dark, which is the default anyway.
+ */

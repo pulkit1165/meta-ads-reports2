@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { MODULES, SECTIONS } from '@/lib/modules';
-import { closingToday, campDays, roasOf, share, LOSING, bandOf } from '@/lib/ads';
+import { closingOn, campDays, roasOf, share, LOSING, bandOf } from '@/lib/ads';
 import { repeatRate, paymentsByDay, isCOD, istDates } from '@/lib/commerce';
+import { istToday } from '@/lib/range';
+import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Note, lakh, pct, num, rs } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -19,8 +21,8 @@ export default async function Console() {
   const from7 = new Date(new Date(today).getTime() - 7 * 86400000).toISOString().slice(0, 10);
 
   const [snap, days, rep, pay] = await Promise.all([
-    safe(() => closingToday()),
-    safe(() => campDays(3)),
+    safe(() => closingOn(istToday())),
+    safe(() => campDays(from7, today)),
     safe(() => repeatRate(from7, today)),
     safe(() => paymentsByDay(yesterday, yesterday)),
   ]);
@@ -48,6 +50,7 @@ export default async function Console() {
     <Page
       title="NTN Command"
       subtitle={`Yesterday ${yesterday} · today's ads state at the ${snap?.cutIST ?? '—'} IST snapshot`}
+      actions={<PageControls dates={false} />}
     >
       <Grid cols={4}>
         <Stat
@@ -74,7 +77,7 @@ export default async function Console() {
 
       {payRev > 0 && (
         <Note>
-          COD took <b className="text-[#dbe3ec]">{pct((codRev / payRev) * 100)}</b> of yesterday&apos;s
+          COD took <b className="text-text-strong">{pct((codRev / payRev) * 100)}</b> of yesterday&apos;s
           value. Every figure on this console links to the module it came from — nothing here is
           computed twice.
         </Note>
@@ -90,11 +93,11 @@ export default async function Console() {
                 <Link
                   key={m.slug}
                   href={`/${m.slug}`}
-                  className="group rounded-lg border border-edge bg-panel/40 p-3.5 transition hover:border-gold/40 hover:bg-white/[0.04]"
+                  className="group rounded-lg border border-edge bg-panel/40 p-3.5 transition hover:border-gold/40 hover:bg-tint"
                 >
                   <div className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[m.status]}`} />
-                    <span className="text-[13px] font-medium text-[#e6ebf1] group-hover:text-gold">
+                    <span className="text-[13px] font-medium text-text group-hover:text-gold">
                       {m.label}
                     </span>
                     {m.status !== 'live' && (
