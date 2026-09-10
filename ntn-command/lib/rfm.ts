@@ -25,11 +25,19 @@ export interface CohortPoint {
   revenue: number;
 }
 
-/** Snapshot history. Empty until the first snapshot lands. */
-export async function cohortHistory(): Promise<CohortPoint[]> {
+/**
+ * Snapshot history for one store, or the group.
+ *
+ * Customers are attributed to the store of their most recent order — the same
+ * order the recency band is measured from. 'ALL' is stored as its own row
+ * rather than summed from the three stores, because a customer who buys across
+ * brands would otherwise be counted more than once.
+ */
+export async function cohortHistory(store = 'ALL'): Promise<CohortPoint[]> {
   const rows = await q(
     `SELECT as_of::text AS as_of, band, customers, orders, revenue
-       FROM cohort_daily ORDER BY as_of, band`,
+       FROM cohort_daily WHERE store = $1 ORDER BY as_of, band`,
+    [store],
   );
   return rows.map((r) => ({
     asOf: String(r.as_of),
@@ -54,7 +62,7 @@ export interface Inflow {
  * the cold: `reactivated` counts those whose previous order was more than 45
  * days earlier, which is a genuine win-back rather than a regular repeating.
  */
-export async function c1Inflow(days: number): Promise<Inflow[]> {
+export async function c1Inflow(days: number, stores: readonly string[] = []): Promise<Inflow[]> {
   const rows = await q(
     `WITH o AS (
        SELECT NULLIF(regexp_replace(COALESCE(customer_phone,''), '\\D', '', 'g'), '') AS phone,
@@ -63,6 +71,7 @@ export async function c1Inflow(days: number): Promise<Inflow[]> {
         WHERE COALESCE(cancelled_at,'') = ''
           AND COALESCE(source_name,'') <> 'Matrixify App'
           AND created_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
+          AND ($2::text[] IS NULL OR store = ANY($2))
           AND created_date::date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - ($1::int + 400)
      ),
      seq AS (
@@ -76,7 +85,7 @@ export async function c1Inflow(days: number): Promise<Inflow[]> {
        FROM seq
       WHERE d > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - $1::int
       GROUP BY 1 ORDER BY 1`,
-    [days],
+    [days, stores.length ? (stores as string[]) : null],
   );
   return rows.map((r) => ({
     date: String(r.date),
@@ -91,11 +100,14 @@ export interface LifetimeShape {
   revenue: number;
 }
 
-/** Frequency distribution — the F in RFM. */
-export async function frequency(): Promise<LifetimeShape[]> {
+/** Frequency distribution — the F in RFM. Scoped by the customer's last store. */
+export async function frequency(stores: readonly string[] = []): Promise<LifetimeShape[]> {
   const rows = await q(
     `SELECT LEAST(orders, 6) AS orders, COUNT(*) AS customers, SUM(revenue) AS revenue
-       FROM customer_lifetime GROUP BY 1 ORDER BY 1`,
+       FROM customer_lifetime
+      WHERE ($1::text[] IS NULL OR last_store = ANY($1))
+      GROUP BY 1 ORDER BY 1`,
+    [stores.length ? (stores as string[]) : null],
   );
   return rows.map((r) => ({
     orders: n(r.orders),

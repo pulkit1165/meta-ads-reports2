@@ -23,9 +23,10 @@ export interface ModuleDef {
   source: string;
 }
 
-export type SectionKey = 'ads' | 'catalogue' | 'commerce' | 'customers' | 'intel';
+export type SectionKey = 'daily' | 'ads' | 'catalogue' | 'commerce' | 'customers' | 'intel';
 
 export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
+  { key: 'daily', label: 'Daily', blurb: 'The morning read, saved every day' },
   { key: 'ads', label: 'Ads', blurb: 'What we spent and what it closed' },
   { key: 'catalogue', label: 'Catalogue', blurb: 'Which products carry the spend' },
   { key: 'commerce', label: 'Commerce', blurb: 'Orders as the shop actually took them' },
@@ -34,6 +35,17 @@ export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
 ];
 
 export const MODULES: ModuleDef[] = [
+  // ── Daily ──────────────────────────────────────────────────────────────
+  {
+    slug: 'brief',
+    label: "Yesterday's Brief",
+    hint: 'the ADS PLANNER report',
+    section: 'daily',
+    status: 'live',
+    question: 'What happened yesterday, product by product, in the team-report format?',
+    source: 'meta_analysis_ad_daily (ad level)',
+  },
+
   // ── Ads ────────────────────────────────────────────────────────────────
   {
     slug: 'closing',
@@ -67,7 +79,7 @@ export const MODULES: ModuleDef[] = [
     label: 'Creative Success',
     hint: 'type & sentiment hit rate',
     section: 'ads',
-    status: 'partial',
+    status: 'live',
     question: 'Which creative types and sentiments clear 1.0 ROAS most often?',
     source: 'meta_analysis_campaign_daily.creative_type',
   },
@@ -76,9 +88,9 @@ export const MODULES: ModuleDef[] = [
     label: 'Winning Patterns',
     hint: 'block × product × creative × budget',
     section: 'ads',
-    status: 'planned',
+    status: 'live',
     question: 'Which combination of settings actually produces a winner?',
-    source: 'joins across every ads module',
+    source: 'meta_analysis_campaign_daily + meta_camp_product_map',
   },
 
   // ── Catalogue ──────────────────────────────────────────────────────────
@@ -87,7 +99,7 @@ export const MODULES: ModuleDef[] = [
     label: 'Product Success',
     hint: 'per-product hit rate',
     section: 'catalogue',
-    status: 'partial',
+    status: 'live',
     question: 'Which products win when we put budget behind them?',
     source: 'meta_camp_product_map + meta_analysis_campaign_daily',
   },
@@ -96,9 +108,9 @@ export const MODULES: ModuleDef[] = [
     label: 'Allocation',
     hint: 'website × product, 70/30',
     section: 'catalogue',
-    status: 'planned',
+    status: 'live',
     question: 'Is spend split across products the way we intended?',
-    source: 'meta_camp_product_map + product_catalog',
+    source: 'meta_camp_product_map + meta_analysis_campaign_daily',
   },
 
   // ── Commerce ───────────────────────────────────────────────────────────
@@ -118,16 +130,16 @@ export const MODULES: ModuleDef[] = [
     section: 'commerce',
     status: 'live',
     question: 'How did yesterday get paid for?',
-    source: 'shopify_orders.payment_gateway / payment_mode',
+    source: 'shopify_orders.payment_mode',
   },
   {
     slug: 'channels',
     label: 'Channels',
-    hint: 'app vs website',
+    hint: 'sales-channel mix',
     section: 'commerce',
-    status: 'live',
-    question: 'How much is the app taking versus the website?',
-    source: 'shopify_orders.source_name + app UTM marker',
+    status: 'partial',
+    question: 'Which sales channel took the orders?',
+    source: 'shopify_orders.source_name — app split needs an ingest change',
   },
 
   // ── Customers ──────────────────────────────────────────────────────────
@@ -145,9 +157,9 @@ export const MODULES: ModuleDef[] = [
     label: 'RFM Cohorts',
     hint: 'C1–C6, inflow & outflow',
     section: 'customers',
-    status: 'partial',
+    status: 'live',
     question: 'Which recency window is filling up, and which is draining?',
-    source: 'shopify_orders lifetime history',
+    source: 'customer_lifetime + cohort_daily',
   },
 
   // ── Intelligence ───────────────────────────────────────────────────────
@@ -156,7 +168,7 @@ export const MODULES: ModuleDef[] = [
     label: 'Signals',
     hint: 'read across every module',
     section: 'intel',
-    status: 'planned',
+    status: 'live',
     question: 'What changed today that nobody asked about?',
     source: 'every module above',
   },

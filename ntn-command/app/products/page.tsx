@@ -1,7 +1,7 @@
 import {
   campDays, productMap, roasOf, share, PORTAL_NAME, PORTALS, LOSING, bandOf,
 } from '@/lib/ads';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, concentration, type Finding } from '@/lib/insights';
 import { BarList, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -21,9 +21,10 @@ type Prod = {
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 30);
-  const controls = <PageControls range={range} />;
-  const [all, pmap] = await Promise.all([campDays(range.from, range.to), productMap()]);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
+  const [all, pmap] = await Promise.all([campDays(range.from, range.to, scope.codes), productMap()]);
   const spent = all.filter((r) => r.spend > 0);
 
   if (!spent.length) {
@@ -128,7 +129,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   return (
     <Page
       title="Product Success"
-      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')}`}
+      subtitle={`${range.label} · ${scope.label}`}
       actions={controls}
     >
       <Grid cols={4}>

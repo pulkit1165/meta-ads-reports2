@@ -1,6 +1,13 @@
 import { q, n } from './db';
 
 /**
+ * The three storefront codes. shopify_orders.store uses the same values as
+ * meta_analysis_campaign_daily.portal, so one scope parameter filters both the
+ * ads modules and the commerce ones.
+ */
+export const STORES = ['SM', 'SML', 'NBP'] as const;
+
+/**
  * Store codes as they appear in shopify_orders.store.
  * Resolved once at query time so a new store never silently vanishes from a
  * report — anything unmapped shows under its raw code rather than being dropped.
@@ -48,17 +55,19 @@ export interface PayRow { date: string; store: string; mode: string; orders: num
  * populated with exactly Prepaid and COD. Per-processor detail would have to
  * come from the Shopify API; it is not captured here.
  */
-export async function paymentsByDay(from: string, to: string): Promise<PayRow[]> {
+export async function paymentsByDay(
+  from: string, to: string, stores: readonly string[] = STORES,
+): Promise<PayRow[]> {
   const rows = await q(
     `SELECT created_date AS date, store,
             COALESCE(NULLIF(TRIM(payment_mode), ''), 'unrecorded') AS mode,
             COUNT(*)                     AS orders,
             COALESCE(SUM(total_price),0) AS revenue
        FROM shopify_orders
-      WHERE created_date BETWEEN $1 AND $2 AND ${SALES_FILTER}
+      WHERE created_date BETWEEN $1 AND $2 AND store = ANY($3) AND ${SALES_FILTER}
       GROUP BY 1,2,3
       ORDER BY 1`,
-    [from, to],
+    [from, to, stores as string[]],
   );
   return rows.map((r) => ({
     date: String(r.date),
@@ -101,17 +110,19 @@ export function channelLabel(store: string, src: string): string {
   return src;
 }
 
-export async function channelsByDay(from: string, to: string): Promise<ChannelRow[]> {
+export async function channelsByDay(
+  from: string, to: string, stores: readonly string[] = STORES,
+): Promise<ChannelRow[]> {
   const rows = await q(
     `SELECT created_date AS date, store,
             COALESCE(NULLIF(source_name, ''), 'unrecorded') AS src,
             COUNT(*)                     AS orders,
             COALESCE(SUM(total_price),0) AS revenue
        FROM shopify_orders
-      WHERE created_date BETWEEN $1 AND $2 AND ${SALES_FILTER}
+      WHERE created_date BETWEEN $1 AND $2 AND store = ANY($3) AND ${SALES_FILTER}
       GROUP BY 1,2,3
       ORDER BY 1`,
-    [from, to],
+    [from, to, stores as string[]],
   );
   return rows.map((r) => ({
     date: String(r.date),
@@ -140,13 +151,15 @@ export interface RepeatRow {
  * way and are excluded rather than defaulted to "new", which would inflate the
  * new rate every time checkout dropped a number.
  */
-export async function repeatRate(from: string, to: string): Promise<RepeatRow[]> {
+export async function repeatRate(
+  from: string, to: string, stores: readonly string[] = STORES,
+): Promise<RepeatRow[]> {
   const rows = await q(
     `WITH win AS (
        SELECT id, store, created_date, total_price,
               NULLIF(regexp_replace(COALESCE(customer_phone,''), '\\D', '', 'g'), '') AS phone
          FROM shopify_orders
-        WHERE created_date BETWEEN $1 AND $2 AND ${SALES_FILTER}
+        WHERE created_date BETWEEN $1 AND $2 AND store = ANY($3) AND ${SALES_FILTER}
      ),
      firsts AS (
        -- customer_lifetime is a materialised view over the same sales filter.
@@ -164,7 +177,7 @@ export async function repeatRate(from: string, to: string): Promise<RepeatRow[]>
       WHERE w.phone IS NOT NULL
       GROUP BY 1,2
       ORDER BY 1`,
-    [from, to],
+    [from, to, stores as string[]],
   );
   return rows.map((r) => ({
     date: String(r.date),

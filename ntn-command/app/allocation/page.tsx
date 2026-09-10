@@ -1,5 +1,5 @@
 import { campDays, productMap, roasOf, share, PORTAL_NAME, PORTALS } from '@/lib/ads';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, money, pctOf, type Finding } from '@/lib/insights';
 import { BarList, ShareBar, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -18,9 +18,10 @@ type Prod = { key: string; spend: number; rev: number; camps: number; portals: n
 
 export default async function AllocationPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 30);
-  const controls = <PageControls range={range} />;
-  const [all, pmap] = await Promise.all([campDays(range.from, range.to), productMap()]);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
+  const [all, pmap] = await Promise.all([campDays(range.from, range.to, scope.codes), productMap()]);
   const spent = all.filter((r) => r.spend > 0);
 
   if (!spent.length) {
@@ -144,7 +145,7 @@ export default async function AllocationPage({ searchParams }: { searchParams: P
   return (
     <Page
       title="Allocation"
-      subtitle={`${range.label} · product × website · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')}`}
+      subtitle={`${range.label} · product × website · ${scope.label}`}
       actions={controls}
     >
       <Grid cols={4}>

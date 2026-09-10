@@ -11,6 +11,7 @@ export const PRESETS = [
   { days: 7, label: '7 days' },
   { days: 14, label: '14 days' },
   { days: 30, label: '30 days' },
+  { days: 60, label: '60 days' },
   { days: 90, label: '90 days' },
 ] as const;
 
@@ -44,7 +45,7 @@ export type SearchParams = Record<string, string | string[] | undefined>;
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-export function resolveRange(sp: SearchParams | undefined, fallbackDays = 14): Range {
+export function resolveRange(sp: SearchParams | undefined, fallbackDays = 60): Range {
   const today = istToday();
   const yesterday = iso(new Date(Date.parse(today) - DAY));
 
@@ -85,3 +86,49 @@ export function eachDay(r: Range): string[] {
 }
 
 export const dayLabel = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}`;
+
+/* ── website scope ──────────────────────────────────────────────────────── */
+
+/**
+ * Which storefront a report is about.
+ *
+ * The same three codes identify a portal in the ads tables and a store in
+ * shopify_orders, so one parameter scopes every module. 'all' is the default
+ * and means the group, not a fourth brand.
+ */
+export const PORTAL_CODES = ['SM', 'SML', 'NBP'] as const;
+export type PortalCode = (typeof PORTAL_CODES)[number];
+export type ScopeKey = 'all' | PortalCode;
+
+export const PORTAL_LABEL: Record<PortalCode, string> = {
+  SM: 'Studd Muffyn',
+  SML: 'SM Life',
+  NBP: 'Nuskhe by Paras',
+};
+
+/** Short forms for the switch, which has to fit beside the date presets. */
+export const PORTAL_SHORT: Record<ScopeKey, string> = {
+  all: 'All',
+  SM: 'Studd Muffyn',
+  SML: 'SM Life',
+  NBP: 'Nuskhe',
+};
+
+export interface Scope {
+  key: ScopeKey;
+  /** The codes to filter on — every portal when the scope is 'all'. */
+  codes: PortalCode[];
+  label: string;
+  /** True when a single website is selected. */
+  single: boolean;
+}
+
+export function resolveScope(sp: SearchParams | undefined): Scope {
+  const raw = Array.isArray(sp?.site) ? sp?.site[0] : sp?.site;
+  const key = (PORTAL_CODES as readonly string[]).includes(String(raw))
+    ? (raw as PortalCode)
+    : 'all';
+  return key === 'all'
+    ? { key, codes: [...PORTAL_CODES], label: 'All websites', single: false }
+    : { key, codes: [key], label: PORTAL_LABEL[key], single: true };
+}

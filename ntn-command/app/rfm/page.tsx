@@ -1,5 +1,6 @@
 import { BANDS, cohortHistory, c1Inflow, frequency } from '@/lib/rfm';
 import { ShareBar, Line, BarList, StackedBars } from '@/components/charts';
+import { resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, Delta, type Col } from '@/components/ui';
@@ -7,8 +8,17 @@ import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, Delt
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function RfmPage() {
-  const [hist, inflow, freq] = await Promise.all([cohortHistory(), c1Inflow(28), frequency()]);
+export default async function RfmPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
+  const scope = resolveScope(sp);
+  const controls = <PageControls scope={scope} dates={false} />;
+  const storeKey = scope.single ? scope.key : 'ALL';
+  const storeFilter = scope.single ? scope.codes : [];
+  const [hist, inflow, freq] = await Promise.all([
+    cohortHistory(storeKey),
+    c1Inflow(28, storeFilter),
+    frequency(storeFilter),
+  ]);
 
   const asOfs = [...new Set(hist.map((h) => h.asOf))].sort();
   const latest = asOfs[asOfs.length - 1];
@@ -16,7 +26,7 @@ export default async function RfmPage() {
 
   if (!now.length) {
     return (
-      <Page title="RFM Cohorts" subtitle="Snapshot not built yet" actions={<PageControls dates={false} />}>
+      <Page title="RFM Cohorts" subtitle="Snapshot not built yet" actions={controls}>
         <Note kind="warn">
           cohort_daily is empty. Sizes are snapshotted rather than derived live because computing a
           single as-of date costs about 19 seconds across 3.4M orders.
@@ -115,8 +125,8 @@ export default async function RfmPage() {
   return (
     <Page
       title="RFM Cohorts"
-      subtitle={`Recency bands as at ${latest} · ${num(total)} customers with a phone number on file`}
-      actions={<PageControls dates={false} />}
+      subtitle={`${scope.label} · recency bands as at ${latest} · ${num(total)} customers with a phone number on file`}
+      actions={controls}
     >
       <Grid cols={4}>
         <Stat label="Customer base" value={num(total)} sub="reachable, matched on phone" />

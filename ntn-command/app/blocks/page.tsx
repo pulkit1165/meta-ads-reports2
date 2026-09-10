@@ -1,6 +1,6 @@
 import { campDays, familyOf, roasOf, share, PORTAL_NAME, PORTALS, LOSING, bandOf } from '@/lib/ads';
 import { BarList, ShareBar, SERIES } from '@/components/charts';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, wilson, enough, concentration, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
@@ -17,9 +17,10 @@ type Blk = {
 
 export default async function BlocksPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 14);
-  const controls = <PageControls range={range} />;
-  const all = (await campDays(range.from, range.to)).filter((r) => r.spend > 0);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
+  const all = (await campDays(range.from, range.to, scope.codes)).filter((r) => r.spend > 0);
   if (!all.length) {
     return (
       <Page title="Sales Blocks" subtitle={range.label} actions={controls}>
@@ -130,7 +131,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
   return (
     <Page
       title="Sales Blocks"
-      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')}`}
+      subtitle={`${range.label} · ${scope.label}`}
       actions={controls}
     >
       <Grid cols={4}>

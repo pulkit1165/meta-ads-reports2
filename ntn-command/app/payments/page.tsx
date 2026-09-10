@@ -1,6 +1,6 @@
 import { paymentsByDay, isCOD, istDates, storeLabel } from '@/lib/commerce';
 import { ShareBar, Line, BarList } from '@/components/charts';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
@@ -10,10 +10,11 @@ export const revalidate = 0;
 
 export default async function PaymentsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const spar = await searchParams;
-  const range = resolveRange(spar, 14);
-  const controls = <PageControls range={range} />;
+  const range = resolveRange(spar, 60);
+  const scope = resolveScope(spar);
+  const controls = <PageControls range={range} scope={scope} />;
   const { today, yesterday } = await istDates();
-  const rows = await paymentsByDay(range.from, range.to);
+  const rows = await paymentsByDay(range.from, range.to, scope.codes);
 
   if (!rows.length) {
     return (

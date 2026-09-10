@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { MODULES, SECTIONS } from '@/lib/modules';
 import { closingOn, campDays, roasOf, share, LOSING, bandOf } from '@/lib/ads';
 import { repeatRate, paymentsByDay, isCOD, istDates } from '@/lib/commerce';
-import { istToday } from '@/lib/range';
+import { istToday, resolveScope, type SearchParams } from '@/lib/range';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Note, lakh, pct, num, rs } from '@/components/ui';
 
@@ -16,15 +16,17 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
   try { return await fn(); } catch { return null; }
 }
 
-export default async function Console() {
+export default async function Console({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
+  const scope = resolveScope(sp);
   const { today, yesterday } = await istDates();
   const from7 = new Date(new Date(today).getTime() - 7 * 86400000).toISOString().slice(0, 10);
 
   const [snap, days, rep, pay] = await Promise.all([
-    safe(() => closingOn(istToday())),
-    safe(() => campDays(from7, today)),
-    safe(() => repeatRate(from7, today)),
-    safe(() => paymentsByDay(yesterday, yesterday)),
+    safe(() => closingOn(istToday(), scope.codes)),
+    safe(() => campDays(from7, today, scope.codes)),
+    safe(() => repeatRate(from7, today, scope.codes)),
+    safe(() => paymentsByDay(yesterday, yesterday, scope.codes)),
   ]);
 
   // Ads
@@ -49,8 +51,8 @@ export default async function Console() {
   return (
     <Page
       title="NTN Command"
-      subtitle={`Yesterday ${yesterday} · today's ads state at the ${snap?.cutIST ?? '—'} IST snapshot`}
-      actions={<PageControls dates={false} />}
+      subtitle={`${scope.label} · yesterday ${yesterday} · today's ads state at the ${snap?.cutIST ?? '—'} IST snapshot`}
+      actions={<PageControls scope={scope} dates={false} />}
     >
       <Grid cols={4}>
         <Stat

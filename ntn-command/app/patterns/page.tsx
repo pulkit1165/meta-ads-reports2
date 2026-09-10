@@ -2,7 +2,7 @@ import {
   campDays, productMap, familyOf, creativeTags, budgetBand, BUDGET_BANDS,
   roasOf, share, PORTAL_NAME, PORTALS,
 } from '@/lib/ads';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, type Finding } from '@/lib/insights';
 import { BarList } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -21,9 +21,10 @@ type Combo = {
 
 export default async function PatternsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 30);
-  const controls = <PageControls range={range} />;
-  const [all, pmap] = await Promise.all([campDays(range.from, range.to), productMap()]);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
+  const [all, pmap] = await Promise.all([campDays(range.from, range.to, scope.codes), productMap()]);
   const spent = all.filter((r) => r.spend > 0);
 
   if (!spent.length) {
@@ -158,7 +159,7 @@ export default async function PatternsPage({ searchParams }: { searchParams: Pro
   return (
     <Page
       title="Winning Patterns"
-      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')} · ranked by worst-case hit rate`}
+      subtitle={`${range.label} · ${scope.label} · ranked by worst-case hit rate`}
       actions={controls}
     >
       <Grid cols={4}>

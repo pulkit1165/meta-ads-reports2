@@ -1,7 +1,7 @@
 'use client';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState, useTransition } from 'react';
-import { PRESETS } from '@/lib/range';
+import { PRESETS, PORTAL_CODES, PORTAL_SHORT, type ScopeKey } from '@/lib/range';
 
 const THEMES = [
   { key: 'dark', label: 'Black' },
@@ -138,6 +138,50 @@ export function DateRange({ days, from, to, custom }: {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── website ────────────────────────────────────────────────────────────── */
+
+/**
+ * Scopes the whole report to one storefront. Lives in the URL beside the date
+ * window, so a link carries both — send someone "/blocks?site=NBP&days=30" and
+ * they see exactly what you saw.
+ */
+export function SiteSwitch({ scope }: { scope: ScopeKey }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [pending, start] = useTransition();
+
+  const pick = (k: ScopeKey) => {
+    const next = new URLSearchParams(sp.toString());
+    if (k === 'all') next.delete('site');
+    else next.set('site', k);
+    start(() => router.push(`${pathname}?${next.toString()}`, { scroll: false }));
+  };
+
+  const keys: ScopeKey[] = ['all', ...PORTAL_CODES];
+  return (
+    <div
+      className={`flex rounded-lg border border-edge p-0.5 ${pending ? 'opacity-50' : ''}`}
+      role="group"
+      aria-label="Website"
+    >
+      {keys.map((k) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => pick(k)}
+          aria-pressed={scope === k}
+          className={`rounded-md px-2.5 py-1 text-[11px] transition ${
+            scope === k ? 'bg-gold/15 text-gold' : 'text-muted hover:text-text'
+          }`}
+        >
+          {PORTAL_SHORT[k]}
+        </button>
+      ))}
     </div>
   );
 }

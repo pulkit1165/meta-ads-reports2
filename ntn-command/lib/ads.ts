@@ -49,7 +49,7 @@ export interface CampDay {
  * so it is compared as a date and never against CURRENT_DATE — the session is
  * UTC and would silently shift the boundary by five and a half hours.
  */
-export async function campDays(from: string, to: string): Promise<CampDay[]> {
+export async function campDays(from: string, to: string, portals: readonly string[] = PORTALS): Promise<CampDay[]> {
   const rows = await q(
     `SELECT date::text AS date, portal, campaign_id, campaign_name,
             COALESCE(NULLIF(sale_block, ''), 'Loose')      AS sale_block,
@@ -60,7 +60,7 @@ export async function campDays(from: string, to: string): Promise<CampDay[]> {
       WHERE date BETWEEN $1::date AND $2::date
         AND portal = ANY($3)
       ORDER BY date`,
-    [from, to, PORTALS as unknown as string[]],
+    [from, to, portals as string[]],
   );
   return rows.map((r) => {
     const spend = n(r.spend), revenue = n(r.revenue);
@@ -110,7 +110,7 @@ export interface ClosingSnapshot {
  * part of today's book, and folding it in understates closed% badly — on a
  * typical day it is ~8 lakh of parked budget against ~13 lakh genuinely live.
  */
-export async function closingOn(day: string): Promise<ClosingSnapshot> {
+export async function closingOn(day: string, portals: readonly string[] = PORTALS): Promise<ClosingSnapshot> {
   const rows = await q(
     `WITH today AS (
        SELECT * FROM meta_campaign_snapshot
@@ -139,7 +139,7 @@ export async function closingOn(day: string): Promise<ClosingSnapshot> {
        FROM snap s
        JOIN blk b ON b.campaign_id = s.campaign_id
        LEFT JOIN ever e ON e.campaign_id = s.campaign_id`,
-    [PORTALS as unknown as string[], day],
+    [portals as string[], day],
   );
 
   const live = rows.filter((r) => r.ever_active);

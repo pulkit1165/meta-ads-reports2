@@ -1,5 +1,5 @@
 import { campDays, creativeTags, roasOf, share, PORTAL_NAME, PORTALS, LOSING, bandOf } from '@/lib/ads';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, concentration, type Finding } from '@/lib/insights';
 import { BarList, ShareBar, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -17,9 +17,10 @@ type Cr = {
 
 export default async function CreativePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 30);
-  const controls = <PageControls range={range} />;
-  const all = (await campDays(range.from, range.to)).filter((r) => r.spend > 0);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
+  const all = (await campDays(range.from, range.to, scope.codes)).filter((r) => r.spend > 0);
 
   if (!all.length) {
     return (
@@ -125,7 +126,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   return (
     <Page
       title="Creative Success"
-      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')}`}
+      subtitle={`${range.label} · ${scope.label}`}
       actions={controls}
     >
       <Grid cols={4}>

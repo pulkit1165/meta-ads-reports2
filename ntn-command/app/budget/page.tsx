@@ -1,6 +1,6 @@
 import { campDays, bandOf, BAND_KEYS, LOSING, PORTAL_NAME, PORTALS, roasOf, share } from '@/lib/ads';
 import { ROAS_BANDS, StackedBars, Line, ShareBar } from '@/components/charts';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
@@ -10,10 +10,11 @@ export const revalidate = 0;
 
 export default async function BudgetPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 14);
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
   const DAYS = range.days;
-  const controls = <PageControls range={range} />;
-  const all = await campDays(range.from, range.to);
+  const controls = <PageControls range={range} scope={scope} />;
+  const all = await campDays(range.from, range.to, scope.codes);
   if (!all.length) {
     return (
       <Page title="Budget & ROAS" subtitle={range.label} actions={controls}>
@@ -135,7 +136,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   return (
     <Page
       title="Budget & ROAS"
-      subtitle={`${range.label} · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')} · ${lastComplete} is the last complete day`}
+      subtitle={`${range.label} · ${scope.label} · ${lastComplete} is the last complete day`}
       actions={controls}
     >
       <Grid cols={4}>

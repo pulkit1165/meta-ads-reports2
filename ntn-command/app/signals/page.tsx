@@ -4,7 +4,7 @@ import {
   LOSING, bandOf, PORTAL_NAME,
 } from '@/lib/ads';
 import { repeatRate, paymentsByDay, isCOD, istDates } from '@/lib/commerce';
-import { resolveRange, istToday, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, trend, concentration, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Note, Analysis, lakh, pct, num } from '@/components/ui';
@@ -21,16 +21,17 @@ type Sourced = Finding & { module: string; href: string };
 
 export default async function SignalsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 14);
-  const controls = <PageControls range={range} />;
+  const range = resolveRange(sp, 60);
+  const scope = resolveScope(sp);
+  const controls = <PageControls range={range} scope={scope} />;
   const { yesterday } = await istDates();
 
   const [days, snap, pmap, rep, pay] = await Promise.all([
-    safe(() => campDays(range.from, range.to)),
-    safe(() => closingOn(istToday())),
+    safe(() => campDays(range.from, range.to, scope.codes)),
+    safe(() => closingOn(istToday(), scope.codes)),
     safe(() => productMap()),
-    safe(() => repeatRate(range.from, range.to)),
-    safe(() => paymentsByDay(range.from, range.to)),
+    safe(() => repeatRate(range.from, range.to, scope.codes)),
+    safe(() => paymentsByDay(range.from, range.to, scope.codes)),
   ]);
 
   const spent = (days ?? []).filter((r) => r.spend > 0);

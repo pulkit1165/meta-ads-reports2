@@ -2,7 +2,7 @@ import {
   closingOn, groupStates, familyOf, roasOf, share,
   PORTAL_NAME, PORTALS, bandOf,
 } from '@/lib/ads';
-import { resolveRange, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, concentration, type Finding } from '@/lib/insights';
 import { ROAS_BANDS, BarList, ShareBar } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -21,13 +21,14 @@ type Row = {
 export default async function ClosingPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
   const range = resolveRange(sp, 1);
+  const scope = resolveScope(sp);
   // Closing is a state, not a window: it reads one day's snapshot. The picker
   // chooses which day, and `to` is the end of whatever window was selected.
   const day = range.to;
-  const snap = await closingOn(day);
+  const snap = await closingOn(day, scope.codes);
   const rows = snap.rows;
 
-  const controls = <PageControls range={range} />;
+  const controls = <PageControls range={range} scope={scope} />;
 
   if (!rows.length) {
     return (
@@ -153,7 +154,7 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   return (
     <Page
       title="Closing Desk"
-      subtitle={`${day} · snapshot at ${snap.cutIST} IST · ${PORTALS.map((p) => PORTAL_NAME[p]).join(' · ')}`}
+      subtitle={`${day} · snapshot at ${snap.cutIST} IST · ${scope.label}`}
       actions={controls}
     >
       <Grid cols={4}>
