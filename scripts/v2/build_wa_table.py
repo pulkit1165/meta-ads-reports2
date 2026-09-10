@@ -69,16 +69,33 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None,
 
     # up/down chip drawn to the right of a value: green ▲ / red ▼ / grey =
     DELTA_KEY = {'Sales': 'sales', 'Orders': 'orders', 'Spend': 'spend',
-                 'ROAS': 'roas', 'Budget': 'budget', 'Budget live': 'budget_live'}
+                 'ROAS': 'roas', 'Budget': 'budget', 'Budget live': 'budget_live',
+                 'Closed': 'closed'}
+    # Closure columns move in percentage POINTS, not percent, and more-closed
+    # is neither good nor bad on its own (it can mean the protocol is working
+    # or that the day is worse), so they get a neutral chip, never red/green.
+    DELTA_PP = {'Closed %': 'closed_pct_pp'}
+    NEUTRAL = {'Closed', 'Closed %'}
 
     def delta_text(r, hname):
-        dv = (r.get('delta') or {}).get(DELTA_KEY.get(hname, ''))
+        dd = r.get('delta') or {}
+        if hname in DELTA_PP:
+            dv = dd.get(DELTA_PP[hname])
+            if dv is None:
+                return None, None
+            if dv > 0:
+                return f'\u25b2{dv:g}pp', INK2
+            if dv < 0:
+                return f'\u25bc{abs(dv):g}pp', INK2
+            return '=', INK2
+        dv = dd.get(DELTA_KEY.get(hname, ''))
         if dv is None:
             return None, None
+        neutral = hname in NEUTRAL
         if dv > 0:
-            return f'\u25b2{dv}%', OK
+            return f'\u25b2{dv}%', INK2 if neutral else OK
         if dv < 0:
-            return f'\u25bc{abs(dv)}%', BAD
+            return f'\u25bc{abs(dv)}%', INK2 if neutral else BAD
         return '=', INK2
 
     def val_w(text, r, hname):
@@ -89,14 +106,16 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None,
 
 
     headers = ['Website', 'Sales', 'Orders', 'Spend', 'ROAS', 'Yday', 'Budget live',
-               'Budget left', 'Left %', 'Active %', 'Day %', 'Closed', 'Products']
+               'Budget left', 'Left %', 'Active %', 'Day %', 'Closed',
+               'Closed %', 'Products']
     def cellvals(r):
         return [r['website'], f"Rs {r['sales']:,.0f}", f"{r['orders']}",
                 f"Rs {r['spend']:,.0f}", f"{r['roas'] if r['roas'] is not None else '-'}",
                 f"{r['yday'] if r['yday'] is not None else '-'}",
                 f"Rs {r['budget_live']:,.0f}", f"Rs {r['budget_left']:,.0f}",
                 f"{r['left_pct']:.0f}%", f"{r['active_pct']:.0f}%",
-                f"{r['day_pct']:.0f}%", f"Rs {r['closed']:,.0f}", f"{r['products']}"]
+                f"{r['day_pct']:.0f}%", f"Rs {r['closed']:,.0f}",
+                f"{r['closed_pct']:.0f}%", f"{r['products']}"]
     pad = 22 * SC
     widths = []
     for i, h in enumerate(headers):
@@ -272,6 +291,23 @@ def main():
                 out[pcode] = out.get(pcode, 0) + (bud or 0)
         return out
 
+    # Budget already switched off as at this hour — the paused-but-delivered
+    # campaigns in the slot's snapshot (mirror of portal_hourly's closed_budget).
+    def closed_budget_at(slot):
+        out = {}
+        for name, bud in scon.execute(
+                "SELECT account_name, COALESCE(SUM(daily_budget),0) "
+                "FROM campaign_hourly_snapshots WHERE hour_slot=? AND status!='Active' "
+                "GROUP BY account_name", (slot,)):
+            pcode = ph.portal_of(name)
+            if pcode:
+                out[pcode] = out.get(pcode, 0) + (bud or 0)
+        return out
+
+    def _closed_pct(active, closed):
+        tot = (active or 0) + (closed or 0)
+        return round((closed or 0) / tot * 100, 1) if tot else 0.0
+
     ncon = _sq.connect(args.ntn_db)
     hour_slice = []
     prev_slice = []
@@ -365,6 +401,10 @@ def main():
             'active_pct': t.get('active_spent_pct', 0) or 0,
             'day_pct': t.get('spent_pct', 0) or 0,
             'closed': round(t.get('closed_budget', 0)),
+            # share of everything allocated today (still live + already shut
+            # off) that has been closed by this hour
+            'closed_pct': _closed_pct(t.get('active_budget', 0),
+                                      t.get('closed_budget', 0)),
             'products': t.get('products', 0),
         })
 
@@ -385,6 +425,7 @@ def main():
         ymatch = ([h for h in yslots if yts[h][11:16] <= cut] or [None])[-1]
         if ymatch:
             y_spend, y_bud = spend_at(ymatch, yday), active_budget_at(ymatch)
+            y_closed = closed_budget_at(ymatch)
             y_sal, y_ord = {}, {}
             for pcode, sal, orr in ncon.execute(
                     "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
@@ -392,30 +433,39 @@ def main():
                     + ph.SALES_FILTER + " GROUP BY portal", (yday, cut)):
                 y_sal[pcode] = sal
                 y_ord[pcode] = orr
-            a_s = a_p = a_o = a_b = 0
+            a_s = a_p = a_o = a_b = a_c = 0
             for pcode in ('SM', 'SML', 'NBP'):
                 sal, orr = y_sal.get(pcode, 0), y_ord.get(pcode, 0)
                 spd, bud = y_spend.get(pcode, 0), y_bud.get(pcode, 0)
-                a_s += sal; a_p += spd; a_o += orr; a_b += bud
+                clo = y_closed.get(pcode, 0)
+                a_s += sal; a_p += spd; a_o += orr; a_b += bud; a_c += clo
                 yday_rows.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
                                   'orders': orr, 'spend': round(spd),
                                   'roas': round(sal / spd, 2) if spd else None,
-                                  'budget_live': round(bud)})
+                                  'budget_live': round(bud),
+                                  'closed': round(clo),
+                                  'closed_pct': _closed_pct(bud, clo)})
             yday_rows.append({'website': 'All', 'sales': round(a_s), 'orders': a_o,
                               'spend': round(a_p),
                               'roas': round(a_s / a_p, 2) if a_p else None,
-                              'budget_live': round(a_b)})
+                              'budget_live': round(a_b),
+                              'closed': round(a_c),
+                              'closed_pct': _closed_pct(a_b, a_c)})
             ymap = {r['website']: r for r in yday_rows}
             for r in out_rows:
                 b = ymap.get(r['website'])
                 if not b:
                     continue
                 dd = {}
-                for k in ('sales', 'orders', 'spend', 'roas', 'budget_live'):
+                for k in ('sales', 'orders', 'spend', 'roas', 'budget_live', 'closed'):
                     curv, prevv = r.get(k), b.get(k)
                     if curv is None or prevv in (None, 0):
                         continue
                     dd[k] = round((curv - prevv) / prevv * 100)
+                # closed % is a share, so it compares in points, not percent
+                cp, pp_ = r.get('closed_pct'), b.get('closed_pct')
+                if cp is not None and pp_ is not None:
+                    dd['closed_pct_pp'] = round(cp - pp_, 1)
                 r['delta'] = dd
     except Exception as e:                       # comparison is a nicety —
         yday_rows = []                           # never let it kill the send

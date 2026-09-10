@@ -236,8 +236,9 @@ if SHOP:
 else:
     kpi(PAD + cw * 2, cw, "roas (meta pixel)", f"{T['roas']:.2f}",
         money(T["rev"]) + " attributed", rcolor(T["roas"])[0])
+_closed_share = S_["alloc"] / T["alloc"] * 100 if T["alloc"] else 0
 kpi(PAD + cw * 3, cw, "budget closed", money(S_["alloc"]),
-    f"{len(shut)} camps @ {S_['roas']:.2f} roas", BAD)
+    f"{_closed_share:.0f}% of allocation · {len(shut)} camps @ {S_['roas']:.2f} roas", BAD)
 y += KPI_H + 24
 
 
@@ -289,13 +290,19 @@ def roas_cell(v):
 
 # ---------- active vs closed ----------
 section("What closing did", "— same day, split by state")
-table([("State", 300), ("Camps", 110), ("Budget", 160), ("Spend", 160), ("Revenue", 160), ("ROAS", 122)],
-      [[("STILL RUNNING", GOOD, GOOD_BG), str(L["n"]), money(L["alloc"]), money(L["spend"]),
-        money(L["rev"]), roas_cell(L["roas"])],
-       [("CLOSED TODAY", BAD, BAD_BG), str(S_["n"]), money(S_["alloc"]), money(S_["spend"]),
-        money(S_["rev"]), roas_cell(S_["roas"])]], zebra=False)
-msg = (f"{money(S_['alloc'])} of today's allocation is switched off. It spent {money(S_['spend'])} "
-       f"at {S_['roas']:.2f} before the cut; what still runs is at {L['roas']:.2f}.")
+def _share(v):
+    return f"{v / T['alloc'] * 100:.0f}%" if T["alloc"] else "-"
+
+
+table([("State", 262), ("Camps", 100), ("Budget", 150), ("% of total", 118),
+       ("Spend", 150), ("Revenue", 150), ("ROAS", 122)],
+      [[("STILL RUNNING", GOOD, GOOD_BG), str(L["n"]), money(L["alloc"]), _share(L["alloc"]),
+        money(L["spend"]), money(L["rev"]), roas_cell(L["roas"])],
+       [("CLOSED TODAY", BAD, BAD_BG), str(S_["n"]), money(S_["alloc"]), _share(S_["alloc"]),
+        money(S_["spend"]), money(S_["rev"]), roas_cell(S_["roas"])]], zebra=False)
+msg = (f"{money(S_['alloc'])} — {_share(S_['alloc'])} of today's allocation — is switched off. "
+       f"It spent {money(S_['spend'])} at {S_['roas']:.2f} before the cut; "
+       f"what still runs is at {L['roas']:.2f}.")
 d.rounded_rectangle([PAD - 8, y - 6, W - PAD + 8, y + 26], 8, fill=WARN_BG)
 d.text((PAD + 6, y + 1), msg, font=F["sm"], fill=WARN)
 y += 44

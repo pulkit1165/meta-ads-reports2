@@ -122,17 +122,21 @@ def render_png(out: dict, out_png: str):
     def label(r):
         return 'All' if r['portal'] == 'ALL' else NAMES.get(r['portal'], r['portal'])
 
-    H1 = ['Website', 'Sales', 'Orders', 'Budget', 'Spend', 'Spent %', 'ROAS', 'Closed', 'Live @10PM']
+    H1 = ['Website', 'Sales', 'Orders', 'Budget', 'Spend', 'Spent %', 'ROAS', 'Closed',
+          'Closed %', 'Live @10PM']
     def v1(r):
         spct = f"{r['spend'] / r['budget_alloc'] * 100:.0f}%" if r['budget_alloc'] else '-'
         return [label(r), f"Rs {r['sales']:,}", f"{r['orders']}",
                 f"Rs {r['budget_alloc']:,}", f"Rs {r['spend']:,}", spct,
                 f"{r['roas'] if r['roas'] is not None else '-'}",
-                f"Rs {r['budget_closed']:,}", f"Rs {r['live_10pm']:,}"]
+                f"Rs {r['budget_closed']:,}",
+                f"{r['closed_pct']:.0f}%" if r.get('closed_pct') is not None else '-',
+                f"Rs {r['live_10pm']:,}"]
 
     def sgn(v, suff='%'):
         return '–' if v is None else f"{'+' if v > 0 else ''}{v}{suff}"
-    H2 = ['Website', 'Sales', 'Orders', 'Spend', 'Spent %', 'Live @10PM', 'ROAS']
+    H2 = ['Website', 'Sales', 'Orders', 'Spend', 'Spent %', 'Closed', 'Closed %',
+          'Live @10PM', 'ROAS']
     def cmp_cell(prev_v, new_v, pct_v):
         return f"{prev_v:,} > {new_v:,}  ({sgn(pct_v)})"
     def v2(r):
@@ -140,11 +144,16 @@ def render_png(out: dict, out_png: str):
         sp, spp = r.get('spent_pct'), r.get('spent_pct_prev')
         spent = (f"{spp:.0f}% > {sp:.0f}%" if sp is not None and spp is not None
                  else f"{sp:.0f}%" if sp is not None else '–')
+        cl, clp = r.get('closed_pct'), r.get('closed_pct_prev')
+        closed = (f"{clp:.0f}% > {cl:.0f}%" if cl is not None and clp is not None
+                  else f"{cl:.0f}%" if cl is not None else '–')
         return [label(r),
                 cmp_cell(pr['sales'], r['sales'], v['sales_pct']),
                 cmp_cell(pr['orders'], r['orders'], v['orders_pct']),
                 cmp_cell(pr['spend'], r['spend'], v['spend_pct']),
                 spent,
+                cmp_cell(pr.get('closed', 0), r['budget_closed'], v.get('closed_pct')),
+                closed,
                 cmp_cell(pr['live_10pm'], r['live_10pm'], v['live_pct']),
                 sgn(v['roas_delta'], '')]
 
@@ -223,8 +232,15 @@ def render_png(out: dict, out_png: str):
                 else:
                     fill = INK
                     if delta_cols and hname != 'Website':
-                        fill = (OK if ('(+' in val or val.startswith('+'))
-                                else BAD if ('(-' in val or val.startswith('-')) else INK2)
+                        # Closing more budget is not automatically good and
+                        # closing less is not automatically bad — it can mean
+                        # the protocol caught more losers or that the day was
+                        # worse. Direction only, never a red/green verdict.
+                        if hname in ('Closed', 'Closed %'):
+                            fill = INK2
+                        else:
+                            fill = (OK if ('(+' in val or val.startswith('+'))
+                                    else BAD if ('(-' in val or val.startswith('-')) else INK2)
                     anc = 'lm' if hname == 'Website' else 'rm'
                     tx = x if hname == 'Website' else x + w - 8 * SC
                     d.text((tx, ymid), str(val), font=(f_cb if bold else f_c), fill=fill, anchor=anc)
@@ -265,6 +281,10 @@ def main():
     def spent_pct(spend, alloc):
         return round(spend / alloc * 100, 1) if alloc else None
 
+    # share of the day's whole allocated book that ended the day switched off
+    def closed_pct(closed, alloc):
+        return round(closed / alloc * 100, 1) if alloc else None
+
     rows = []
     tot = {'sales': 0.0, 'orders': 0, 'spend': 0.0, 'alloc': 0.0, 'closed': 0.0, 'live_10pm': 0.0}
     ptot = {'sales': 0.0, 'orders': 0, 'spend': 0.0}
@@ -277,6 +297,8 @@ def main():
         pv = fp.get(p, {})
         sp_y = spent_pct(y['spend'], b['alloc'])
         sp_p = spent_pct(pv.get('spend') or 0, bp['alloc'])
+        cl_y = closed_pct(b['closed'], b['alloc'])
+        cl_p = closed_pct(bp['closed'], bp['alloc'])
         rows.append({
             'portal': p,
             'sales': round(y['sales']), 'orders': y['orders'],
@@ -284,13 +306,18 @@ def main():
             'budget_alloc': round(b['alloc']), 'budget_closed': round(b['closed']),
             'live_10pm': round(b['live_10pm']),
             'spent_pct': sp_y, 'spent_pct_prev': sp_p,
+            'closed_pct': cl_y, 'closed_pct_prev': cl_p,
             'prev': {'sales': round(pv.get('sales') or 0), 'orders': int(pv.get('orders') or 0),
-                     'spend': round(pv.get('spend') or 0), 'live_10pm': round(bp['live_10pm'])},
+                     'spend': round(pv.get('spend') or 0), 'live_10pm': round(bp['live_10pm']),
+                     'closed': round(bp['closed'])},
             'vs_prev': {
                 'sales_pct': pct(y['sales'], pv.get('sales') or 0),
                 'orders_pct': pct(y['orders'], pv.get('orders') or 0),
                 'spend_pct': pct(y['spend'], pv.get('spend') or 0),
                 'live_pct': pct(b['live_10pm'], bp['live_10pm']),
+                'closed_pct': pct(b['closed'], bp['closed']),
+                'closed_pct_delta': (round(cl_y - cl_p, 1)
+                                     if cl_y is not None and cl_p is not None else None),
                 'spent_pct_delta': (round(sp_y - sp_p, 1)
                                     if sp_y is not None and sp_p is not None else None),
                 'roas_delta': (round(y['roas'] - pv['roas'], 2)
@@ -305,10 +332,13 @@ def main():
             ptot[k] += pv.get(k) or 0
         ptot['alloc'] = ptot.get('alloc', 0) + bp['alloc']
         ptot['live_10pm'] = ptot.get('live_10pm', 0) + bp['live_10pm']
+        ptot['closed'] = ptot.get('closed', 0) + bp['closed']
     all_roas = round(tot['sales'] / tot['spend'], 2) if tot['spend'] else None
     prev_roas = round(ptot['sales'] / ptot['spend'], 2) if ptot['spend'] else None
     all_sp = spent_pct(tot['spend'], tot['alloc'])
     prev_sp = spent_pct(ptot['spend'], ptot.get('alloc', 0))
+    all_cl = closed_pct(tot['closed'], tot['alloc'])
+    prev_cl = closed_pct(ptot.get('closed', 0), ptot.get('alloc', 0))
     out = {
         'day': yday, 'prev_day': prev,
         'built_at': now.isoformat(timespec='seconds'),
@@ -318,12 +348,17 @@ def main():
                 'budget_alloc': round(tot['alloc']), 'budget_closed': round(tot['closed']),
                 'live_10pm': round(tot['live_10pm']),
                 'spent_pct': all_sp, 'spent_pct_prev': prev_sp,
+                'closed_pct': all_cl, 'closed_pct_prev': prev_cl,
                 'prev': {'sales': round(ptot['sales']), 'orders': int(ptot['orders']),
-                         'spend': round(ptot['spend']), 'live_10pm': round(ptot.get('live_10pm', 0))},
+                         'spend': round(ptot['spend']), 'live_10pm': round(ptot.get('live_10pm', 0)),
+                         'closed': round(ptot.get('closed', 0))},
                 'vs_prev': {'sales_pct': pct(tot['sales'], ptot['sales']),
                             'orders_pct': pct(tot['orders'], ptot['orders']),
                             'spend_pct': pct(tot['spend'], ptot['spend']),
                             'live_pct': pct(tot['live_10pm'], ptot.get('live_10pm', 0)),
+                            'closed_pct': pct(tot['closed'], ptot.get('closed', 0)),
+                            'closed_pct_delta': (round(all_cl - prev_cl, 1)
+                                                 if all_cl is not None and prev_cl is not None else None),
                             'spent_pct_delta': (round(all_sp - prev_sp, 1)
                                                 if all_sp is not None and prev_sp is not None else None),
                             'roas_delta': (round(all_roas - prev_roas, 2)
