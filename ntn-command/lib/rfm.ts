@@ -63,29 +63,14 @@ export interface Inflow {
  * days earlier, which is a genuine win-back rather than a regular repeating.
  */
 export async function c1Inflow(days: number, stores: readonly string[] = []): Promise<Inflow[]> {
+  const store = stores.length === 1 ? stores[0] : 'ALL';
   const rows = await q(
-    `WITH o AS (
-       SELECT NULLIF(regexp_replace(COALESCE(customer_phone,''), '\\D', '', 'g'), '') AS phone,
-              created_date::date AS d
-         FROM shopify_orders
-        WHERE COALESCE(cancelled_at,'') = ''
-          AND COALESCE(source_name,'') <> 'Matrixify App'
-          AND created_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
-          AND ($2::text[] IS NULL OR store = ANY($2))
-          AND created_date::date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - ($1::int + 400)
-     ),
-     seq AS (
-       SELECT phone, d,
-              LAG(d) OVER (PARTITION BY phone ORDER BY d) AS prev_d
-         FROM (SELECT DISTINCT phone, d FROM o WHERE phone IS NOT NULL) x
-     )
-     SELECT d::text AS date,
-            COUNT(*)                                                    AS entered,
-            COUNT(*) FILTER (WHERE prev_d IS NOT NULL AND d - prev_d > 45) AS reactivated
-       FROM seq
-      WHERE d > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - $1::int
-      GROUP BY 1 ORDER BY 1`,
-    [days, stores.length ? (stores as string[]) : null],
+    `SELECT date::text AS date, entered, reactivated
+       FROM c1_inflow_mv
+      WHERE store = $1
+        AND date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date - $2::int
+      ORDER BY date`,
+    [store, days],
   );
   return rows.map((r) => ({
     date: String(r.date),
@@ -114,4 +99,114 @@ export async function frequency(stores: readonly string[] = []): Promise<Lifetim
     customers: n(r.customers),
     revenue: n(r.revenue),
   }));
+}
+
+/* ── value segments ─────────────────────────────────────────────────────── */
+
+/**
+ * Segment order is deliberate: it is the order they appear in the UI and it
+ * runs from most valuable to least, so a reader scans down into the problem.
+ */
+export const SEGMENTS = [
+  { key: 'VIP',         color: '#1baf7a', blurb: '5+ orders, top-value, bought within 90 days' },
+  { key: 'Loyal',       color: '#5aa9a3', blurb: '3+ orders, bought within 90 days' },
+  { key: 'Big spender', color: '#2a78d6', blurb: 'top-value, bought within 180 days' },
+  { key: 'Promising',   color: '#9b6ad4', blurb: 'second order placed, still warm' },
+  { key: 'New',         color: '#6fb1e8', blurb: 'first order inside 45 days' },
+  { key: 'Occasional',  color: '#b9b13c', blurb: 'bought within 180 days, no pattern yet' },
+  { key: 'At risk',     color: '#eda100', blurb: '3+ orders but nothing for 90-365 days' },
+  { key: 'Cannot lose', color: '#eb6834', blurb: 'top-value, silent over a year' },
+  { key: 'Hibernating', color: '#b3402f', blurb: 'light buyer, silent 180-365 days' },
+  { key: 'Lost',        color: '#7c2b26', blurb: 'nothing for over a year' },
+] as const;
+
+export interface SegmentRow {
+  segment: string;
+  customers: number;
+  orders: number;
+  revenue: number;
+  avgOrders: number;
+  avgValue: number;
+  avgRecency: number;
+}
+
+export async function segments(stores: readonly string[] = []): Promise<SegmentRow[]> {
+  const rows = await q(
+    `SELECT segment, COUNT(*) AS customers, SUM(orders) AS orders, SUM(revenue) AS revenue,
+            AVG(orders) AS avg_orders, AVG(revenue) AS avg_value, AVG(recency_days) AS avg_recency
+       FROM customer_lifetime
+      WHERE ($1::text[] IS NULL OR last_store = ANY($1))
+      GROUP BY 1`,
+    [stores.length ? (stores as string[]) : null],
+  );
+  return rows.map((r) => ({
+    segment: String(r.segment),
+    customers: n(r.customers),
+    orders: n(r.orders),
+    revenue: n(r.revenue),
+    avgOrders: n(r.avg_orders),
+    avgValue: n(r.avg_value),
+    avgRecency: n(r.avg_recency),
+  }));
+}
+
+/* ── returning-customer product patterns ────────────────────────────────── */
+
+export interface ProductRepeat {
+  sku: string;
+  title: string;
+  buyers: number;
+  reorders: number;
+  units: number;
+  revenue: number;
+  reorderRate: number;
+}
+
+/**
+ * Which products get bought again.
+ *
+ * `buyers` counts distinct customers; `reorders` counts those who bought the
+ * same sku on more than one separate order. Reorder rate is the second number
+ * over the first, which is the only honest reading of "repeat product" — a high
+ * unit count can just mean people buy three at a time.
+ */
+export async function productRepeat(
+  stores: readonly string[] = [],
+  limit = 40,
+): Promise<ProductRepeat[]> {
+  const store = stores.length === 1 ? stores[0] : 'ALL';
+  const rows = await q(
+    `SELECT sku, title, buyers, reorders, units, revenue
+       FROM product_repeat_mv
+      WHERE store = $1 AND buyers >= 200
+      ORDER BY reorders::numeric / NULLIF(buyers,0) DESC
+      LIMIT $2`,
+    [store, limit],
+  );
+  return rows.map((r) => {
+    const buyers = n(r.buyers), reorders = n(r.reorders);
+    return {
+      sku: String(r.sku),
+      title: String(r.title ?? r.sku),
+      buyers, reorders,
+      units: n(r.units),
+      revenue: n(r.revenue),
+      reorderRate: buyers ? (reorders / buyers) * 100 : 0,
+    };
+  });
+}
+
+export interface GapBucket { bucket: string; orders: number }
+
+/**
+ * How long returning customers wait before ordering again — the C1-C6 windows
+ * applied to the gap between consecutive orders rather than to recency.
+ */
+export async function repeatGaps(stores: readonly string[] = []): Promise<GapBucket[]> {
+  const store = stores.length === 1 ? stores[0] : 'ALL';
+  const rows = await q(
+    `SELECT bucket, orders FROM repeat_gap_mv WHERE store = $1 ORDER BY bucket`,
+    [store],
+  );
+  return rows.map((r) => ({ bucket: String(r.bucket), orders: n(r.orders) }));
 }

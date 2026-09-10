@@ -47,25 +47,41 @@ export async function istDates(): Promise<{ today: string; yesterday: string }> 
 
 /* ── payments ───────────────────────────────────────────────────────────── */
 
-export interface PayRow { date: string; store: string; mode: string; orders: number; revenue: number }
+export interface PayRow {
+  date: string; store: string; mode: string; gateway: string;
+  orders: number; revenue: number;
+}
 
 /**
- * payment_gateway is empty on every row in this database — verified across a
- * quarter of orders — so the split is built on payment_mode, which is fully
- * populated with exactly Prepaid and COD. Per-processor detail would have to
- * come from the Shopify API; it is not captured here.
+ * Prepaid/COD from payment_mode, processor from tags.
+ *
+ * The dedicated payment_gateway column is empty on every row, but the processor
+ * is written into `tags` alongside everything else — Billdesk, Cashfree, PayU,
+ * Razorpay and Credit/Debit Card all appear there. An earlier version of this
+ * module reported that per-processor detail was unavailable; it was looking at
+ * the wrong column.
  */
 export async function paymentsByDay(
   from: string, to: string, stores: readonly string[] = STORES,
 ): Promise<PayRow[]> {
   const rows = await q(
-    `SELECT created_date AS date, store,
-            COALESCE(NULLIF(TRIM(payment_mode), ''), 'unrecorded') AS mode,
-            COUNT(*)                     AS orders,
-            COALESCE(SUM(total_price),0) AS revenue
-       FROM shopify_orders
-      WHERE created_date BETWEEN $1 AND $2 AND store = ANY($3) AND ${SALES_FILTER}
-      GROUP BY 1,2,3
+    `SELECT o.created_date AS date, o.store,
+            COALESCE(NULLIF(TRIM(o.payment_mode), ''), 'unrecorded') AS mode,
+            CASE
+              WHEN o.tags ILIKE '%Billdesk%'          THEN 'Billdesk'
+              WHEN o.tags ILIKE '%Cashfree%'          THEN 'Cashfree'
+              WHEN o.tags ILIKE '%PayU%'              THEN 'PayU'
+              WHEN o.tags ILIKE '%Razorpay%'          THEN 'Razorpay'
+              WHEN o.tags ILIKE '%Credit/Debit Card%' THEN 'Card'
+              ELSE 'unrecorded'
+            END AS gateway,
+            COUNT(*)                       AS orders,
+            COALESCE(SUM(o.total_price),0) AS revenue
+       FROM shopify_orders o
+      WHERE o.created_date BETWEEN $1 AND $2 AND o.store = ANY($3)
+        AND COALESCE(o.cancelled_at, '') = ''
+        AND COALESCE(o.source_name, '') <> 'Matrixify App'
+      GROUP BY 1,2,3,4
       ORDER BY 1`,
     [from, to, stores as string[]],
   );
@@ -73,6 +89,7 @@ export async function paymentsByDay(
     date: String(r.date),
     store: String(r.store),
     mode: String(r.mode),
+    gateway: String(r.gateway),
     orders: n(r.orders),
     revenue: n(r.revenue),
   }));
@@ -91,35 +108,29 @@ export interface ChannelRow {
 }
 
 /**
- * Sales channel, from source_name.
+ * App versus website, from the order's tags.
  *
- * This is NOT an app-versus-website split. The mobile app marks its carts with
- * utm_medium=mobile_app, but that marker lives in note_attributes and
- * landing_site, and the ingest stores neither — so the warehouse genuinely
- * cannot tell an app order from a web one. What source_name does hold is the
- * Shopify sales-channel id: one dominant numeric id per store (the headless
- * storefront), plus 'web', 'shopify_draft_order' and the Matrixify importer.
- * Reporting that faithfully is better than inventing a split, and the fix is a
- * one-line ingest change rather than anything on this page.
+ * Corrects an earlier reading of this table. The app marker is not in
+ * note_attributes as the checkout permalink suggested — Shopify writes it into
+ * `tags` as `appmaker` and `App_android_device`, which are present on roughly
+ * 2,000 orders a month. source_name only ever holds the sales-channel id, which
+ * is identical for app and web, so it can never answer this question.
  */
-export function channelLabel(store: string, src: string): string {
-  if (!src) return 'unrecorded';
-  if (src === 'web') return 'Online store (web)';
-  if (src === 'shopify_draft_order') return 'Draft order (manual)';
-  if (/^\d+$/.test(src)) return 'Headless storefront';
-  return src;
-}
+/** Tag fragments that identify an order placed through the mobile app. */
+export const APP_TAG_SQL = `(o.tags ILIKE '%appmaker%' OR o.tags ILIKE '%App\\_android\\_device%' ESCAPE '\\' OR o.tags ILIKE '%App\\_ios\\_device%' ESCAPE '\\')`;
 
 export async function channelsByDay(
   from: string, to: string, stores: readonly string[] = STORES,
 ): Promise<ChannelRow[]> {
   const rows = await q(
-    `SELECT created_date AS date, store,
-            COALESCE(NULLIF(source_name, ''), 'unrecorded') AS src,
-            COUNT(*)                     AS orders,
-            COALESCE(SUM(total_price),0) AS revenue
-       FROM shopify_orders
-      WHERE created_date BETWEEN $1 AND $2 AND store = ANY($3) AND ${SALES_FILTER}
+    `SELECT o.created_date AS date, o.store,
+            CASE WHEN ${APP_TAG_SQL} THEN 'app' ELSE 'web' END AS channel,
+            COUNT(*)                       AS orders,
+            COALESCE(SUM(o.total_price),0) AS revenue
+       FROM shopify_orders o
+      WHERE o.created_date BETWEEN $1 AND $2 AND o.store = ANY($3)
+        AND COALESCE(o.cancelled_at, '') = ''
+        AND COALESCE(o.source_name, '') <> 'Matrixify App'
       GROUP BY 1,2,3
       ORDER BY 1`,
     [from, to, stores as string[]],
@@ -127,7 +138,7 @@ export async function channelsByDay(
   return rows.map((r) => ({
     date: String(r.date),
     store: String(r.store),
-    channel: channelLabel(String(r.store), String(r.src)),
+    channel: String(r.channel) === 'app' ? 'Mobile app' : 'Website',
     orders: n(r.orders),
     revenue: n(r.revenue),
   }));

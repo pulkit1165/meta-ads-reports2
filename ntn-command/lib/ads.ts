@@ -42,6 +42,8 @@ export interface CampDay {
   spend: number;
   revenue: number;
   roas: number;
+  clicks: number;
+  impressions: number;
 }
 
 /**
@@ -55,7 +57,7 @@ export async function campDays(from: string, to: string, portals: readonly strin
             COALESCE(NULLIF(sale_block, ''), 'Loose')      AS sale_block,
             COALESCE(NULLIF(creative_type, ''), 'unknown') AS creative_type,
             COALESCE(NULLIF(camp_type, ''), 'unknown')     AS camp_type,
-            budget_rs, spend, revenue
+            budget_rs, spend, revenue, clicks, impressions
        FROM meta_analysis_campaign_daily
       WHERE date BETWEEN $1::date AND $2::date
         AND portal = ANY($3)
@@ -76,6 +78,8 @@ export async function campDays(from: string, to: string, portals: readonly strin
       spend,
       revenue,
       roas: spend > 0 ? revenue / spend : 0,
+      clicks: n(r.clicks),
+      impressions: n(r.impressions),
     };
   });
 }

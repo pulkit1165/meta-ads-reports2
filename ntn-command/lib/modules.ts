@@ -48,6 +48,15 @@ export const MODULES: ModuleDef[] = [
 
   // ── Ads ────────────────────────────────────────────────────────────────
   {
+    slug: 'overview',
+    label: 'Ads Overview',
+    hint: 'CPM, CTR, CPC, RPM',
+    section: 'ads',
+    status: 'live',
+    question: 'What does delivery cost, and is it worth what it costs?',
+    source: 'meta_analysis_campaign_daily (impressions, clicks)',
+  },
+  {
     slug: 'closing',
     label: 'Closing Desk',
     hint: 'daily auto-close breakdown',
@@ -130,16 +139,16 @@ export const MODULES: ModuleDef[] = [
     section: 'commerce',
     status: 'live',
     question: 'How did yesterday get paid for?',
-    source: 'shopify_orders.payment_mode',
+    source: 'shopify_orders.payment_mode + gateway from tags',
   },
   {
     slug: 'channels',
-    label: 'Channels',
-    hint: 'sales-channel mix',
+    label: 'App vs Website',
+    hint: 'where orders come from',
     section: 'commerce',
-    status: 'partial',
-    question: 'Which sales channel took the orders?',
-    source: 'shopify_orders.source_name — app split needs an ingest change',
+    status: 'live',
+    question: 'How much is the mobile app taking versus the website?',
+    source: 'shopify_orders.tags (appmaker / App_android_device)',
   },
 
   // ── Customers ──────────────────────────────────────────────────────────
@@ -151,6 +160,15 @@ export const MODULES: ModuleDef[] = [
     status: 'live',
     question: 'What share of orders comes from someone who bought before?',
     source: 'shopify_orders.customer_phone, first-order lookup',
+  },
+  {
+    slug: 'segments',
+    label: 'Customer Segments',
+    hint: 'VIP, Loyal, At risk',
+    section: 'customers',
+    status: 'live',
+    question: 'Who are the valuable customers, and which of them are slipping away?',
+    source: 'customer_lifetime (RFM scored)',
   },
   {
     slug: 'rfm',

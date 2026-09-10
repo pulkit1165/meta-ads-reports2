@@ -18,8 +18,14 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
 
   if (!rows.length) {
     return (
-      <Page title="Channels" subtitle={range.label} actions={controls}>
-        <Note kind="warn">No orders between {range.from} and {range.to}.</Note>
+      <Page title="App vs Website" subtitle={range.label} actions={controls}>
+        <Note>
+        App orders are identified by the <span className="text-text">appmaker</span> and{' '}
+        <span className="text-text">App_android_device</span> tags Shopify writes onto the order.
+        An earlier version of this page reported that the split could not be built — it was
+        looking at <span className="text-text">source_name</span>, which holds the sales-channel id
+        and is identical for app and web.
+      </Note>
       </Page>
     );
   }
@@ -55,17 +61,17 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
   ];
 
   const totalRow: CRow = { channel: 'ALL', orders: yOrd, revenue: yRev };
-  const storefront = rev(yday.filter((r) => r.channel === 'Headless storefront'));
+  const appRev = rev(yday.filter((r) => r.channel === 'Mobile app'));
 
   return (
-    <Page title="Channels" subtitle={`Sales channel, ${focus} · from source_name`} actions={controls}>
+    <Page title="App vs Website" subtitle={`App vs website, ${focus} · ${scope.label} · from order tags`} actions={controls}>
       <Grid cols={3}>
         <Stat label="Orders" value={num(yOrd)} sub={lakh(yRev)} />
-        <Stat label="Channels in use" value={num(crows.length)} sub="excluding the Matrixify importer" />
+        <Stat label="Channels" value={num(crows.length)} sub="app and website" />
         <Stat
-          label="Storefront share"
-          value={pct(yRev ? (storefront / yRev) * 100 : 0, 1)}
-          sub="of revenue through the headless storefront"
+          label="App share"
+          value={pct(yRev ? (appRev / yRev) * 100 : 0, 1)}
+          sub={`${rs(appRev)} through the mobile app`}
         />
       </Grid>
 
