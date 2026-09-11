@@ -6,7 +6,17 @@
  * accounts both close on; using the server's UTC day would shift every
  * boundary by five and a half hours.
  */
+/**
+ * Every preset except Today describes COMPLETE days and ends at yesterday.
+ *
+ * Windows used to end at today, which meant the preset labelled "Yesterday"
+ * actually showed today, and every multi-day window mixed a half-finished day
+ * into its averages. Revenue is attributed later than spend, so a partial day
+ * always drags a window down and reads as a decline that has not happened.
+ * Today is still selectable — it is just named honestly.
+ */
 export const PRESETS = [
+  { days: 0, label: 'Today' },
   { days: 1, label: 'Yesterday' },
   { days: 7, label: '7 days' },
   { days: 14, label: '14 days' },
@@ -61,15 +71,19 @@ export function resolveRange(sp: SearchParams | undefined, fallbackDays = 60): R
   }
 
   const n = Number(one(sp?.days));
-  const days = Number.isFinite(n) && n >= 1 && n <= 730 ? Math.floor(n) : fallbackDays;
+  const days = Number.isFinite(n) && n >= 0 && n <= 730 ? Math.floor(n) : fallbackDays;
   const preset = PRESETS.find((p) => p.days === days);
 
-  // A window of N days ends today and therefore includes today, which is still
-  // filling; pages that need a settled figure use `yesterday` explicitly.
-  const from = iso(new Date(Date.parse(today) - (days - 1) * DAY));
+  // days === 0 is the live view: today only, partial by definition.
+  if (days === 0) {
+    return { from: today, to: today, today, yesterday, days: 1, label: 'Today', custom: false };
+  }
+
+  // Everything else ends at yesterday, so a window is N complete days.
+  const from = iso(new Date(Date.parse(yesterday) - (days - 1) * DAY));
   return {
     from,
-    to: today,
+    to: yesterday,
     today,
     yesterday,
     days,

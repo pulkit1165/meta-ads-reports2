@@ -20,7 +20,8 @@ type Row = {
 
 export default async function ClosingPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const range = resolveRange(sp, 1);
+  // 0 = today: this page reports the live state of the book, not a settled day.
+  const range = resolveRange(sp, 0);
   const scope = resolveScope(sp);
   // Closing is a state, not a window: it reads one day's snapshot. The picker
   // chooses which day, and `to` is the end of whatever window was selected.

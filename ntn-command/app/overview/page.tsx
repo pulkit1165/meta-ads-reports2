@@ -1,5 +1,5 @@
 import { campDays, roasOf, share, LOSING, bandOf, PORTAL_NAME } from '@/lib/ads';
-import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, money, pctOf, trend, type Finding } from '@/lib/insights';
 import { Line, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -51,7 +51,12 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
     );
   const tot = totals(spent);
 
-  const complete = dates.length > 1 ? dates.slice(0, -1) : dates;
+  // Partial-ness is a fact about the clock: windows end at yesterday now, so
+  // the last row is normally a settled day.
+  const istNow = istToday();
+  const complete = dates.filter((d) => d !== istNow).length
+    ? dates.filter((d) => d !== istNow)
+    : dates;
   const dayTot = (d: string) => totals(on(d));
 
   const series = complete.map(dayTot);

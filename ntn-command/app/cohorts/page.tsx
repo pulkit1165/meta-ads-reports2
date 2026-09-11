@@ -43,6 +43,8 @@ export default async function CohortsPage({ searchParams }: { searchParams: Prom
   const yTot = yNew + yRep;
 
   // Complete days only for the trend — today is still filling.
+  // Windows end at yesterday, so `today` is usually absent entirely; the
+  // fallback keeps the trend alive when someone picks the Today preset.
   const complete = dates.filter((d) => d !== today).length
     ? dates.filter((d) => d !== today)
     : dates;

@@ -1,6 +1,6 @@
 import { campDays, bandOf, BAND_KEYS, LOSING, PORTAL_NAME, PORTALS, roasOf, share } from '@/lib/ads';
 import { ROAS_BANDS, StackedBars, Line, ShareBar } from '@/components/charts';
-import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
@@ -24,8 +24,11 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   }
 
   const dates = [...new Set(all.map((r) => r.date))].sort();
-  const today = dates[dates.length - 1];
-  const yday = dates[dates.length - 2];
+  // Whether a day is partial is a fact about the clock, not about its position
+  // in the array — windows now end at yesterday, so the last row is usually a
+  // settled day and treating it as partial would silently drop it.
+  const istNow = istToday();
+  const hasToday = dates.includes(istNow);
 
   // Campaigns with no spend never entered the auction; bucketing them as
   // "zero ROAS" would invent failures that never happened.
@@ -46,8 +49,8 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   // reads low because revenue lags spend inside the day.
   // A one-day window has no earlier day to compare against; fall back to the
   // only day present rather than indexing off the end of the array.
-  const complete = dates.length > 1 ? dates.slice(0, -1) : dates;
-  const lastComplete = complete[complete.length - 1];
+  const complete = dates.filter((d) => d !== istNow);
+  const lastComplete = complete[complete.length - 1] ?? dates[dates.length - 1];
   const prevComplete = complete[complete.length - 2] ?? lastComplete;
 
   type DRow = { date: string; budget: number; spend: number; rev: number; losing: number };
@@ -57,8 +60,8 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
 
   const cols: Col<DRow>[] = [
     { key: 'd', head: 'Day', align: 'l', render: (r) => (
-        <span className={r.date === today ? 'text-warn' : ''}>
-          {label(r.date)}{r.date === today && <span className="ml-1.5 text-[10px]">partial</span>}
+        <span className={r.date === istNow ? 'text-warn' : ''}>
+          {label(r.date)}{r.date === istNow && <span className="ml-1.5 text-[10px]">partial</span>}
         </span>
       ) },
     { key: 'b', head: 'Budget on the book', align: 'r', render: (r) => lakh(r.budget) },
@@ -160,11 +163,19 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
           tone="invert"
           unit="pp"
         />
-        <Stat
-          label="Today so far"
-          value={lakh(daySpend(today))}
-          sub={`at ${roasOf(dayRev(today), daySpend(today)).toFixed(2)} — partial day, revenue lags spend`}
-        />
+        {hasToday ? (
+          <Stat
+            label="Today so far"
+            value={lakh(daySpend(istNow))}
+            sub={`at ${roasOf(dayRev(istNow), daySpend(istNow)).toFixed(2)} — partial day, revenue lags spend`}
+          />
+        ) : (
+          <Stat
+            label="Window"
+            value={`${complete.length} days`}
+            sub={`${complete[0] ?? '–'} to ${lastComplete} — complete days only`}
+          />
+        )}
       </Grid>
 
       <Analysis findings={rank(findings)} basis={`${dates.length} days, ${num(spent.length)} campaign-days with spend`} />

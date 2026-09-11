@@ -39,7 +39,12 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
 
   /* ── ads: the day itself ────────────────────────────────────────────────── */
   const dates = [...new Set(spent.map((r) => r.date))].sort();
-  const complete = dates.length > 1 ? dates.slice(0, -1) : dates;
+  // Partial-ness is a fact about the clock: windows end at yesterday now, so
+  // the last row is normally a settled day.
+  const istNow = istToday();
+  const complete = dates.filter((d) => d !== istNow).length
+    ? dates.filter((d) => d !== istNow)
+    : dates;
   const lastDay = complete[complete.length - 1];
   const on = (d: string) => spent.filter((r) => r.date === d);
 
