@@ -2,12 +2,13 @@ import {
   adDays, adDatesAvailable, accumulate, emptyPerf, perfRoas, blockCodes,
   type AdRow, type Perf,
 } from '@/lib/brief';
+import { ydayFinal, totalRow, chg, type YdayRow } from '@/lib/yday';
 import { roasOf, share, PORTAL_NAME } from '@/lib/ads';
 import { resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import {
-  Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col,
+  Page, Card, Grid, Stat, Table, Roas, Note, Analysis, Delta, lakh, rs, pct, num, type Col,
 } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -44,9 +45,12 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   // A trailing window gives the elimination section enough attempts to mean
   // something; every other section reports the single day.
   const fromISO = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
-  const [today, history] = await Promise.all([
+  const prevDay = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
+  const [today, history, finalRows, prevRows] = await Promise.all([
     adDays(day, day, scope.codes),
     adDays(fromISO, day, scope.codes),
+    ydayFinal(day, scope.codes),
+    ydayFinal(prevDay, scope.codes),
   ]);
 
   if (!today.length) {
@@ -137,6 +141,80 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
     ...elimOf('Creative type', creativeTagsOf),
     ...elimOf('Product + block', (r) => [`${r.product} + ${r.saleBlock}`]),
   ].sort((a, b) => b.spend - a.spend).slice(0, 12);
+
+
+  /* ── the day's final figures, as the printed report defines them ──────── */
+  const finals = [...finalRows.filter((r) => r.budget > 0 || r.sales > 0), totalRow(finalRows)];
+  const prevOf = (portal: string) =>
+    portal === 'All' ? totalRow(prevRows) : prevRows.find((r) => r.portal === portal);
+
+  const roasOfRow = (r: YdayRow) => (r.spend > 0 ? r.sales / r.spend : 0);
+  const spentPct = (r: YdayRow) => (r.budget > 0 ? (r.spend / r.budget) * 100 : 0);
+  const closedPct = (r: YdayRow) => (r.budget > 0 ? (r.closed / r.budget) * 100 : 0);
+  const name = (p: string) => (p === 'All' ? 'All' : PORTAL_NAME[p] ?? p);
+
+  const finalCols: Col<YdayRow>[] = [
+    { key: 'w', head: 'Website', align: 'l', render: (r) => (
+        <span className={r.portal === 'All' ? 'font-medium' : ''}>{name(r.portal)}</span>
+      ) },
+    { key: 's', head: 'Sales', align: 'r', render: (r) => rs(r.sales) },
+    { key: 'o', head: 'Orders', align: 'r', render: (r) => num(r.orders) },
+    { key: 'b', head: 'Budget', align: 'r', render: (r) => rs(r.budget) },
+    { key: 'sp', head: 'Spend', align: 'r', render: (r) => rs(r.spend) },
+    { key: 'pc', head: 'Spent %', align: 'r', render: (r) => pct(spentPct(r)) },
+    { key: 'ro', head: 'ROAS', align: 'r', render: (r) => <Roas v={roasOfRow(r)} /> },
+    { key: 'cl', head: 'Closed', align: 'r', render: (r) => rs(r.closed) },
+    { key: 'cp', head: 'Closed %', align: 'r', render: (r) => pct(closedPct(r)) },
+    { key: 'lv', head: 'Live @10PM', align: 'r', render: (r) => rs(r.live) },
+  ];
+
+  /** prev > now (±%), with the change coloured only where up-is-better holds. */
+  const cmp = (r: YdayRow, pick: (x: YdayRow) => number, tone: 'auto' | 'flat' = 'auto') => {
+    const p = prevOf(r.portal);
+    if (!p) return <span className="text-muted">–</span>;
+    const before = pick(p), now = pick(r);
+    const d = chg(now, before);
+    return (
+      <span className="whitespace-nowrap">
+        <span className="text-muted">{num(before)} &rsaquo; </span>
+        {num(now)}
+        {d != null && <span className="ml-1.5"><Delta v={d} tone={tone} /></span>}
+      </span>
+    );
+  };
+
+  const vsCols: Col<YdayRow>[] = [
+    { key: 'w', head: 'Website', align: 'l', render: (r) => (
+        <span className={r.portal === 'All' ? 'font-medium' : ''}>{name(r.portal)}</span>
+      ) },
+    { key: 's', head: 'Sales', align: 'r', render: (r) => cmp(r, (x) => x.sales) },
+    { key: 'o', head: 'Orders', align: 'r', render: (r) => cmp(r, (x) => x.orders) },
+    { key: 'sp', head: 'Spend', align: 'r', render: (r) => cmp(r, (x) => x.spend, 'flat') },
+    { key: 'pc', head: 'Spent %', align: 'r', render: (r) => {
+        const p = prevOf(r.portal);
+        return p
+          ? <span className="whitespace-nowrap text-muted">{pct(spentPct(p))} &rsaquo; <span className="text-text">{pct(spentPct(r))}</span></span>
+          : <span className="text-muted">–</span>;
+      } },
+    { key: 'cl', head: 'Closed', align: 'r', render: (r) => cmp(r, (x) => x.closed, 'flat') },
+    { key: 'cp', head: 'Closed %', align: 'r', render: (r) => {
+        const p = prevOf(r.portal);
+        return p
+          ? <span className="whitespace-nowrap text-muted">{pct(closedPct(p))} &rsaquo; <span className="text-text">{pct(closedPct(r))}</span></span>
+          : <span className="text-muted">–</span>;
+      } },
+    { key: 'lv', head: 'Live @10PM', align: 'r', render: (r) => cmp(r, (x) => x.live, 'flat') },
+    { key: 'ro', head: 'ROAS', align: 'r', render: (r) => {
+        const p = prevOf(r.portal);
+        if (!p) return <span className="text-muted">–</span>;
+        const d = roasOfRow(r) - roasOfRow(p);
+        return (
+          <span className={`whitespace-nowrap ${d > 0 ? 'text-good' : d < 0 ? 'text-bad' : 'text-muted'}`}>
+            {d > 0 ? '+' : ''}{d.toFixed(2)}
+          </span>
+        );
+      } },
+  ];
 
   /* ── findings ─────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
@@ -254,6 +332,19 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
       subtitle={`${day} · ${scope.label} · ad-level, built to the ADS PLANNER structure`}
       actions={controls}
     >
+      <Card title={`Yesterday final · ${day}`} note="sales from Shopify, spend from Meta, budgets from the hourly snapshots">
+        <Table cols={finalCols} rows={finals} />
+        <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
+          Spend here reads the live Meta table, which Meta keeps restating for a day or two after
+          it closes. The emailed PNG freezes its figure at 1 AM, so the two can differ by a few
+          tenths of a percent — everything else on this row reconciles exactly.
+        </p>
+      </Card>
+
+      <Card title={`Vs ${prevDay}`} note="day over day">
+        <Table cols={vsCols} rows={finals} />
+      </Card>
+
       <Grid cols={4}>
         <Stat label="Spend" value={lakh(totalSpend)} sub={`${num(new Set(spent.map((r) => r.adId)).size)} creatives live`} />
         <Stat label="Revenue" value={lakh(totalRev)} sub={`ROAS ${roasOf(totalRev, totalSpend).toFixed(2)}`} />
