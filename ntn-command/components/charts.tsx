@@ -254,3 +254,72 @@ export function Legend({ items }: { items: { label: string; color: string }[] })
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="py-8 text-center text-[12px] text-muted">{children}</p>;
 }
+
+/* ── donut: composition of a whole ──────────────────────────────────────── */
+
+/**
+ * A pie is the one chart that genuinely suits "share of a single whole", which
+ * is what creative allocation is. Drawn as a donut so the total can sit in the
+ * middle, and with the slices sorted so the eye reads largest-first.
+ */
+export function Donut({
+  parts, fmt, total, caption, size = 168,
+}: {
+  parts: { label: string; value: number; color: string }[];
+  fmt: (v: number) => string;
+  total?: string;
+  caption?: string;
+  size?: number;
+}) {
+  const sum = parts.reduce((s, p) => s + p.value, 0);
+  if (sum <= 0) return <Empty>Nothing to show.</Empty>;
+  const sorted = [...parts].filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
+  const R = 60, C = 2 * Math.PI * R;
+  let offset = 0;
+
+  return (
+    <div className="flex flex-wrap items-center gap-5">
+      <svg viewBox="0 0 160 160" width={size} height={size} className="shrink-0">
+        <g transform="translate(80,80) rotate(-90)">
+          {sorted.map((p) => {
+            const frac = p.value / sum;
+            const el = (
+              <circle
+                key={p.label}
+                r={R} fill="none" stroke={p.color} strokeWidth={26}
+                strokeDasharray={`${(frac * C).toFixed(2)} ${C.toFixed(2)}`}
+                strokeDashoffset={-offset}
+              >
+                <title>{`${p.label} · ${fmt(p.value)} · ${(frac * 100).toFixed(1)}%`}</title>
+              </circle>
+            );
+            offset += frac * C;
+            return el;
+          })}
+        </g>
+        {total && (
+          <text x="80" y="84" textAnchor="middle"
+                className="fill-[var(--text-strong)] font-display" fontSize="19">
+            {total}
+          </text>
+        )}
+        {caption && (
+          <text x="80" y="100" textAnchor="middle" className="fill-[var(--muted)]" fontSize="9">
+            {caption}
+          </text>
+        )}
+      </svg>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {sorted.map((p) => (
+          <div key={p.label} className="flex items-baseline gap-2 text-[11.5px]">
+            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: p.color }} />
+            <span className="min-w-0 flex-1 truncate text-text" title={p.label}>{p.label}</span>
+            <span className="shrink-0 tabular-nums text-muted">
+              {fmt(p.value)} · {((p.value / sum) * 100).toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

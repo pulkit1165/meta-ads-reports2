@@ -1,8 +1,13 @@
 import { campDays, creativeTags, sentimentsOf, roasOf, share, PORTAL_NAME, PORTALS, LOSING, bandOf } from '@/lib/ads';
-import { adDays } from '@/lib/brief';
-import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
+import { adDays, adDatesAvailable } from '@/lib/brief';
+import {
+  creativesOn, pushedOn, countBy, sentimentKeys, typeKeys,
+  roas as cRoas, isRunning, isUnknown,
+} from '@/lib/creative';
+import CreativeCard from '@/components/CreativeCard';
+import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, concentration, type Finding } from '@/lib/insights';
-import { BarList, ShareBar, SERIES } from '@/components/charts';
+import { BarList, ShareBar, Donut, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col,
@@ -20,12 +25,28 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const range = resolveRange(sp, 60);
   const scope = resolveScope(sp);
-  const controls = <PageControls range={range} scope={scope} />;
   // Sentiment lives in the ad NAME, so it needs the ad-level table; creative
   // type is a campaign attribute and stays on the campaign one.
-  const [campRows, adRows] = await Promise.all([
+  // The gallery is about one day; the rest of the page is about the window.
+  const availableDays = await adDatesAvailable(30);
+  const istNow = istToday();
+  const askedDay = Array.isArray(sp?.day) ? sp.day[0] : sp?.day;
+  const settled = availableDays.filter((d) => d < istNow);
+  const day = askedDay && availableDays.includes(askedDay)
+    ? askedDay
+    : (settled[0] ?? availableDays[0] ?? range.to);
+
+  const controls = (
+    <PageControls
+      range={range} scope={scope}
+      days={availableDays.slice(0, 10)} day={day} today={istNow}
+    />
+  );
+
+  const [campRows, adRows, creatives] = await Promise.all([
     campDays(range.from, range.to, scope.codes),
     adDays(range.from, range.to, scope.codes),
+    creativesOn(day, scope.codes),
   ]);
   const all = campRows.filter((r) => r.spend > 0);
 
@@ -78,6 +99,40 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const markedSpend = marked.reduce((s2, x) => s2 + x.spend, 0);
   const unmarked = sentMap.get('unmarked');
   const bookHit = pctOf(adsSpent.filter((r) => r.revenue / r.spend >= 1).length, adsSpent.length);
+
+
+  /* ── the day's creative gallery ───────────────────────────────────────── */
+  const ranToday = creatives.filter((c) => c.d1.spend > 0);
+  const runningNow = creatives.filter((c) => isRunning(c.status));
+  // An ad we have never fetched is not the same as a closed one. Counting the
+  // two together turned "closed" into "everything we have not looked up".
+  const unknownStatus = creatives.filter(isUnknown);
+  const closedNow = creatives.filter((c) => !isRunning(c.status) && !isUnknown(c));
+  const pushed = pushedOn(creatives, day);
+
+  // Best performers: judged on the 7-day window, not the single day, and only
+  // where enough money went through to mean something. A creative that spent
+  // Rs 200 and returned Rs 900 is not the best thing in the account.
+  const BEST_MIN_SPEND = 3000;
+  const bestCreatives = [...creatives]
+    .filter((c) => c.d7.spend >= BEST_MIN_SPEND)
+    .sort((a, b) => cRoas(b.d7.revenue, b.d7.spend) - cRoas(a.d7.revenue, a.d7.spend))
+    .slice(0, 12);
+
+  // Active allocation: spend on the day, by creative type, for ads still running.
+  const activeAlloc = new Map<string, number>();
+  for (const c of runningNow) {
+    for (const t of typeKeys(c)) {
+      activeAlloc.set(t, (activeAlloc.get(t) ?? 0) + c.d1.spend);
+    }
+  }
+  const allocParts = [...activeAlloc.entries()]
+    .filter(([, v]) => v > 0)
+    .map(([label, value], i) => ({ label, value, color: SERIES[i % SERIES.length] }));
+
+  const pushedByType = countBy(pushed, typeKeys);
+  const pushedBySent = countBy(pushed, sentimentKeys);
+  const dayCreativeSpend = ranToday.reduce((a, c) => a + c.d1.spend, 0);
 
   /* ── findings ───────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
@@ -257,6 +312,110 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           />
         </Card>
       </div>
+
+      <Grid cols={4}>
+        <Stat
+          label={`Creatives live on ${day}`}
+          value={num(ranToday.length)}
+          sub={`${rs(dayCreativeSpend)} spent · ${num(runningNow.length)} still running now`}
+        />
+        <Stat
+          label="Pushed that day"
+          value={num(pushed.length)}
+          sub={pushed.length ? `${num(pushedByType.length)} creative types · ${num(pushedBySent.length)} sentiments` : 'no new creatives created'}
+        />
+        <Stat
+          label="Still running"
+          value={num(runningNow.length)}
+          sub={`of ${num(creatives.length)} seen in the last 90 days`}
+        />
+        <Stat
+          label="Closed"
+          value={num(closedNow.length)}
+          sub={unknownStatus.length
+            ? `paused or campaign-paused · ${num(unknownStatus.length)} not yet looked up`
+            : 'paused, or their campaign is'}
+        />
+      </Grid>
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Card title="Active creative type allocation" note={`spend on ${day} by ads still running`}>
+          <Donut
+            parts={allocParts}
+            fmt={rs}
+            total={rs(allocParts.reduce((a, p) => a + p.value, 0))}
+            caption="live spend"
+          />
+        </Card>
+        <Card
+          title={`Pushed on ${day}`}
+          note={pushed.length ? `${num(pushed.length)} new creatives` : 'nothing new that day'}
+        >
+          {pushed.length ? (
+            <div className="space-y-4">
+              <div>
+                <div className="mb-1.5 text-[10.5px] uppercase tracking-wider text-muted">By creative type</div>
+                <BarList
+                  fmt={num}
+                  rows={pushedByType.map((x, i) => ({
+                    label: x.key, value: x.count,
+                    sub: pct((x.count / pushed.length) * 100, 0),
+                    color: SERIES[i % SERIES.length],
+                  }))}
+                />
+              </div>
+              <div>
+                <div className="mb-1.5 text-[10.5px] uppercase tracking-wider text-muted">By sentiment</div>
+                <BarList
+                  fmt={num}
+                  rows={pushedBySent.map((x) => ({
+                    label: x.key, value: x.count,
+                    sub: pct((x.count / pushed.length) * 100, 0),
+                    color: x.key === 'unmarked' ? '#5a6472' : '#1baf7a',
+                  }))}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-[12px] text-muted">
+              No creative was created on {day}. Ads running that day were pushed earlier.
+            </p>
+          )}
+        </Card>
+      </div>
+
+      <Card
+        title="Best performing creatives"
+        note={`ranked on 7-day ROAS, minimum ${rs(BEST_MIN_SPEND)} of spend in that window`}
+      >
+        {bestCreatives.length ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {bestCreatives.map((c) => <CreativeCard key={c.adId} c={c} day={day} />)}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-[12px] text-muted">
+            Nothing cleared {rs(BEST_MIN_SPEND)} of spend in the 7 days to {day}.
+          </p>
+        )}
+      </Card>
+
+      <Card
+        title={`Every creative running on ${day}`}
+        note={`${num(ranToday.length)} with spend · thumbnail opens the post · each shows the day, 3-day, 7-day and lifetime figures`}
+      >
+        {ranToday.length ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {ranToday.slice(0, 60).map((c) => <CreativeCard key={c.adId} c={c} day={day} />)}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-[12px] text-muted">No creative spent on {day}.</p>
+        )}
+        {ranToday.length > 60 && (
+          <p className="mt-3 text-center text-[11px] text-muted">
+            Showing the 60 largest by spend, of {num(ranToday.length)}.
+          </p>
+        )}
+      </Card>
 
       <Card
         title="Sentiment, from the ad name"
