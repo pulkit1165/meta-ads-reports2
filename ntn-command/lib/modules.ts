@@ -46,6 +46,16 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_analysis_ad_daily (ad level)',
   },
 
+  {
+    slug: 'product-audience',
+    label: 'Product × Audience',
+    hint: 'allocation + tomorrow gaps',
+    section: 'daily',
+    status: 'live',
+    question: 'Where is budget allocated by product and audience, and what should be pushed tomorrow?',
+    source: 'camp_product_resolved + meta_campaign_snapshot',
+  },
+
   // ── Ads ────────────────────────────────────────────────────────────────
   {
     slug: 'overview',
