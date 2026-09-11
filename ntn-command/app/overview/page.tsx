@@ -1,7 +1,10 @@
-import { campDays, roasOf, share, LOSING, bandOf, PORTAL_NAME } from '@/lib/ads';
+import {
+  campDays, productMap, creativeTags, roasOf, share,
+  LOSING, bandOf, PORTAL_NAME,
+} from '@/lib/ads';
 import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
-import { rank, money, pctOf, trend, type Finding } from '@/lib/insights';
-import { Line, SERIES } from '@/components/charts';
+import { rank, money, pctOf, trend, steadiness, type Finding } from '@/lib/insights';
+import { Line, BarList, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col,
@@ -22,7 +25,10 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const range = resolveRange(sp, 60);
   const scope = resolveScope(sp);
   const controls = <PageControls range={range} scope={scope} />;
-  const all = await campDays(range.from, range.to, scope.codes);
+  const [all, pmap] = await Promise.all([
+    campDays(range.from, range.to, scope.codes),
+    productMap(),
+  ]);
 
   if (!all.length) {
     return (
@@ -67,6 +73,66 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   type DRow = { date: string; spend: number; revenue: number; clicks: number; impressions: number };
   const drows: DRow[] = [...complete].reverse().map((d) => ({ date: d, ...dayTot(d) }));
 
+
+  /* ── breakdowns: product, sale block, creative ────────────────────────── */
+  type Cut = {
+    key: string; days: number; spend: number; revenue: number;
+    clicks: number; impressions: number; winners: number;
+  };
+  function cutBy(keyOf: (r: (typeof spent)[number]) => string[]): Cut[] {
+    const m = new Map<string, Cut>();
+    for (const r of spent) {
+      for (const k of keyOf(r)) {
+        const c = m.get(k) ?? {
+          key: k, days: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, winners: 0,
+        };
+        c.days += 1;
+        c.spend += r.spend;
+        c.revenue += r.revenue;
+        c.clicks += r.clicks;
+        c.impressions += r.impressions;
+        if (r.roas >= 1) c.winners += 1;
+        m.set(k, c);
+      }
+    }
+    return [...m.values()].sort((a, b) => b.spend - a.spend);
+  }
+
+  const byProduct = cutBy((r) => [pmap.get(r.campaignId) ?? 'unmapped']);
+  const byBlock = cutBy((r) => [r.saleBlock]);
+  const byCreative = cutBy((r) => creativeTags(r.creativeType));
+
+  /* ── volatility: which things hold a KPI steady, and which swing ───────── */
+  // Daily ROAS per campaign and per block, across the window.
+  function dailySeries(keyOf: (r: (typeof spent)[number]) => string) {
+    const m = new Map<string, Map<string, { spend: number; rev: number }>>();
+    for (const r of spent) {
+      const k = keyOf(r);
+      const byDay = m.get(k) ?? new Map<string, { spend: number; rev: number }>();
+      const d = byDay.get(r.date) ?? { spend: 0, rev: 0 };
+      d.spend += r.spend;
+      d.rev += r.revenue;
+      byDay.set(r.date, d);
+      m.set(k, byDay);
+    }
+    return [...m.entries()].map(([key, byDay]) => ({
+      key,
+      spend: [...byDay.values()].reduce((s2, d) => s2 + d.spend, 0),
+      series: [...byDay.values()].filter((d) => d.spend > 0).map((d) => d.rev / d.spend),
+    }));
+  }
+
+  // Only things carrying real money: a steadiness ranking led by campaigns
+  // spending a few hundred rupees would be arithmetically true and useless.
+  const VOL_MIN_SPEND = 20000;
+  const campSeries = dailySeries((r) => r.campaignName || r.campaignId)
+    .filter((x) => x.spend >= VOL_MIN_SPEND);
+  const blockSeries = dailySeries((r) => r.saleBlock)
+    .filter((x) => x.spend >= VOL_MIN_SPEND);
+
+  const campVol = steadiness(campSeries, (x) => x.key, (x) => x.series, 5);
+  const blockVol = steadiness(blockSeries, (x) => x.key, (x) => x.series, 5);
+
   /* ── findings ───────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
   const cpmTrend = trend(series.map((s) => cpm(s.spend, s.impressions)));
@@ -107,6 +173,48 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
     headline: `${pctOf(losing, tot.spend).toFixed(0)}% of spend across the window returned under 1.0`,
     detail: `${money(losing)} of ${money(tot.spend)} over ${dates.length} days.`,
   });
+
+  if (blockVol.erratic.length) {
+    const e = blockVol.erratic[0];
+    findings.push({
+      severity: 'watch',
+      headline: `${e.key.slice(0, 52)} is the most erratic block`,
+      detail: `Its daily ROAS swings ±${e.cvPct.toFixed(0)}% around a mean of ${e.mean.toFixed(2)} across ${e.points} days. A block this unsteady cannot be planned around even when its average looks acceptable.`,
+    });
+  }
+  if (blockVol.steady.length) {
+    const st = blockVol.steady[0];
+    findings.push({
+      severity: st.mean >= 1 ? 'good' : 'neutral',
+      headline: `${st.key.slice(0, 52)} is the steadiest block`,
+      detail: `Daily ROAS varies only ±${st.cvPct.toFixed(0)}% around ${st.mean.toFixed(2)} over ${st.points} days.`,
+      action: st.mean >= 1
+        ? 'Steady and above break-even is the profile worth scaling — the return is predictable, not lucky.'
+        : 'Steady but below break-even means it reliably loses money. Predictability is not the same as working.',
+    });
+  }
+
+  const cutCols = (label: string, total: number): Col<Cut>[] => [
+    { key: 'k', head: label, align: 'l', render: (c) => (
+        <span className={`block max-w-[300px] truncate ${c.key === 'unmapped' ? 'text-muted' : ''}`} title={c.key}>
+          {c.key}
+        </span>
+      ) },
+    { key: 'd', head: 'Camp-days', align: 'r', render: (c) => num(c.days) },
+    { key: 's', head: 'Spend', align: 'r', render: (c) => rs(c.spend) },
+    { key: 'sh', head: '% of spend', align: 'r', render: (c) => pct(share(c.spend, total), 1) },
+    { key: 'i', head: 'Impressions', align: 'r', render: (c) => num(c.impressions) },
+    { key: 'm', head: 'CPM', align: 'r', render: (c) => rs(cpm(c.spend, c.impressions)) },
+    { key: 't', head: 'CTR', align: 'r', render: (c) => `${ctr(c.clicks, c.impressions).toFixed(2)}%` },
+    { key: 'pc', head: 'CPC', align: 'r', render: (c) => rs(cpc(c.spend, c.clicks)) },
+    { key: 'rp', head: 'RPM', align: 'r', render: (c) => rs(rpm(c.revenue, c.impressions)) },
+    { key: 'mg', head: 'Margin/1k', align: 'r', render: (c) => {
+        const v = rpm(c.revenue, c.impressions) - cpm(c.spend, c.impressions);
+        return <span className={v >= 0 ? 'text-good' : 'text-bad'}>{rs(v)}</span>;
+      } },
+    { key: 'r', head: 'ROAS', align: 'r', render: (c) => <Roas v={roasOf(c.revenue, c.spend)} /> },
+    { key: 'w', head: 'Clear 1.0', align: 'r', render: (c) => pct(share(c.winners, c.days)) },
+  ];
 
   const cols: Col<DRow>[] = [
     { key: 'd', head: 'Day', align: 'l', render: (r) => label(r.date) },
@@ -201,6 +309,73 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Card
+          title="Steadiest"
+          note={`daily ROAS variation · campaigns and blocks above ${rs(VOL_MIN_SPEND)}`}
+        >
+          {blockVol.steady.length || campVol.steady.length ? (
+            <BarList
+              fmt={(v) => `±${v.toFixed(0)}%`}
+              rows={[
+                ...blockVol.steady.slice(0, 5).map((x) => ({
+                  label: `BLOCK · ${x.key}`,
+                  value: x.cvPct,
+                  sub: `mean ${x.mean.toFixed(2)} · ${x.points}d`,
+                  color: x.mean >= 1 ? '#1baf7a' : '#eda100',
+                })),
+                ...campVol.steady.slice(0, 5).map((x) => ({
+                  label: `CAMP · ${x.key}`,
+                  value: x.cvPct,
+                  sub: `mean ${x.mean.toFixed(2)} · ${x.points}d`,
+                  color: x.mean >= 1 ? '#2a78d6' : '#eda100',
+                })),
+              ]}
+            />
+          ) : (
+            <p className="py-4 text-center text-[12px] text-muted">
+              Nothing has five days of spend above {rs(VOL_MIN_SPEND)} in this window.
+            </p>
+          )}
+        </Card>
+
+        <Card title="Most erratic" note="same measure, ranked the other way">
+          {blockVol.erratic.length || campVol.erratic.length ? (
+            <BarList
+              fmt={(v) => `±${v.toFixed(0)}%`}
+              rows={[
+                ...blockVol.erratic.slice(0, 5).map((x) => ({
+                  label: `BLOCK · ${x.key}`,
+                  value: x.cvPct,
+                  sub: `mean ${x.mean.toFixed(2)} · ${x.points}d`,
+                  color: '#eb6834',
+                })),
+                ...campVol.erratic.slice(0, 5).map((x) => ({
+                  label: `CAMP · ${x.key}`,
+                  value: x.cvPct,
+                  sub: `mean ${x.mean.toFixed(2)} · ${x.points}d`,
+                  color: '#b3402f',
+                })),
+              ]}
+            />
+          ) : (
+            <p className="py-4 text-center text-[12px] text-muted">Not enough history to rank.</p>
+          )}
+        </Card>
+      </div>
+
+      <Card title="By product" note="delivery and return per product">
+        <Table cols={cutCols('Product', tot.spend)} rows={byProduct.slice(0, 25)} />
+      </Card>
+
+      <Card title="By sale block" note="delivery and return per audience">
+        <Table cols={cutCols('Sale block', tot.spend)} rows={byBlock.slice(0, 25)} />
+      </Card>
+
+      <Card title="By creative type" note="a campaign using two styles counts in both">
+        <Table cols={cutCols('Creative', tot.spend)} rows={byCreative} />
+      </Card>
+
       <Card title="Day by day" note="complete days only; today is excluded as partial">
         <Table cols={cols} rows={drows} footer={totalRow} />
       </Card>
@@ -211,6 +386,12 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         thousand impressions — the number that says whether delivery is worth what it costs.
         Cost per acquisition is not shown: no Meta table here ingests a purchase count, so it would
         have to be inferred rather than measured.
+        {' '}<b className="text-text-strong">Steadiness</b> is the coefficient of variation of daily
+        ROAS — the standard deviation as a share of the mean — which is what lets a campaign
+        averaging 3.0 be compared with one averaging 0.5. Only things with five days of data and
+        over {rs(VOL_MIN_SPEND)} of spend are ranked; volatility measured over three days is noise
+        about noise. Steady is not the same as good: a block can hold a losing ROAS very
+        reliably.
       </Note>
     </Page>
   );

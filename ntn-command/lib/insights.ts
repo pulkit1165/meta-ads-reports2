@@ -90,3 +90,62 @@ export function trend(values: number[]): number | null {
 
 export const money = (v: number) =>
   Math.abs(v) >= 100000 ? `Rs ${(v / 100000).toFixed(2)}L` : `Rs ${Math.round(v).toLocaleString('en-IN')}`;
+
+/* ── volatility ─────────────────────────────────────────────────────────── */
+
+/**
+ * Coefficient of variation: standard deviation as a share of the mean.
+ *
+ * This is the right measure for comparing the steadiness of things that run at
+ * different levels — a campaign averaging 3.0 ROAS and one averaging 0.5 cannot
+ * be compared on standard deviation alone, because the same absolute swing means
+ * something very different at each level.
+ *
+ * Returns null below `min` points: volatility over three days is noise about
+ * noise, and reporting it would rank the thinnest series as the most extreme.
+ */
+export function cv(values: number[], min = 5): number | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < min) return null;
+  const mean = xs.reduce((s, v) => s + v, 0) / xs.length;
+  if (mean <= 0) return null;
+  const variance = xs.reduce((s, v) => s + (v - mean) ** 2, 0) / xs.length;
+  return (Math.sqrt(variance) / mean) * 100;
+}
+
+export interface Steadiness<T> {
+  key: string;
+  item: T;
+  mean: number;
+  cvPct: number;
+  points: number;
+}
+
+/**
+ * Rank a set of series by how steady they are. `steady` is ascending CV — the
+ * things you can plan around — and `erratic` descending.
+ */
+export function steadiness<T>(
+  items: T[],
+  keyOf: (t: T) => string,
+  seriesOf: (t: T) => number[],
+  minPoints = 5,
+): { steady: Steadiness<T>[]; erratic: Steadiness<T>[] } {
+  const scored: Steadiness<T>[] = [];
+  for (const item of items) {
+    const xs = seriesOf(item).filter((v) => Number.isFinite(v));
+    const c = cv(xs, minPoints);
+    if (c == null) continue;
+    scored.push({
+      key: keyOf(item),
+      item,
+      mean: xs.reduce((s, v) => s + v, 0) / xs.length,
+      cvPct: c,
+      points: xs.length,
+    });
+  }
+  return {
+    steady: [...scored].sort((a, b) => a.cvPct - b.cvPct),
+    erratic: [...scored].sort((a, b) => b.cvPct - a.cvPct),
+  };
+}
