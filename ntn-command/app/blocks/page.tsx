@@ -1,4 +1,7 @@
-import { campDays, familyOf, roasOf, share, PORTAL_NAME, PORTALS, LOSING, bandOf } from '@/lib/ads';
+import {
+  campDays, closingOn, groupStates, familyOf, roasOf, share,
+  PORTAL_NAME, PORTALS, LOSING, bandOf,
+} from '@/lib/ads';
 import { BarList, ShareBar, SERIES } from '@/components/charts';
 import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, wilson, enough, concentration, type Finding } from '@/lib/insights';
@@ -31,7 +34,14 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
   // Every campaign-day, including those that never spent: a block whose
   // campaigns were all closed still existed, and leaving it out makes the
   // audience list look smaller than the account actually is.
-  const all = await campDays(range.from, range.to, scope.codes);
+  // Spend and return come from the daily table; allocated/closed come from the
+  // hourly snapshots, which are the only place a budget's live-or-closed state
+  // exists. The snapshot is a state at a moment, so it is read for the last day
+  // of the window rather than summed across it.
+  const [all, snap] = await Promise.all([
+    campDays(range.from, range.to, scope.codes),
+    closingOn(range.to, scope.codes).catch(() => null),
+  ]);
   if (!all.length) {
     return (
       <Page title="Sales Blocks" subtitle={range.label} actions={controls}>
@@ -64,6 +74,22 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
     }
     return [...m.values()].sort((x, y) => y.spend - x.spend);
   }
+
+  // Closing state for the window's last day, keyed by block.
+  const stateByBlock = new Map(
+    (snap ? groupStates(snap.rows, (r) => r.saleBlock) : []).map((a) => [a.key, a]),
+  );
+  const stateOf = (k: string) => stateByBlock.get(k);
+  const liveRoasOf = (k: string) => {
+    const a = stateOf(k);
+    if (!a) return null;
+    const sp = a.spend - a.closedSpend, rv = a.revenue - a.closedRevenue;
+    return sp > 0 ? rv / sp : null;
+  };
+  const closedRoasOf = (k: string) => {
+    const a = stateOf(k);
+    return a && a.closedSpend > 0 ? a.closedRevenue / a.closedSpend : null;
+  };
 
   const fams = group((r) => familyOf(r.saleBlock)).filter((f) => f.spend > 0 || f.idle > 0);
   const blocks = group((r) => r.saleBlock);
@@ -136,6 +162,28 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
     { key: 's', head: 'Spend', align: 'r', render: (b) => rs(b.spend) },
     { key: 'sh', head: '% of spend', align: 'r', render: (b) => pct(share(b.spend, totalSpend), 1) },
     { key: 'v', head: 'Revenue', align: 'r', render: (b) => rs(b.rev) },
+    { key: 'al', head: 'Allocated', align: 'r', render: (b) => {
+        const a = stateOf(b.key);
+        return a ? rs(a.budget) : <span className="text-muted">–</span>;
+      } },
+    { key: 'cl', head: 'Closed', align: 'r', render: (b) => {
+        const a = stateOf(b.key);
+        if (!a) return <span className="text-muted">–</span>;
+        return (
+          <span title={`${a.closedCamps} of ${a.camps} campaigns`}>
+            {rs(a.closed)}
+            <span className="ml-1.5 text-[11px] text-muted">{pct(share(a.closed, a.budget))}</span>
+          </span>
+        );
+      } },
+    { key: 'cr', head: 'Closed ROAS', align: 'r', render: (b) => {
+        const v = closedRoasOf(b.key);
+        return v == null ? <span className="text-muted">–</span> : <Roas v={v} />;
+      } },
+    { key: 'ar', head: 'Active ROAS', align: 'r', render: (b) => {
+        const v = liveRoasOf(b.key);
+        return v == null ? <span className="text-muted">–</span> : <Roas v={v} />;
+      } },
     { key: 'r', head: 'ROAS', align: 'r', render: (b) =>
         b.spend > 0 ? <Roas v={roasOf(b.rev, b.spend)} /> : <span className="text-muted">never ran</span> },
     { key: 'w', head: 'Clear 1.0', align: 'r', render: (b) =>
@@ -221,7 +269,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
 
       <Card
         title="Every sale block"
-        note={`all ${num(blocks.length)} seen in ${range.label.toLowerCase()}, including blocks whose campaigns never spent`}
+        note={`all ${num(blocks.length)} seen in ${range.label.toLowerCase()} · allocated, closed and the two ROAS columns are the state on ${range.to}`}
       >
         <Table cols={cols} rows={blocks} footer={totalRow} />
       </Card>
@@ -235,6 +283,11 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
         closed day is not a failed attempt. The {rs(MIN_SPEND)} floor now governs only which blocks
         the analysis will draw a conclusion from — on a couple of campaign-days a single result
         swings the rate to 100% and reads as a discovery.
+        {' '}<b className="text-text-strong">Allocated, Closed, Closed ROAS and Active ROAS</b> read
+        the hourly snapshot for {range.to}, which is the only source that knows whether a budget is
+        still running. Spend and revenue either side of that split are the figures at the latest
+        capture, so a campaign closed minutes ago still carries the spend it made. A dash means the
+        block had no campaign in that day&apos;s snapshot at all.
       </Note>
     </Page>
   );
