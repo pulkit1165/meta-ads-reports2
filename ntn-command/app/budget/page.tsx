@@ -12,7 +12,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const range = resolveRange(sp, 60);
   const scope = resolveScope(sp);
-  const DAYS = range.days;
+  const DAYS = range.span;
   const controls = <PageControls range={range} scope={scope} />;
   const all = await campDays(range.from, range.to, scope.codes);
   if (!all.length) {

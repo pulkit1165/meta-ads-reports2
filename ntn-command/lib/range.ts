@@ -34,8 +34,14 @@ export interface Range {
   today: string;
   /** yesterday in IST */
   yesterday: string;
-  /** how many days the window spans, inclusive */
+  /**
+   * The preset's identity, which is also its span in days — except Today,
+   * which is 0 so the control can distinguish it from Yesterday. Use `span`
+   * when the actual number of days matters.
+   */
   days: number;
+  /** Number of days the window covers, inclusive. Always at least 1. */
+  span: number;
   label: string;
   custom: boolean;
 }
@@ -67,7 +73,7 @@ export function resolveRange(sp: SearchParams | undefined, fallbackDays = 60): R
     // returning an empty window that looks like "no data".
     const [from, to] = rawFrom <= rawTo ? [rawFrom, rawTo] : [rawTo, rawFrom];
     const days = Math.round((Date.parse(to) - Date.parse(from)) / DAY) + 1;
-    return { from, to, today, yesterday, days, label: `${from} → ${to}`, custom: true };
+    return { from, to, today, yesterday, days, span: days, label: `${from} → ${to}`, custom: true };
   }
 
   const n = Number(one(sp?.days));
@@ -76,7 +82,9 @@ export function resolveRange(sp: SearchParams | undefined, fallbackDays = 60): R
 
   // days === 0 is the live view: today only, partial by definition.
   if (days === 0) {
-    return { from: today, to: today, today, yesterday, days: 1, label: 'Today', custom: false };
+    // days stays 0 so the control can tell Today apart from Yesterday — both
+    // span a single day, but reporting 1 here lit the wrong button.
+    return { from: today, to: today, today, yesterday, days: 0, span: 1, label: 'Today', custom: false };
   }
 
   // Everything else ends at yesterday, so a window is N complete days.
@@ -87,6 +95,7 @@ export function resolveRange(sp: SearchParams | undefined, fallbackDays = 60): R
     today,
     yesterday,
     days,
+    span: days,
     label: preset ? preset.label : `${days} days`,
     custom: false,
   };
