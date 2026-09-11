@@ -270,3 +270,49 @@ export function creativeTags(ct: string): string[] {
     .filter((p) => p && p.toLowerCase() !== 'unknown');
   return parts.length ? parts : ['unclassified'];
 }
+
+/* ── creative sentiment, read from the ad name ──────────────────────────── */
+
+/**
+ * Sentiment is encoded in the ad name at upload time — `_testimonial`,
+ * `_achievement` and so on. There is no stored sentiment column in this
+ * warehouse (the classify-sentiments workflow writes to a different store), so
+ * the name is the only source.
+ *
+ * Tokens are matched on word boundaries after punctuation is normalised, which
+ * stops "offer" matching inside a product name and keeps "sale" from colliding
+ * with "sale_block". An ad carrying two markers counts toward both: the
+ * question is which angles appear in winners, not which exact label was typed.
+ */
+export const SENTIMENTS: { key: string; tokens: string[] }[] = [
+  { key: 'Testimonial',    tokens: ['testimonial', 'review', 'reviews'] },
+  { key: 'Achievement',    tokens: ['achievement', 'achievements'] },
+  { key: 'Transformation', tokens: ['transformation', 'beforeafter', 'result', 'results'] },
+  { key: 'Desire',         tokens: ['desire', 'aspiration', 'aspirational'] },
+  { key: 'Benefit',        tokens: ['benefit', 'benefits', 'usp'] },
+  { key: 'Offer',          tokens: ['offer', 'offers', 'sale', 'loot', 'deal', 'discount'] },
+  { key: 'UGC',            tokens: ['ugc', 'creator', 'influencer'] },
+  { key: 'Unboxing',       tokens: ['unboxing', 'unbox'] },
+  { key: 'Problem',        tokens: ['problem', 'concern', 'issue'] },
+  { key: 'Demo',           tokens: ['demo', 'howto', 'tutorial'] },
+  { key: 'Story',          tokens: ['story', 'journey'] },
+];
+
+const TOKEN_TO_SENTIMENT = new Map<string, string>(
+  SENTIMENTS.flatMap((s) => s.tokens.map((t) => [t, s.key] as [string, string])),
+);
+
+/** Every sentiment marker in an ad name, or ['unmarked'] when there is none. */
+export function sentimentsOf(adName: string): string[] {
+  const tokens = (adName || '')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .split(' ')
+    .filter(Boolean);
+  const hits = new Set<string>();
+  for (const t of tokens) {
+    const s = TOKEN_TO_SENTIMENT.get(t);
+    if (s) hits.add(s);
+  }
+  return hits.size ? [...hits] : ['unmarked'];
+}
