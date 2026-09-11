@@ -6,7 +6,7 @@ import { BarList, ShareBar, SERIES } from '@/components/charts';
 import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, wilson, enough, concentration, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
-import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
+import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, Delta, lakh, rs, pct, num, type Col } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -38,9 +38,20 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
   // hourly snapshots, which are the only place a budget's live-or-closed state
   // exists. The snapshot is a state at a moment, so it is read for the last day
   // of the window rather than summed across it.
-  const [all, snap] = await Promise.all([
+  // The comparison period is the window immediately before this one, of the
+  // same length — so "Today" compares against yesterday, and a 7-day window
+  // against the 7 days before it. Comparing a 60-day window to a single day
+  // would be meaningless, and comparing to "yesterday" regardless of window
+  // length would silently change what the percentage means.
+  const DAY_MS = 86400000;
+  const prevTo = new Date(Date.parse(range.from) - DAY_MS).toISOString().slice(0, 10);
+  const prevFrom = new Date(Date.parse(prevTo) - (range.span - 1) * DAY_MS)
+    .toISOString().slice(0, 10);
+
+  const [all, snap, prevAll] = await Promise.all([
     campDays(range.from, range.to, scope.codes),
     closingOn(range.to, scope.codes).catch(() => null),
+    campDays(prevFrom, prevTo, scope.codes),
   ]);
   if (!all.length) {
     return (
@@ -89,6 +100,26 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
   const closedRoasOf = (k: string) => {
     const a = stateOf(k);
     return a && a.closedSpend > 0 ? a.closedRevenue / a.closedSpend : null;
+  };
+
+  // Same aggregation over the previous window, keyed by block.
+  const prevByBlock = new Map<string, { spend: number; rev: number; winners: number; runners: number }>();
+  for (const r of prevAll) {
+    const p = prevByBlock.get(r.saleBlock) ?? { spend: 0, rev: 0, winners: 0, runners: 0 };
+    p.spend += r.spend;
+    p.rev += r.revenue;
+    if (r.spend > 0) {
+      p.runners += 1;
+      if (r.roas >= 1) p.winners += 1;
+    }
+    prevByBlock.set(r.saleBlock, p);
+  }
+  /** Percentage change, or null when there is no base to divide by. */
+  const changeOf = (key: string, pick: (p: { spend: number; rev: number }) => number, now: number) => {
+    const p = prevByBlock.get(key);
+    if (!p) return null;
+    const before = pick(p);
+    return before > 0 ? ((now - before) / before) * 100 : null;
   };
 
   const fams = group((r) => familyOf(r.saleBlock)).filter((f) => f.spend > 0 || f.idle > 0);
@@ -159,9 +190,25 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
           {b.idle ? num(b.idle) : '–'}
         </span>
       ) },
-    { key: 's', head: 'Spend', align: 'r', render: (b) => rs(b.spend) },
+    { key: 's', head: 'Spend', align: 'r', render: (b) => {
+        const d = changeOf(b.key, (p) => p.spend, b.spend);
+        return (
+          <span className="whitespace-nowrap">
+            {rs(b.spend)}
+            {d != null && <span className="ml-1.5"><Delta v={d} tone="flat" /></span>}
+          </span>
+        );
+      } },
     { key: 'sh', head: '% of spend', align: 'r', render: (b) => pct(share(b.spend, totalSpend), 1) },
-    { key: 'v', head: 'Revenue', align: 'r', render: (b) => rs(b.rev) },
+    { key: 'v', head: 'Revenue', align: 'r', render: (b) => {
+        const d = changeOf(b.key, (p) => p.rev, b.rev);
+        return (
+          <span className="whitespace-nowrap">
+            {rs(b.rev)}
+            {d != null && <span className="ml-1.5"><Delta v={d} /></span>}
+          </span>
+        );
+      } },
     { key: 'al', head: 'Allocated', align: 'r', render: (b) => {
         const a = stateOf(b.key);
         return a ? rs(a.budget) : <span className="text-muted">–</span>;
@@ -184,14 +231,41 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
         const v = liveRoasOf(b.key);
         return v == null ? <span className="text-muted">–</span> : <Roas v={v} />;
       } },
-    { key: 'r', head: 'ROAS', align: 'r', render: (b) =>
-        b.spend > 0 ? <Roas v={roasOf(b.rev, b.spend)} /> : <span className="text-muted">never ran</span> },
-    { key: 'w', head: 'Clear 1.0', align: 'r', render: (b) =>
-        b.runners
-          ? <span title={`${b.winners} of ${b.runners} campaign-days that ran`}>
-              {pct(share(b.winners, b.runners))}
-            </span>
-          : <span className="text-muted">–</span> },
+    { key: 'r', head: 'ROAS', align: 'r', render: (b) => {
+        if (b.spend <= 0) return <span className="text-muted">never ran</span>;
+        const p = prevByBlock.get(b.key);
+        const before = p && p.spend > 0 ? p.rev / p.spend : null;
+        const now = roasOf(b.rev, b.spend);
+        return (
+          <span className="whitespace-nowrap">
+            <Roas v={now} />
+            {before != null && (
+              <span
+                className={`ml-1.5 text-[11px] ${
+                  now - before > 0.01 ? 'text-good' : now - before < -0.01 ? 'text-bad' : 'text-muted'
+                }`}
+                title={`was ${before.toFixed(2)} in the previous ${range.span} day(s)`}
+              >
+                {now - before > 0 ? '+' : ''}{(now - before).toFixed(2)}
+              </span>
+            )}
+          </span>
+        );
+      } },
+    { key: 'w', head: 'Clear 1.0', align: 'r', render: (b) => {
+        if (!b.runners) return <span className="text-muted">–</span>;
+        const p = prevByBlock.get(b.key);
+        const nowRate = share(b.winners, b.runners);
+        const beforeRate = p && p.runners ? (p.winners / p.runners) * 100 : null;
+        return (
+          <span className="whitespace-nowrap" title={`${b.winners} of ${b.runners} campaign-days that ran`}>
+            {pct(nowRate)}
+            {beforeRate != null && (
+              <span className="ml-1.5"><Delta v={nowRate - beforeRate} unit="pp" /></span>
+            )}
+          </span>
+        );
+      } },
     { key: 'l', head: 'Below 1.0', align: 'r', render: (b) => (
         <span className={share(b.losing, b.spend) >= 50 ? 'text-bad' : ''}>
           {pct(share(b.losing, b.spend))}
@@ -269,7 +343,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
 
       <Card
         title="Every sale block"
-        note={`all ${num(blocks.length)} seen in ${range.label.toLowerCase()} · allocated, closed and the two ROAS columns are the state on ${range.to}`}
+        note={`all ${num(blocks.length)} seen in ${range.label.toLowerCase()} · changes are vs ${prevFrom}${range.span > 1 ? ` → ${prevTo}` : ''} · allocated, closed and the two ROAS columns are the state on ${range.to}`}
       >
         <Table cols={cols} rows={blocks} footer={totalRow} />
       </Card>
@@ -288,6 +362,10 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
         still running. Spend and revenue either side of that split are the figures at the latest
         capture, so a campaign closed minutes ago still carries the spend it made. A dash means the
         block had no campaign in that day&apos;s snapshot at all.
+        {' '}Changes compare against the window immediately before this one, of the same length —
+        Today against yesterday, a 7-day window against the 7 days before it. A block with no
+        spend in that earlier window shows no change rather than an infinite one. Spend carries a
+        neutral arrow: spending more is neither good nor bad on its own.
       </Note>
     </Page>
   );
