@@ -8,11 +8,19 @@ import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+/**
+ * The table lists every block. This floor governs only which blocks are allowed
+ * to produce a FINDING — a block with two campaign-days can look perfect or
+ * catastrophic on one result, and saying so would be worse than saying nothing.
+ * Hiding those rows was the older behaviour and it concealed 103 of 194 blocks.
+ */
 const MIN_SPEND = 15000;
 
 type Blk = {
   key: string; camps: number; spend: number; rev: number;
   winners: number; runners: number; losing: number;
+  /** campaign-days where the block was on the book but never spent */
+  idle: number;
 };
 
 export default async function BlocksPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -20,43 +28,57 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
   const range = resolveRange(sp, 60);
   const scope = resolveScope(sp);
   const controls = <PageControls range={range} scope={scope} />;
-  const all = (await campDays(range.from, range.to, scope.codes)).filter((r) => r.spend > 0);
+  // Every campaign-day, including those that never spent: a block whose
+  // campaigns were all closed still existed, and leaving it out makes the
+  // audience list look smaller than the account actually is.
+  const all = await campDays(range.from, range.to, scope.codes);
   if (!all.length) {
     return (
       <Page title="Sales Blocks" subtitle={range.label} actions={controls}>
-        <Note kind="warn">No campaign-days with spend between {range.from} and {range.to}.</Note>
+        <Note kind="warn">No campaign-days between {range.from} and {range.to}.</Note>
       </Page>
     );
   }
+  const spentRows = all.filter((r) => r.spend > 0);
 
   function group(keyOf: (r: (typeof all)[number]) => string): Blk[] {
     const m = new Map<string, Blk>();
     for (const r of all) {
       const k = keyOf(r);
-      const b = m.get(k) ?? { key: k, camps: 0, spend: 0, rev: 0, winners: 0, runners: 0, losing: 0 };
+      const b = m.get(k) ?? {
+        key: k, camps: 0, spend: 0, rev: 0, winners: 0, runners: 0, losing: 0, idle: 0,
+      };
       b.camps += 1;
       b.spend += r.spend;
       b.rev += r.revenue;
-      b.runners += 1;
-      if (r.roas >= 1) b.winners += 1;
-      if (LOSING.includes(bandOf(r.roas))) b.losing += r.spend;
+      // Hit rate counts only days the block actually ran — a closed day is not
+      // a failed attempt, and folding it in would deflate every rate.
+      if (r.spend > 0) {
+        b.runners += 1;
+        if (r.roas >= 1) b.winners += 1;
+        if (LOSING.includes(bandOf(r.roas))) b.losing += r.spend;
+      } else {
+        b.idle += 1;
+      }
       m.set(k, b);
     }
     return [...m.values()].sort((x, y) => y.spend - x.spend);
   }
 
-  const fams = group((r) => familyOf(r.saleBlock));
-  const blocks = group((r) => r.saleBlock).filter((b) => b.spend >= MIN_SPEND);
-  const totalSpend = all.reduce((s, r) => s + r.spend, 0);
-  const totalRev = all.reduce((s, r) => s + r.revenue, 0);
+  const fams = group((r) => familyOf(r.saleBlock)).filter((f) => f.spend > 0 || f.idle > 0);
+  const blocks = group((r) => r.saleBlock);
+  const withSpend = blocks.filter((b) => b.spend > 0);
+  const rankable = blocks.filter((b) => b.spend >= MIN_SPEND);
+  const totalSpend = spentRows.reduce((s, r) => s + r.spend, 0);
+  const totalRev = spentRows.reduce((s, r) => s + r.revenue, 0);
 
-  const best = [...blocks].sort((a, b) => roasOf(b.rev, b.spend) - roasOf(a.rev, a.spend))[0];
-  const worst = [...blocks].sort((a, b) => roasOf(a.rev, a.spend) - roasOf(b.rev, b.spend))[0];
+  const best = [...rankable].sort((a, b) => roasOf(b.rev, b.spend) - roasOf(a.rev, a.spend))[0];
+  const worst = [...rankable].sort((a, b) => roasOf(a.rev, a.spend) - roasOf(b.rev, b.spend))[0];
 
   /* ── findings ─────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
 
-  const bigLosers = blocks
+  const bigLosers = rankable
     .filter((b) => b.spend >= MIN_SPEND * 3 && roasOf(b.rev, b.spend) < 0.8)
     .sort((a, b) => b.spend - a.spend);
   for (const b of bigLosers.slice(0, 2)) {
@@ -68,7 +90,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
     });
   }
 
-  const strong = blocks
+  const strong = rankable
     .filter((b) => enough(b.runners, 15) && roasOf(b.rev, b.spend) >= 1.5)
     .sort((a, b) => roasOf(b.rev, b.spend) - roasOf(a.rev, a.spend));
   if (strong.length) {
@@ -82,7 +104,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
     });
   }
 
-  const conc = concentration(blocks, (b) => b.spend);
+  const conc = concentration(rankable, (b) => b.spend);
   if (conc.top && conc.topShare >= 30) {
     const r = roasOf(conc.top.rev, conc.top.spend);
     findings.push({
@@ -92,7 +114,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
     });
   }
 
-  const thin = blocks.filter((b) => !enough(b.runners, 12) && roasOf(b.rev, b.spend) >= 2);
+  const thin = withSpend.filter((b) => !enough(b.runners, 12) && roasOf(b.rev, b.spend) >= 2);
   if (thin.length) {
     findings.push({
       severity: 'neutral',
@@ -106,15 +128,22 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
         <span className="block max-w-[360px] truncate" title={b.key}>{b.key}</span>
       ) },
     { key: 'n', head: 'Camp-days', align: 'r', render: (b) => num(b.camps) },
+    { key: 'id', head: 'Idle days', align: 'r', render: (b) => (
+        <span className={b.idle && !b.runners ? 'text-muted' : ''} title="on the book but never spent">
+          {b.idle ? num(b.idle) : '–'}
+        </span>
+      ) },
     { key: 's', head: 'Spend', align: 'r', render: (b) => rs(b.spend) },
     { key: 'sh', head: '% of spend', align: 'r', render: (b) => pct(share(b.spend, totalSpend), 1) },
     { key: 'v', head: 'Revenue', align: 'r', render: (b) => rs(b.rev) },
-    { key: 'r', head: 'ROAS', align: 'r', render: (b) => <Roas v={roasOf(b.rev, b.spend)} /> },
-    { key: 'w', head: 'Clear 1.0', align: 'r', render: (b) => (
-        <span title={`${b.winners} of ${b.runners} campaign-days`}>
-          {pct(share(b.winners, b.runners))}
-        </span>
-      ) },
+    { key: 'r', head: 'ROAS', align: 'r', render: (b) =>
+        b.spend > 0 ? <Roas v={roasOf(b.rev, b.spend)} /> : <span className="text-muted">never ran</span> },
+    { key: 'w', head: 'Clear 1.0', align: 'r', render: (b) =>
+        b.runners
+          ? <span title={`${b.winners} of ${b.runners} campaign-days that ran`}>
+              {pct(share(b.winners, b.runners))}
+            </span>
+          : <span className="text-muted">–</span> },
     { key: 'l', head: 'Below 1.0', align: 'r', render: (b) => (
         <span className={share(b.losing, b.spend) >= 50 ? 'text-bad' : ''}>
           {pct(share(b.losing, b.spend))}
@@ -124,8 +153,10 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
 
   const totalRow: Blk = {
     key: 'TOTAL', camps: all.length, spend: totalSpend, rev: totalRev,
-    winners: all.filter((r) => r.roas >= 1).length, runners: all.length,
-    losing: all.filter((r) => LOSING.includes(bandOf(r.roas))).reduce((s, r) => s + r.spend, 0),
+    winners: spentRows.filter((r) => r.roas >= 1).length,
+    runners: spentRows.length,
+    losing: spentRows.filter((r) => LOSING.includes(bandOf(r.roas))).reduce((s, r) => s + r.spend, 0),
+    idle: all.length - spentRows.length,
   };
 
   return (
@@ -135,7 +166,11 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
       actions={controls}
     >
       <Grid cols={4}>
-        <Stat label="Blocks carrying spend" value={num(blocks.length)} sub={`with at least ${rs(MIN_SPEND)} over the window`} />
+        <Stat
+          label="Sale blocks"
+          value={num(blocks.length)}
+          sub={`${num(withSpend.length)} spent · ${num(blocks.length - withSpend.length)} on the book but idle`}
+        />
         <Stat label="Blended ROAS" value={roasOf(totalRev, totalSpend).toFixed(3)} sub={`${lakh(totalSpend)} of spend`} />
         <Stat
           label="Best block"
@@ -184,15 +219,22 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
         </Card>
       </div>
 
-      <Card title="Every block carrying real spend" note={`spend ≥ ${rs(MIN_SPEND)} over ${range.label.toLowerCase()}`}>
+      <Card
+        title="Every sale block"
+        note={`all ${num(blocks.length)} seen in ${range.label.toLowerCase()}, including blocks whose campaigns never spent`}
+      >
         <Table cols={cols} rows={blocks} footer={totalRow} />
       </Card>
 
       <Note>
         A campaign-day is one campaign on one date, so a campaign running all fortnight counts
-        fourteen times — that is deliberate, since the question is how often a block delivers, not
-        how many campaigns exist. Blocks under {rs(MIN_SPEND)} are hidden: with a handful of
-        campaign-days a single good day swings the rate to 100% and reads as a discovery.
+        fourteen times — deliberate, since the question is how often a block delivers, not how many
+        campaigns exist. <b className="text-text-strong">Every block is listed</b>, including ones
+        whose campaigns sat closed all window; those show idle days and &ldquo;never ran&rdquo;
+        rather than being dropped. Hit rate counts only days a block actually spent, because a
+        closed day is not a failed attempt. The {rs(MIN_SPEND)} floor now governs only which blocks
+        the analysis will draw a conclusion from — on a couple of campaign-days a single result
+        swings the rate to 100% and reads as a discovery.
       </Note>
     </Page>
   );
