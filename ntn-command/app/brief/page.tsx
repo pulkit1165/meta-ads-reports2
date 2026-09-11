@@ -21,14 +21,25 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const scope = resolveScope(sp);
 
-  // The brief is about one day. Default to the newest day the ad-level table
-  // actually holds rather than assuming yesterday exists — the ad ingest runs
-  // on its own schedule and can lag the campaign one.
+  // The brief is about one day, and the default has to be the last COMPLETE
+  // one. Today is in the table from the first hour, but revenue is attributed
+  // later than spend, so defaulting to it would show a half-finished day as if
+  // it were final — sales reading a third of normal against full budgets.
   const available = await adDatesAvailable(120);
+  const today = istToday();
   const asked = Array.isArray(sp?.day) ? sp.day[0] : sp?.day;
-  const day = asked && available.includes(asked) ? asked : available[0];
+  const settled = available.filter((d) => d < today);
+  const day = asked && available.includes(asked)
+    ? asked
+    : (settled[0] ?? available[0]);
 
-  const controls = <PageControls scope={scope} dates={false} />;
+  // Ten days to choose from, with today kept as an explicit option rather than
+  // hidden — looking at it is legitimate as long as it is labelled partial.
+  const pickable = available.slice(0, 10);
+
+  const controls = (
+    <PageControls scope={scope} dates={false} days={pickable} day={day} today={today} />
+  );
 
   if (!day) {
     return (
@@ -46,14 +57,14 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   // something; every other section reports the single day.
   const fromISO = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
   const prevDay = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
-  const [today, history, finalRows, prevRows] = await Promise.all([
+  const [dayRows, history, finalRows, prevRows] = await Promise.all([
     adDays(day, day, scope.codes),
     adDays(fromISO, day, scope.codes),
     ydayFinal(day, scope.codes),
     ydayFinal(prevDay, scope.codes),
   ]);
 
-  if (!today.length) {
+  if (!dayRows.length) {
     return (
       <Page title="Yesterday's Brief" subtitle={`${day} · ${scope.label}`} actions={controls}>
         <Note kind="warn">No ad rows for {day} on {scope.label}.</Note>
@@ -61,7 +72,7 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
     );
   }
 
-  const spent = today.filter((r) => r.spend > 0);
+  const spent = dayRows.filter((r) => r.spend > 0);
   const totalSpend = spent.reduce((s, r) => s + r.spend, 0);
   const totalRev = spent.reduce((s, r) => s + r.revenue, 0);
 
@@ -329,7 +340,7 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   return (
     <Page
       title="Yesterday's Brief"
-      subtitle={`${day} · ${scope.label} · ad-level, built to the ADS PLANNER structure`}
+      subtitle={`${day}${day === today ? ' · today, still filling' : ''} · ${scope.label} · ad-level, built to the ADS PLANNER structure`}
       actions={controls}
     >
       <Card title={`Yesterday final · ${day}`} note="sales from Shopify, spend from Meta, budgets from the hourly snapshots">

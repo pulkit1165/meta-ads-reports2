@@ -185,3 +185,53 @@ export function SiteSwitch({ scope }: { scope: ScopeKey }) {
     </div>
   );
 }
+
+/* ── day picker ─────────────────────────────────────────────────────────── */
+
+/**
+ * Picks which day a single-day report is about. The choice lives in the URL as
+ * `?day=`, so every section on the page moves together and a link carries the
+ * day the sender was reading.
+ *
+ * Today is labelled as partial rather than hidden: it is legitimate to look at,
+ * but its revenue lags its spend all day, so a reader needs to be told.
+ */
+export function DayPicker({ days, value, today }: {
+  days: string[]; value: string; today: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [pending, start] = useTransition();
+
+  const pick = (d: string) => {
+    const next = new URLSearchParams(sp.toString());
+    next.set('day', d);
+    start(() => router.push(`${pathname}?${next.toString()}`, { scroll: false }));
+  };
+
+  const label = (d: string) => {
+    const dt = new Date(`${d}T00:00:00Z`);
+    const nice = dt.toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', weekday: 'short', timeZone: 'UTC',
+    });
+    return d === today ? `${nice} · today, partial` : nice;
+  };
+
+  return (
+    <label className={`flex items-center gap-1.5 rounded-lg border border-edge px-2 py-1 ${pending ? 'opacity-50' : ''}`}>
+      <span className="text-[10.5px] uppercase tracking-wider text-muted">Day</span>
+      <select
+        value={value}
+        onChange={(e) => pick(e.target.value)}
+        className="cursor-pointer bg-transparent text-[11.5px] text-text outline-none"
+      >
+        {days.map((d) => (
+          <option key={d} value={d} className="bg-panel text-text">
+            {label(d)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
