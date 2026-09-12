@@ -9,8 +9,12 @@ const DOT: Record<string, string> = {
   planned: 'bg-edge',
 };
 
-export default function Nav() {
+export default function Nav({ allowed }: { allowed?: string[] }) {
   const path = usePathname();
+  // A module the account cannot open is hidden rather than shown-and-blocked:
+  // a sidebar full of links that bounce you back is worse than a short one.
+  const visible = (slug: string) =>
+    !allowed || allowed.includes('*') || allowed.includes(slug);
   return (
     <nav className="hidden w-[212px] shrink-0 overflow-y-auto border-r border-edge bg-panel/40 p-4 sm:block">
       <Link href="/" className="mb-6 block px-1">
@@ -19,7 +23,7 @@ export default function Nav() {
       </Link>
 
       {SECTIONS.map((sec) => {
-        const mods = MODULES.filter((m) => m.section === sec.key);
+        const mods = MODULES.filter((m) => m.section === sec.key && visible(m.slug));
         if (!mods.length) return null;
         return (
           <div key={sec.key} className="mb-5">

@@ -23,7 +23,7 @@ export interface ModuleDef {
   source: string;
 }
 
-export type SectionKey = 'daily' | 'ads' | 'catalogue' | 'commerce' | 'customers' | 'intel';
+export type SectionKey = 'daily' | 'ads' | 'catalogue' | 'commerce' | 'customers' | 'intel' | 'admin';
 
 export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
   { key: 'daily', label: 'Daily', blurb: 'The morning read, saved every day' },
@@ -32,6 +32,7 @@ export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
   { key: 'commerce', label: 'Commerce', blurb: 'Orders as the shop actually took them' },
   { key: 'customers', label: 'Customers', blurb: 'Who buys, and who stopped' },
   { key: 'intel', label: 'Intelligence', blurb: 'Patterns across every module' },
+  { key: 'admin', label: 'Admin', blurb: 'Who can see what' },
 ];
 
 export const MODULES: ModuleDef[] = [
@@ -227,6 +228,17 @@ export const MODULES: ModuleDef[] = [
     status: 'live',
     question: 'What changed today that nobody asked about?',
     source: 'every module above',
+  },
+
+  // ── Admin ──────────────────────────────────────────────────────────────
+  {
+    slug: 'access',
+    label: 'Access',
+    hint: 'accounts and permissions',
+    section: 'admin',
+    status: 'live',
+    question: 'Who can sign in, and which modules can each of them open?',
+    source: 'dash_user',
   },
 ];
 

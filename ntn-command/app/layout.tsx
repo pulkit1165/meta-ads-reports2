@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Nav from '@/components/Nav';
+import { verifySession } from '@/lib/session-edge';
+import { SESSION_COOKIE } from '@/lib/auth-constants';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,7 +21,10 @@ if(t!=='light'&&t!=='cream'&&t!=='dark')t='dark';
 document.documentElement.setAttribute('data-theme',t);}catch(e){
 document.documentElement.setAttribute('data-theme','dark');}})();`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const jar = await cookies();
+  const session = await verifySession(jar.get(SESSION_COOKIE)?.value, process.env.AUTH_SECRET ?? '');
+  const allowed = session ? (session.r === 'admin' ? ['*'] : session.m) : undefined;
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
@@ -26,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-ink text-text antialiased">
         <div className="flex min-h-screen">
-          <Nav />
+          <Nav allowed={allowed} />
           <main className="min-w-0 flex-1">{children}</main>
         </div>
       </body>
