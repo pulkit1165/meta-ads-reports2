@@ -105,6 +105,15 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_campaign_snapshot + meta_analysis_campaign_daily',
   },
   {
+    slug: 'closing-log',
+    label: 'Closing Log',
+    hint: 'every cut, timed, bot or manual',
+    section: 'ads',
+    status: 'live',
+    question: 'What was closed, at what time, at what burn, and by the bot or a person?',
+    source: 'meta_campaign_snapshot status flips + bot_pause_event',
+  },
+  {
     slug: 'blocks',
     label: 'Sales Blocks',
     hint: 'audience performance & closure',
