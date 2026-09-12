@@ -3,9 +3,11 @@ import {
   type AdRow, type Perf,
 } from '@/lib/brief';
 import { ydayFinal, totalRow, chg, type YdayRow } from '@/lib/yday';
+import { changesOn, tally, sentimentsFor, typesFor } from '@/lib/changes';
 import { roasOf, share, PORTAL_NAME } from '@/lib/ads';
 import { resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, type Finding } from '@/lib/insights';
+import { BarList, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, Delta, lakh, rs, pct, num, type Col,
@@ -57,11 +59,12 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   // something; every other section reports the single day.
   const fromISO = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
   const prevDay = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
-  const [dayRows, history, finalRows, prevRows] = await Promise.all([
+  const [dayRows, history, finalRows, prevRows, changes] = await Promise.all([
     adDays(day, day, scope.codes),
     adDays(fromISO, day, scope.codes),
     ydayFinal(day, scope.codes),
     ydayFinal(prevDay, scope.codes),
+    changesOn(day, scope.codes),
   ]);
 
   if (!dayRows.length) {
@@ -227,6 +230,23 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
       } },
   ];
 
+
+  /* ── what changed on the ads today ────────────────────────────────────── */
+  const freshCreatives = changes.newCreatives.filter((c) => !c.intoExisting);
+  const refreshCreatives = changes.newCreatives.filter((c) => c.intoExisting);
+  const newCampBudget = changes.newCampaigns.reduce((s2, c) => s2 + c.budget, 0);
+  const newCampSpend = changes.newCampaigns.reduce((s2, c) => s2 + c.spend, 0);
+  const newCampRev = changes.newCampaigns.reduce((s2, c) => s2 + c.revenue, 0);
+  const raises = changes.budgetMoves.filter((m) => m.delta > 0);
+  const cuts = changes.budgetMoves.filter((m) => m.delta < 0);
+  const raised = raises.reduce((s2, m) => s2 + m.delta, 0);
+  const cutAmt = cuts.reduce((s2, m) => s2 + Math.abs(m.delta), 0);
+  const reactBudget = changes.reactivations.reduce((s2, r) => s2 + r.budget, 0);
+
+  const newBlocks = tally(changes.newCampaigns, (c) => [c.saleBlock]);
+  const newTypes = tally(changes.newCreatives, typesFor);
+  const newSentiments = tally(changes.newCreatives, sentimentsFor);
+
   /* ── findings ─────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
   const topProd = products[0];
@@ -354,6 +374,113 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
 
       <Card title={`Vs ${prevDay}`} note="day over day">
         <Table cols={vsCols} rows={finals} />
+      </Card>
+
+      <Card title={`What changed on ${day}`} note="new is defined by first spend, not by when something was created">
+        <Grid cols={4}>
+          <Stat
+            label="New campaigns"
+            value={num(changes.newCampaigns.length)}
+            sub={changes.newCampaigns.length
+              ? `${rs(newCampBudget)} of budget · spent ${rs(newCampSpend)} at ${newCampSpend > 0 ? (newCampRev / newCampSpend).toFixed(2) : '0.00'}`
+              : 'nothing launched'}
+          />
+          <Stat
+            label="New creatives"
+            value={num(changes.newCreatives.length)}
+            sub={`${num(freshCreatives.length)} in new campaigns · ${num(refreshCreatives.length)} added to existing`}
+          />
+          <Stat
+            label="Budget moved"
+            value={raised || cutAmt ? `${raised ? '+' : ''}${rs(raised - cutAmt)}` : 'none'}
+            sub={raised || cutAmt
+              ? `${num(raises.length)} raised, ${num(cuts.length)} cut`
+              : 'no existing campaign had its budget edited'}
+          />
+          <Stat
+            label="Reactivated"
+            value={num(changes.reactivations.length)}
+            sub={changes.reactivations.length ? `${rs(reactBudget)} of budget back on` : 'none came back'}
+          />
+        </Grid>
+
+        {changes.newProducts.length > 0 && (
+          <div className="mt-4">
+            <Note kind="warn">
+              <b className="text-warn">New product{changes.newProducts.length > 1 ? 's' : ''} on ads today:</b>{' '}
+              {changes.newProducts.map((p) => (
+                `${p.product} (${p.camps} camp${p.camps > 1 ? 's' : ''}, ${rs(p.spend)} at ${p.spend > 0 ? (p.revenue / p.spend).toFixed(2) : '0.00'} ROAS)`
+              )).join(' · ')}
+            </Note>
+          </div>
+        )}
+
+        {(changes.newCampaigns.length > 0 || changes.newCreatives.length > 0) && (
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div>
+              <div className="mb-1.5 text-[10.5px] uppercase tracking-wider text-muted">
+                Sale blocks that got the new campaigns
+              </div>
+              {newBlocks.length ? (
+                <BarList
+                  fmt={num}
+                  rows={newBlocks.slice(0, 8).map((x, i) => ({
+                    label: x.key, value: x.count,
+                    sub: pct((x.count / changes.newCampaigns.length) * 100),
+                    color: SERIES[i % SERIES.length],
+                  }))}
+                />
+              ) : <p className="text-[12px] text-muted">No new campaigns.</p>}
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10.5px] uppercase tracking-wider text-muted">
+                Creative type of the new creatives
+              </div>
+              {newTypes.length ? (
+                <BarList
+                  fmt={num}
+                  rows={newTypes.slice(0, 8).map((x, i) => ({
+                    label: x.key, value: x.count,
+                    sub: pct((x.count / changes.newCreatives.length) * 100),
+                    color: SERIES[i % SERIES.length],
+                  }))}
+                />
+              ) : <p className="text-[12px] text-muted">No new creatives.</p>}
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10.5px] uppercase tracking-wider text-muted">
+                Sentiment of the new creatives
+              </div>
+              {newSentiments.length ? (
+                <BarList
+                  fmt={num}
+                  rows={newSentiments.slice(0, 8).map((x) => ({
+                    label: x.key, value: x.count,
+                    sub: pct((x.count / changes.newCreatives.length) * 100),
+                    color: x.key === 'unmarked' ? '#5a6472' : '#1baf7a',
+                  }))}
+                />
+              ) : <p className="text-[12px] text-muted">No new creatives.</p>}
+            </div>
+          </div>
+        )}
+
+        {changes.reactivations.length > 0 && (
+          <p className="mt-4 text-[11.5px] leading-relaxed text-muted">
+            <b className="text-text-strong">Reactivated:</b>{' '}
+            {changes.reactivations.slice(0, 5).map((r) =>
+              `${r.product} — ${r.campaignName.slice(0, 34)} (${r.gapDays}d gap, ${rs(r.budget)})`
+            ).join(' · ')}
+          </p>
+        )}
+
+        <p className="mt-4 text-[11.5px] leading-relaxed text-muted">
+          &ldquo;New&rdquo; means <b className="text-text-strong">first spend</b>, not creation
+          time — a campaign built last week and switched on today started costing money today, and
+          creation time would both count things only drafted and miss things revived. A creative
+          landing in a campaign that already existed is a refresh, not a launch, and is counted
+          separately.
+        </p>
       </Card>
 
       <Grid cols={4}>

@@ -316,3 +316,79 @@ export function sentimentsOf(adName: string): string[] {
   }
   return hits.size ? [...hits] : ['unmarked'];
 }
+
+/* ── closing history ────────────────────────────────────────────────────── */
+
+export interface ClosingDay {
+  date: string;
+  allocated: number;
+  closed: number;
+  camps: number;
+  closedCamps: number;
+  spend: number;
+  revenue: number;
+  closedSpend: number;
+  closedRevenue: number;
+}
+
+/**
+ * Closed share per day, from the camp_day_state rollup.
+ *
+ * "Allocated" counts only campaigns that were ACTIVE at some point that day —
+ * a campaign already off at midnight had budget on paper but was never part of
+ * that day's book, and folding it in understates the closed share by roughly a
+ * third. Today is recomputed live because the rollup refreshes daily.
+ */
+export async function closingHistory(
+  from: string,
+  to: string,
+  portals: readonly string[] = PORTALS,
+): Promise<ClosingDay[]> {
+  const rows = await q(
+    `WITH today_state AS (
+       SELECT (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date AS d, campaign_id,
+              MAX(daily_budget) AS budget,
+              BOOL_OR(effective_status = 'ACTIVE') AS ever_active,
+              (ARRAY_AGG(effective_status ORDER BY snapshot_at DESC))[1] <> 'ACTIVE' AS closed_at_eod
+         FROM meta_campaign_snapshot
+        WHERE snapshot_at >= ((NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '5 hours 30 minutes')
+        GROUP BY 1, 2
+     ),
+     state AS (
+       SELECT d, campaign_id, budget, ever_active, closed_at_eod FROM camp_day_state
+        WHERE d BETWEEN $1::date AND $2::date AND d < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+       UNION ALL
+       SELECT d, campaign_id, budget, ever_active, closed_at_eod FROM today_state
+        WHERE d BETWEEN $1::date AND $2::date
+     ),
+     perf AS (
+       SELECT date, campaign_id, spend, revenue
+         FROM meta_analysis_campaign_daily
+        WHERE date BETWEEN $1::date AND $2::date AND portal = ANY($3)
+     )
+     SELECT p.date::text AS date,
+            COUNT(*)                                            AS camps,
+            SUM(s.budget) FILTER (WHERE s.ever_active)          AS allocated,
+            SUM(s.budget) FILTER (WHERE s.ever_active AND s.closed_at_eod) AS closed,
+            COUNT(*)      FILTER (WHERE s.ever_active AND s.closed_at_eod) AS closed_camps,
+            SUM(p.spend)                                        AS spend,
+            SUM(p.revenue)                                      AS revenue,
+            SUM(p.spend)   FILTER (WHERE s.closed_at_eod)       AS closed_spend,
+            SUM(p.revenue) FILTER (WHERE s.closed_at_eod)       AS closed_revenue
+       FROM perf p
+       JOIN state s ON s.d = p.date AND s.campaign_id = p.campaign_id
+      GROUP BY 1 ORDER BY 1`,
+    [from, to, portals as string[]],
+  );
+  return rows.map((r) => ({
+    date: String(r.date),
+    allocated: n(r.allocated),
+    closed: n(r.closed),
+    camps: n(r.camps),
+    closedCamps: n(r.closed_camps),
+    spend: n(r.spend),
+    revenue: n(r.revenue),
+    closedSpend: n(r.closed_spend),
+    closedRevenue: n(r.closed_revenue),
+  }));
+}

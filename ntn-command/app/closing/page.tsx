@@ -1,10 +1,10 @@
 import {
-  closingOn, groupStates, familyOf, roasOf, share,
+  closingOn, closingHistory, groupStates, familyOf, roasOf, share,
   PORTAL_NAME, PORTALS, bandOf,
 } from '@/lib/ads';
 import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, concentration, type Finding } from '@/lib/insights';
-import { ROAS_BANDS, BarList, ShareBar } from '@/components/charts';
+import { ROAS_BANDS, BarList, ShareBar, Line } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col,
@@ -26,7 +26,14 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   // Closing is a state, not a window: it reads one day's snapshot. The picker
   // chooses which day, and `to` is the end of whatever window was selected.
   const day = range.to;
-  const snap = await closingOn(day, scope.codes);
+  // 30 days of history regardless of the chosen day, so the trend is readable
+  // even when the picker is on a single day.
+  const HIST = 30;
+  const histFrom = new Date(Date.parse(day) - (HIST - 1) * 86400000).toISOString().slice(0, 10);
+  const [snap, history] = await Promise.all([
+    closingOn(day, scope.codes),
+    closingHistory(histFrom, day, scope.codes).catch(() => []),
+  ]);
   const rows = snap.rows;
 
   const controls = <PageControls range={range} scope={scope} />;
@@ -204,6 +211,56 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
           />
         </Card>
       </div>
+
+      {history.length > 1 && (
+        <>
+          <Card title="Closed share, day by day" note={`last ${history.length} days · % of that day's allocated budget switched off`}>
+            <Line
+              fmt={(v) => `${v.toFixed(0)}%`}
+              categories={history.map((h) => h.date.slice(8) + '/' + h.date.slice(5, 7))}
+              series={[{
+                label: 'Closed % of allocated',
+                color: '#eb6834',
+                values: history.map((h) => (h.allocated > 0 ? (h.closed / h.allocated) * 100 : null)),
+              }]}
+              baseline={{
+                value: history.reduce((a, h) => a + (h.allocated > 0 ? (h.closed / h.allocated) * 100 : 0), 0) / history.length,
+                label: 'average',
+              }}
+            />
+          </Card>
+
+          <Card title="Every day" note="allocated counts only campaigns that were active at some point that day">
+            <Table
+              cols={[
+                { key: 'd', head: 'Day', align: 'l', render: (h: (typeof history)[number]) => (
+                    <span className={h.date === day ? 'text-gold' : ''}>
+                      {h.date.slice(8) + '/' + h.date.slice(5, 7)}
+                    </span>
+                  ) },
+                { key: 'c', head: 'Camps', align: 'r', render: (h: (typeof history)[number]) => num(h.camps) },
+                { key: 'a', head: 'Allocated', align: 'r', render: (h: (typeof history)[number]) => rs(h.allocated) },
+                { key: 'x', head: 'Closed', align: 'r', render: (h: (typeof history)[number]) => rs(h.closed) },
+                { key: 'p', head: 'Closed %', align: 'r', render: (h: (typeof history)[number]) => (
+                    <span className={share(h.closed, h.allocated) >= 60 ? 'text-warn' : ''}>
+                      {pct(share(h.closed, h.allocated))}
+                    </span>
+                  ) },
+                { key: 'n', head: 'Camps cut', align: 'r', render: (h: (typeof history)[number]) => num(h.closedCamps) },
+                { key: 's', head: 'Spend', align: 'r', render: (h: (typeof history)[number]) => rs(h.spend) },
+                { key: 'cs', head: 'Spent before cut', align: 'r', render: (h: (typeof history)[number]) => rs(h.closedSpend) },
+                { key: 'cr', head: 'ROAS at cut', align: 'r', render: (h: (typeof history)[number]) =>
+                    h.closedSpend > 0
+                      ? <Roas v={roasOf(h.closedRevenue, h.closedSpend)} />
+                      : <span className="text-muted">–</span> },
+                { key: 'r', head: 'Day ROAS', align: 'r', render: (h: (typeof history)[number]) =>
+                    <Roas v={roasOf(h.revenue, h.spend)} /> },
+              ]}
+              rows={[...history].reverse()}
+            />
+          </Card>
+        </>
+      )}
 
       <Card title="By exact sale block" note="allocated ≥ Rs 20,000">
         <Table cols={cols} rows={byBlock as Row[]} footer={total} />
