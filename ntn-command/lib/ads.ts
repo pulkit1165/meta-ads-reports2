@@ -392,3 +392,166 @@ export async function closingHistory(
     closedRevenue: n(r.closed_revenue),
   }));
 }
+
+/* ── yesterday, at the same hour ────────────────────────────────────────── */
+
+export interface AgedState extends CampState {
+  /** 1 on the first day the campaign ever spent. */
+  dayNo: number;
+}
+
+export interface ClosingCompare {
+  day: string;
+  prev: string;
+  /** IST clock time of the snapshot each side was read at. */
+  cutIST: string;
+  prevCutIST: string;
+  now: AgedState[];
+  was: AgedState[];
+}
+
+/**
+ * The same closing state on two days, read at the same time of day.
+ *
+ * The hour is the whole point. Today is half-finished: by 14:00 the ladder has
+ * made a fraction of the cuts it will make by midnight, so holding today's
+ * closed share against yesterday's FINAL closed share always says "we are
+ * closing less", whatever actually happened. Yesterday is therefore read at
+ * whatever clock time today's newest snapshot sits at, and the two are then
+ * directly comparable.
+ *
+ * When the chosen day is already settled, its newest snapshot is near midnight
+ * and the same rule quietly becomes a full-day against full-day comparison —
+ * no special case needed.
+ */
+export async function closingCompare(
+  day: string,
+  prev: string,
+  portals: readonly string[] = PORTALS,
+): Promise<ClosingCompare> {
+  const rows = await q(
+    `WITH day_cut AS (
+       SELECT MAX(snapshot_at) AS ts FROM meta_campaign_snapshot
+        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+     ),
+     prev_cut AS (
+       SELECT MAX(snapshot_at) AS ts FROM meta_campaign_snapshot
+        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
+          AND (snapshot_at AT TIME ZONE 'Asia/Kolkata')::time
+              <= (SELECT (ts AT TIME ZONE 'Asia/Kolkata')::time FROM day_cut)
+     ),
+     bounds AS (
+       SELECT $1::date AS d, ts FROM day_cut
+       UNION ALL
+       SELECT $2::date, ts FROM prev_cut
+     ),
+     snap AS (
+       SELECT b.d, b.ts, s.campaign_id, s.campaign_name, s.daily_budget,
+              s.spend_today, s.revenue_today,
+              (s.effective_status <> 'ACTIVE') AS closed
+         FROM bounds b JOIN meta_campaign_snapshot s ON s.snapshot_at = b.ts
+     ),
+     -- Active at any point that day UP TO the cut. A campaign switched on at
+     -- 15:00 is not part of the 14:00 book and must not dilute either side.
+     ever AS (
+       SELECT b.d, s.campaign_id
+         FROM bounds b
+         JOIN meta_campaign_snapshot s
+           ON (s.snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = b.d
+          AND s.snapshot_at <= b.ts
+        WHERE s.effective_status = 'ACTIVE'
+        GROUP BY 1, 2
+     ),
+     first_spend AS (
+       SELECT campaign_id, MIN(date) AS fd
+         FROM meta_analysis_campaign_daily WHERE spend > 0 GROUP BY 1
+     ),
+     dims AS (
+       SELECT DISTINCT ON (date, campaign_id)
+              date AS d, campaign_id, portal,
+              COALESCE(NULLIF(sale_block, ''), 'Loose')      AS sale_block,
+              COALESCE(NULLIF(creative_type, ''), 'unknown') AS creative_type
+         FROM meta_analysis_campaign_daily
+        WHERE date IN ($1::date, $2::date) AND portal = ANY($3)
+     )
+     SELECT s.d::text AS d, s.campaign_id, s.campaign_name, x.portal,
+            x.sale_block, x.creative_type, s.daily_budget, s.spend_today,
+            s.revenue_today, s.closed,
+            COALESCE((s.d - f.fd) + 1, 1) AS day_no,
+            to_char(s.ts AT TIME ZONE 'Asia/Kolkata', 'HH24:MI') AS cut
+       FROM snap s
+       JOIN ever e ON e.d = s.d AND e.campaign_id = s.campaign_id
+       JOIN dims x ON x.d = s.d AND x.campaign_id = s.campaign_id
+       LEFT JOIN first_spend f ON f.campaign_id = s.campaign_id`,
+    [day, prev, portals as string[]],
+  );
+
+  const map = (r: Record<string, unknown>): AgedState => ({
+    portal: String(r.portal),
+    campaignId: String(r.campaign_id),
+    campaignName: String(r.campaign_name ?? ''),
+    saleBlock: String(r.sale_block),
+    creativeType: String(r.creative_type),
+    budget: n(r.daily_budget),
+    spend: n(r.spend_today),
+    revenue: n(r.revenue_today),
+    closed: Boolean(r.closed),
+    dayNo: n(r.day_no),
+  });
+
+  const nowRows = rows.filter((r) => r.d === day);
+  const wasRows = rows.filter((r) => r.d === prev);
+  return {
+    day, prev,
+    cutIST: String(nowRows[0]?.cut ?? '—'),
+    prevCutIST: String(wasRows[0]?.cut ?? '—'),
+    now: nowRows.map(map),
+    was: wasRows.map(map),
+  };
+}
+
+/** Age bands, matching the portfolio module's vocabulary. */
+export const AGE_BANDS = ['Day 1', 'Day 2-3', 'Day 4-7', 'Day 8+'] as const;
+
+export function ageBand(dayNo: number): string {
+  if (dayNo <= 1) return 'Day 1';
+  if (dayNo <= 3) return 'Day 2-3';
+  if (dayNo <= 7) return 'Day 4-7';
+  return 'Day 8+';
+}
+
+export interface CmpAgg {
+  key: string;
+  now: Agg;
+  was: Agg;
+  /** now − was, in rupees of budget switched off */
+  dClosed: number;
+  /** now − was, in percentage POINTS of closed share */
+  dPoints: number;
+}
+
+/**
+ * One row per key with both days side by side.
+ *
+ * A key present on only one day still gets a row, against an empty aggregate —
+ * a block that was not touched yesterday and is being cut hard today is exactly
+ * the thing worth seeing, and an inner join would hide it.
+ */
+export function compareStates<T extends CampState>(
+  now: T[], was: T[], keyOf: (r: T) => string,
+): CmpAgg[] {
+  const a = new Map(groupStates(now, keyOf).map((g) => [g.key, g]));
+  const b = new Map(groupStates(was, keyOf).map((g) => [g.key, g]));
+  const keys = new Set([...a.keys(), ...b.keys()]);
+  return [...keys]
+    .map((k) => {
+      const nowAgg = a.get(k) ?? emptyAgg(k);
+      const wasAgg = b.get(k) ?? emptyAgg(k);
+      return {
+        key: k, now: nowAgg, was: wasAgg,
+        dClosed: nowAgg.closed - wasAgg.closed,
+        dPoints: share(nowAgg.closed, nowAgg.budget) - share(wasAgg.closed, wasAgg.budget),
+      };
+    })
+    .sort((x, y) => Math.abs(y.dClosed) - Math.abs(x.dClosed));
+}

@@ -1,6 +1,7 @@
 import {
-  closingOn, closingHistory, groupStates, familyOf, roasOf, share,
-  PORTAL_NAME, PORTALS, bandOf,
+  closingOn, closingHistory, closingCompare, compareStates, groupStates, familyOf,
+  roasOf, share, ageBand, AGE_BANDS, creativeTags,
+  PORTAL_NAME, PORTALS, bandOf, type CmpAgg, type AgedState,
 } from '@/lib/ads';
 import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, concentration, type Finding } from '@/lib/insights';
@@ -30,9 +31,13 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   // even when the picker is on a single day.
   const HIST = 30;
   const histFrom = new Date(Date.parse(day) - (HIST - 1) * 86400000).toISOString().slice(0, 10);
-  const [snap, history] = await Promise.all([
+  // The day before the one on screen, read at the same clock time — see
+  // closingCompare for why the hour matters so much on a live day.
+  const prev = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
+  const [snap, history, cmp] = await Promise.all([
     closingOn(day, scope.codes),
     closingHistory(histFrom, day, scope.codes).catch(() => []),
+    closingCompare(day, prev, scope.codes).catch(() => null),
   ]);
   const rows = snap.rows;
 
@@ -72,9 +77,55 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   // different rule, and that is worth knowing about.
   const aboveLadder = ['b5', 'b6', 'b7'].reduce((s, b) => s + (bandTotals.get(b) ?? 0), 0);
 
+  /* ── the same book yesterday, at the same hour ────────────────────────── */
+  // A campaign using two creative styles is counted under both: the question is
+  // which styles are being cut, not which exact combination. Read the share
+  // column, not the total — the rupee column deliberately does not sum.
+  const tagged = (rows: AgedState[]) =>
+    rows.flatMap((r) => creativeTags(r.creativeType).map((t) => ({ ...r, tag: t })));
+
+  const all = cmp ? compareStates(cmp.now, cmp.was, () => 'ALL')[0] : null;
+  const byAge = cmp
+    ? compareStates(cmp.now, cmp.was, (r) => ageBand(r.dayNo))
+        .sort((a, b) => AGE_BANDS.indexOf(a.key as (typeof AGE_BANDS)[number])
+                      - AGE_BANDS.indexOf(b.key as (typeof AGE_BANDS)[number]))
+    : [];
+  const cmpPortal = cmp ? compareStates(cmp.now, cmp.was, (r) => r.portal) : [];
+  const cmpType = cmp
+    ? compareStates(tagged(cmp.now), tagged(cmp.was), (r) => r.tag)
+        .filter((c) => c.now.budget + c.was.budget >= 20000)
+    : [];
+  const cmpBlock = cmp
+    ? compareStates(cmp.now, cmp.was, (r) => r.saleBlock)
+        .filter((c) => Math.abs(c.dClosed) >= 5000).slice(0, 12)
+    : [];
+
+  const chg = (now: number, was: number) => (was > 0 ? ((now - was) / was) * 100 : 0);
+  const prevLabel = prev.slice(8) + '/' + prev.slice(5, 7);
+
   /* ── findings ─────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
   const closedPct = pctOf(closedBudget, alloc);
+
+  if (all && all.was.budget > 0) {
+    const harder = all.dPoints > 0;
+    const worst = [...byAge].sort((a, b) => b.dPoints - a.dPoints)[0];
+    findings.push({
+      severity: Math.abs(all.dPoints) >= 10 ? 'watch' : 'neutral',
+      headline: harder
+        ? `Closing ${Math.abs(all.dPoints).toFixed(0)} points harder than ${cmp!.prev} at this hour`
+        : Math.abs(all.dPoints) < 1
+          ? `Closing at the same rate as ${cmp!.prev}`
+          : `Closing ${Math.abs(all.dPoints).toFixed(0)} points lighter than ${cmp!.prev} at this hour`,
+      detail: `${money(all.now.closed)} off against ${money(all.was.closed)} — ${all.now.closedCamps} campaigns cut against ${all.was.closedCamps}, on a book of ${money(all.now.budget)} against ${money(all.was.budget)}.`
+        + (worst && worst.dPoints > 5
+            ? ` The move is concentrated in ${worst.key}: ${pct(share(worst.now.closed, worst.now.budget))} closed against ${pct(share(worst.was.closed, worst.was.budget))}.`
+            : ''),
+      action: harder && all.dPoints >= 10
+        ? 'Both sides are read at the same clock time, so this is a real change in the book rather than the day being younger. Check whether what launched today is worse, or the ladder is simply reaching more of it.'
+        : undefined,
+    });
+  }
 
   if (closedPct >= 55) {
     findings.push({
@@ -154,6 +205,51 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
           : <span className="text-muted">–</span> },
   ];
 
+  const dayLabel = day.slice(8) + '/' + day.slice(5, 7);
+
+  /** One comparison table shape, reused for every cut of the same data. */
+  const cmpCols = (head: string, wide = false): Col<CmpAgg>[] => [
+    { key: 'k', head, align: 'l', render: (c) => (
+        <span className={wide ? 'block max-w-[300px] truncate' : ''} title={c.key}>
+          {PORTAL_NAME[c.key] ?? c.key}
+        </span>
+      ) },
+    { key: 'a', head: 'Allocated', align: 'r', render: (c) => rs(c.now.budget) },
+    { key: 'cy', head: `Closed ${prevLabel}`, align: 'r', render: (c) => (
+        <span className="text-muted">{rs(c.was.closed)}</span>
+      ) },
+    { key: 'ct', head: `Closed ${dayLabel}`, align: 'r', render: (c) => rs(c.now.closed) },
+    { key: 'd', head: 'Change', align: 'r', render: (c) => (
+        <span className={Math.abs(c.dClosed) < 1 ? 'text-muted' : c.dClosed > 0 ? 'text-warn' : 'text-good'}>
+          {c.dClosed > 0 ? '+' : c.dClosed < 0 ? '−' : ''}{rs(Math.abs(c.dClosed))}
+        </span>
+      ) },
+    { key: 'py', head: `% ${prevLabel}`, align: 'r', render: (c) => (
+        <span className="text-muted">{pct(share(c.was.closed, c.was.budget))}</span>
+      ) },
+    { key: 'pt', head: `% ${dayLabel}`, align: 'r', render: (c) => (
+        <span className={share(c.now.closed, c.now.budget) >= 75 ? 'text-warn' : ''}>
+          {pct(share(c.now.closed, c.now.budget))}
+        </span>
+      ) },
+    { key: 'dp', head: 'Points', align: 'r', render: (c) => (
+        <span className={Math.abs(c.dPoints) < 0.5 ? 'text-muted' : c.dPoints > 0 ? 'text-warn' : 'text-good'}>
+          {c.dPoints > 0 ? '+' : c.dPoints < 0 ? '−' : ''}{Math.abs(c.dPoints).toFixed(1)}pp
+        </span>
+      ) },
+    { key: 'n', head: 'Camps cut', align: 'r', render: (c) => (
+        <span className="tabular-nums">
+          <span className="text-muted">{num(c.was.closedCamps)}</span>
+          <span className="text-muted/60"> → </span>
+          {num(c.now.closedCamps)}
+        </span>
+      ) },
+    { key: 'r', head: 'ROAS at cut', align: 'r', render: (c) =>
+        c.now.closedSpend > 0
+          ? <Roas v={roasOf(c.now.closedRevenue, c.now.closedSpend)} />
+          : <span className="text-muted">–</span> },
+  ];
+
   const total: Row = {
     key: 'TOTAL', camps: rows.length, budget: alloc, closed: closedBudget,
     closedCamps: closedRows.length, closedSpend, closedRevenue: closedRev,
@@ -166,17 +262,76 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
       actions={controls}
     >
       <Grid cols={4}>
-        <Stat label="Allocated" value={lakh(alloc)} sub={`${rows.length} campaigns that ran`} />
-        <Stat label="Closed" value={lakh(closedBudget)} sub={`${closedRows.length} campaigns switched off`} />
-        <Stat label="Closed share" value={pct(closedPct)} sub="of the book that actually ran" />
+        <Stat
+          label="Allocated"
+          value={lakh(alloc)}
+          sub={`${rows.length} campaigns that ran`}
+          delta={all ? chg(all.now.budget, all.was.budget) : null}
+          tone="flat"
+        />
+        <Stat
+          label="Closed"
+          value={lakh(closedBudget)}
+          sub={`${closedRows.length} campaigns switched off${all ? ` · ${all.was.closedCamps} by this hour ${prevLabel}` : ''}`}
+          delta={all ? chg(all.now.closed, all.was.closed) : null}
+          tone="flat"
+        />
+        <Stat
+          label="Closed share"
+          value={pct(closedPct)}
+          sub={all ? `${pct(share(all.was.closed, all.was.budget))} ${prevLabel} at ${cmp!.prevCutIST}` : 'of the book that actually ran'}
+          delta={all ? all.dPoints : null}
+          tone="flat"
+          unit="pp"
+        />
         <Stat
           label="Spent before the cut"
           value={lakh(closedSpend)}
           sub={`at ${roasOf(closedRev, closedSpend).toFixed(2)} ROAS · still-live is at ${roasOf(liveRev, liveSpend).toFixed(2)}`}
+          delta={all ? chg(all.now.closedSpend, all.was.closedSpend) : null}
+          tone="flat"
         />
       </Grid>
 
       <Analysis findings={rank(findings)} basis={`${day}, ${rows.length} campaigns`} />
+
+      {cmp && all && all.was.budget > 0 && (
+        <>
+          <Card
+            title={`Which day window is being cut`}
+            note={`${dayLabel} at ${cmp.cutIST} against ${prevLabel} at ${cmp.prevCutIST} — the same point in the day, so a half-finished day is not being held against a finished one. Age counts from the first day a campaign spent.`}
+          >
+            <Table
+              cols={cmpCols('Day window')}
+              rows={byAge}
+              footer={{ ...all, key: 'TOTAL' }}
+            />
+          </Card>
+
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <Card title="By portal" note="same two moments, split by store">
+              <Table cols={cmpCols('Portal')} rows={cmpPortal} />
+            </Card>
+            <Card
+              title="By creative style"
+              note="a campaign using two styles counts under both, so the rupee column does not sum — read the share"
+            >
+              <Table cols={cmpCols('Style')} rows={cmpType} empty="No style carries Rs 20,000 across the two days." />
+            </Card>
+          </div>
+
+          <Card
+            title="Blocks where closing moved most"
+            note="change of at least Rs 5,000 in budget switched off, largest move first"
+          >
+            <Table
+              cols={cmpCols('Sale block', true)}
+              rows={cmpBlock}
+              empty="No block moved by Rs 5,000 either way."
+            />
+          </Card>
+        </>
+      )}
 
       <Card title="Where the closed money was" note="closed spend by the ROAS band each campaign was in when cut">
         <ShareBar
