@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { ThemeSwitch, DateRange, SiteSwitch, DayPicker } from './Controls';
+import { ThemeSwitch, DateRange, SiteSwitch, DayPicker, RoasFilter } from './Controls';
 import type { Range, Scope } from '@/lib/range';
 
 /**
@@ -12,11 +12,13 @@ import type { Range, Scope } from '@/lib/range';
  * warning.
  */
 export default function PageControls({
-  range, scope, dates = true, sites = true, days, day, today,
+  range, scope, dates = true, sites = true, days, day, today, maxRoas,
 }: {
   range?: Range; scope?: Scope; dates?: boolean; sites?: boolean;
   /** Single-day reports pass the selectable days instead of a range. */
   days?: string[]; day?: string; today?: string;
+  /** Present on modules that can be narrowed to the weak end of the book. */
+  maxRoas?: string;
 }) {
   return (
     <>
@@ -28,6 +30,11 @@ export default function PageControls({
       {days && day && (
         <Suspense fallback={<div className="h-7 w-40 rounded-lg border border-edge" />}>
           <DayPicker days={days} value={day} today={today ?? ''} />
+        </Suspense>
+      )}
+      {maxRoas !== undefined && (
+        <Suspense fallback={<div className="h-7 w-56 rounded-lg border border-edge" />}>
+          <RoasFilter value={maxRoas} />
         </Suspense>
       )}
       {dates && range && (

@@ -235,3 +235,62 @@ export function DayPicker({ days, value, today }: {
     </label>
   );
 }
+
+/* ── ROAS ceiling filter ────────────────────────────────────────────────── */
+
+/**
+ * Show only campaigns BELOW a ROAS. The point of the control is to isolate the
+ * weak end of a book that is otherwise healthy on average, so the presets are
+ * the same thresholds the report bands use.
+ */
+const ROAS_CEILINGS = [
+  { v: '', label: 'All' },
+  { v: '1.8', label: '< 1.8' },
+  { v: '1.4', label: '< 1.4' },
+  { v: '1.15', label: '< 1.15' },
+  { v: '1.0', label: '< 1.0' },
+];
+
+export function RoasFilter({ value }: { value: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [pending, start] = useTransition();
+  const [custom, setCustom] = useState(value);
+
+  const apply = (v: string) => {
+    const next = new URLSearchParams(sp.toString());
+    if (v) next.set('maxRoas', v);
+    else next.delete('maxRoas');
+    start(() => router.push(`${pathname}?${next.toString()}`, { scroll: false }));
+  };
+
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${pending ? 'opacity-50' : ''}`}>
+      <span className="text-[10.5px] uppercase tracking-wider text-muted">ROAS below</span>
+      <div className="flex rounded-lg border border-edge p-0.5" role="group" aria-label="ROAS ceiling">
+        {ROAS_CEILINGS.map((c) => (
+          <button
+            key={c.v || 'all'}
+            type="button"
+            onClick={() => apply(c.v)}
+            aria-pressed={value === c.v}
+            className={`rounded-md px-2.5 py-1 text-[11px] transition ${
+              value === c.v ? 'bg-gold/15 text-gold' : 'text-muted hover:text-text'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <input
+        type="number" step="0.05" min="0" placeholder="custom"
+        value={custom}
+        onChange={(e) => setCustom(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') apply(custom); }}
+        onBlur={() => { if (custom !== value) apply(custom); }}
+        className="w-[74px] rounded-lg border border-edge bg-transparent px-2 py-1 text-[11px] text-text outline-none"
+      />
+    </div>
+  );
+}

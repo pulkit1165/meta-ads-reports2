@@ -57,6 +57,15 @@ export const MODULES: ModuleDef[] = [
   },
 
   {
+    slug: 'continuous',
+    label: '7 Days+ Continuous',
+    hint: 'the stable book, ROAS-filterable',
+    section: 'daily',
+    status: 'live',
+    question: 'Which mature campaigns run every day, and which of them are underperforming?',
+    source: 'meta_analysis_campaign_daily + meta_campaign_snapshot',
+  },
+  {
     slug: 'portfolio',
     label: 'Portfolio by Age',
     hint: 'ROAS vs target, day 1 / 1-3 / 4-7 / 7+',
