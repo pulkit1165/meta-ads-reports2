@@ -35,6 +35,16 @@ export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
 ];
 
 export const MODULES: ModuleDef[] = [
+  {
+    slug: 'conversations',
+    label: 'WhatsApp Conversations',
+    hint: 'astro bot · open, paid, spent',
+    section: 'customers',
+    status: 'live',
+    question: 'Who is talking to the astro bot, who bought, and who paid but has not asked yet?',
+    source: 'astro.db on EC2 via the bot\'s token-gated /admin feed',
+  },
+
   // ── Daily ──────────────────────────────────────────────────────────────
   {
     slug: 'brief',
@@ -46,6 +56,15 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_analysis_ad_daily (ad level)',
   },
 
+  {
+    slug: 'portfolio',
+    label: 'Portfolio by Age',
+    hint: 'ROAS vs target, day 1 / 1-3 / 4-7 / 7+',
+    section: 'daily',
+    status: 'live',
+    question: 'How does each campaign-age cohort perform against target, and what closed from which cohort?',
+    source: 'meta_analysis_campaign_daily + meta_campaign_snapshot',
+  },
   {
     slug: 'product-audience',
     label: 'Product × Audience',
