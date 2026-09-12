@@ -64,6 +64,24 @@ export default function CreativeCard({ c, day }: { c: CreativeRow; day: string }
       <div className="truncate text-[10px] text-muted" title={`${c.product} · ${c.saleBlock}`}>
         {c.product} · {c.creativeType}
       </div>
+      <div
+        className="mt-1 flex items-baseline justify-between text-[10px]"
+        title={
+          c.sharedWith > 1
+            ? `Campaign budget ${rs(c.budget)}, shared with ${c.sharedWith - 1} other creative${c.sharedWith > 2 ? 's' : ''}`
+            : `Campaign budget ${rs(c.budget)}`
+        }
+      >
+        <span className="text-muted">
+          bud {c.budget > 0 ? rs(c.budget) : '–'}
+          {c.sharedWith > 1 && <span className="ml-1 text-muted/70">/{c.sharedWith}</span>}
+        </span>
+        {c.budget > 0 && (
+          <span className={c.d1.spend / c.budget >= 0.85 ? 'text-warn' : 'text-muted'}>
+            {pct((c.d1.spend / c.budget) * 100)}
+          </span>
+        )}
+      </div>
 
       <table className="mt-2 w-full text-[10.5px]">
         <tbody>

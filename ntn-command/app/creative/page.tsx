@@ -130,9 +130,35 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
     .filter(([, v]) => v > 0)
     .map(([label, value], i) => ({ label, value, color: SERIES[i % SERIES.length] }));
 
+  // The same split by BUDGET rather than spend: what is allocated to each
+  // style, before delivery decides how much of it actually goes out.
+  const budgetAlloc = new Map<string, number>();
+  for (const c of runningNow) {
+    const share = c.sharedWith > 0 ? c.budget / c.sharedWith : c.budget;
+    for (const t of typeKeys(c)) budgetAlloc.set(t, (budgetAlloc.get(t) ?? 0) + share);
+  }
+  const budgetParts = [...budgetAlloc.entries()]
+    .filter(([, v]) => v > 0)
+    .map(([label, value], i) => ({ label, value, color: SERIES[i % SERIES.length] }));
+
   const pushedByType = countBy(pushed, typeKeys);
   const pushedBySent = countBy(pushed, sentimentKeys);
   const dayCreativeSpend = ranToday.reduce((a, c) => a + c.d1.spend, 0);
+  // Budget belongs to the campaign, so it is summed over DISTINCT campaigns —
+  // adding it per creative would count the same rupees once per ad sharing it.
+  const budgetOf = (rows: typeof ranToday) => {
+    const seen = new Set<string>();
+    let total = 0;
+    for (const c of rows) {
+      const k = `${c.adId}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      total += c.sharedWith > 0 ? c.budget / c.sharedWith : c.budget;
+    }
+    return total;
+  };
+  const dayBudget = budgetOf(ranToday);
+  const runningBudget = budgetOf(runningNow);
 
   /* ── findings ───────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
@@ -317,7 +343,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         <Stat
           label={`Creatives live on ${day}`}
           value={num(ranToday.length)}
-          sub={`${rs(dayCreativeSpend)} spent · ${num(runningNow.length)} still running now`}
+          sub={`${rs(dayCreativeSpend)} spent of ${rs(dayBudget)} budget · ${pct(pctOf(dayCreativeSpend, dayBudget))}`}
         />
         <Stat
           label="Pushed that day"
@@ -327,7 +353,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         <Stat
           label="Still running"
           value={num(runningNow.length)}
-          sub={`of ${num(creatives.length)} seen in the last 90 days`}
+          sub={`${rs(runningBudget)} of live budget · of ${num(creatives.length)} seen in 90 days`}
         />
         <Stat
           label="Closed"
@@ -339,13 +365,27 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
       </Grid>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card title="Active creative type allocation" note={`spend on ${day} by ads still running`}>
-          <Donut
-            parts={allocParts}
-            fmt={rs}
-            total={rs(allocParts.reduce((a, p) => a + p.value, 0))}
-            caption="live spend"
-          />
+        <Card title="Active creative type allocation" note={`ads still running on ${day}`}>
+          <div className="space-y-5">
+            <div>
+              <div className="mb-2 text-[10.5px] uppercase tracking-wider text-muted">By budget</div>
+              <Donut
+                parts={budgetParts}
+                fmt={rs}
+                total={rs(budgetParts.reduce((a, p) => a + p.value, 0))}
+                caption="live budget"
+              />
+            </div>
+            <div>
+              <div className="mb-2 text-[10.5px] uppercase tracking-wider text-muted">By spend</div>
+              <Donut
+                parts={allocParts}
+                fmt={rs}
+                total={rs(allocParts.reduce((a, p) => a + p.value, 0))}
+                caption="live spend"
+              />
+            </div>
+          </div>
         </Card>
         <Card
           title={`Pushed on ${day}`}
@@ -444,7 +484,10 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           </p>
         )}
         <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
-          Markers are read from the ad name at upload — <span className="text-text">_testimonial</span>,{' '}
+          No budget column here on purpose: this table aggregates a multi-day window, and a
+          campaign budget is a daily figure — adding sixty days of daily budgets together would
+          produce a number that means nothing. Budget appears on the day-scoped views above.
+          {' '}Markers are read from the ad name at upload — <span className="text-text">_testimonial</span>,{' '}
           <span className="text-text">_achievement</span> and the rest — because this warehouse has
           no stored sentiment column. An ad naming two angles counts toward both, so the
           percentages do not sum to 100. Bars are green only where the angle beats the{' '}

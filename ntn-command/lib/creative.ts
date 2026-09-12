@@ -18,6 +18,18 @@ export interface CreativeRow {
   storyId: string | null;
   objectType: string | null;
   createdTime: string | null;
+  /**
+   * Daily budget of the campaigns this creative ran in on the day.
+   *
+   * Budget is a CAMPAIGN property, not an ad one — Meta budgets at campaign or
+   * ad-set level, never per creative. A campaign carrying four creatives has
+   * one budget between them, so this is the budget the creative was competing
+   * inside, not money reserved for it. Summing it across creatives would
+   * multiply the same rupees by however many ads shared them.
+   */
+  budget: number;
+  /** How many creatives shared that budget, so the figure can be read fairly. */
+  sharedWith: number;
   portal: string;
   product: string;
   creativeType: string;
@@ -71,12 +83,37 @@ export async function creativesOn(
               SUM(revenue)                                         AS life_rev,
               COUNT(DISTINCT date) FILTER (WHERE spend > 0)        AS life_days
          FROM win GROUP BY ad_id
+     ),
+     camp_budget AS (
+       -- One row per campaign for the day: its budget, and how many creatives
+       -- were spending inside it.
+       SELECT a.campaign_id,
+              MAX(s.daily_budget) AS budget,
+              COUNT(DISTINCT a.ad_id) AS ads_in_camp
+         FROM meta_analysis_ad_daily a
+         LEFT JOIN meta_campaign_snapshot s
+                ON s.campaign_id = a.campaign_id
+               AND s.snapshot_at >= ($1::date - INTERVAL '5 hours 30 minutes')
+               AND s.snapshot_at <  ($1::date + INTERVAL '1 day' - INTERVAL '5 hours 30 minutes')
+        WHERE a.date = $1::date AND a.spend > 0
+        GROUP BY 1
+     ),
+     ad_budget AS (
+       SELECT a.ad_id,
+              SUM(DISTINCT cb.budget)        AS budget,
+              MAX(cb.ads_in_camp)            AS shared_with
+         FROM meta_analysis_ad_daily a
+         JOIN camp_budget cb ON cb.campaign_id = a.campaign_id
+        WHERE a.date = $1::date AND a.spend > 0
+        GROUP BY 1
      )
-     SELECT g.*, c.ad_name, c.effective_status, c.thumbnail_url, c.video_id,
+     SELECT g.*, ab.budget AS ad_budget, ab.shared_with,
+            c.ad_name, c.effective_status, c.thumbnail_url, c.video_id,
             c.story_id, c.object_type,
             (c.created_time AT TIME ZONE 'Asia/Kolkata')::date::text AS created_time
        FROM agg g
        LEFT JOIN ad_creative c ON c.ad_id = g.ad_id
+       LEFT JOIN ad_budget ab ON ab.ad_id = g.ad_id
       WHERE g.life_spend > 0
       ORDER BY g.d1_spend DESC NULLS LAST, g.life_spend DESC`,
     [day, portals as string[]],
@@ -90,6 +127,8 @@ export async function creativesOn(
     storyId: r.story_id ? String(r.story_id) : null,
     objectType: r.object_type ? String(r.object_type) : null,
     createdTime: r.created_time ? String(r.created_time) : null,
+    budget: n(r.ad_budget),
+    sharedWith: n(r.shared_with),
     portal: String(r.portal ?? ''),
     product: String(r.product ?? 'unmapped'),
     creativeType: String(r.creative_type ?? 'unknown'),
