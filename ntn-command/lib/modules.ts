@@ -114,6 +114,15 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_campaign_snapshot status flips + bot_pause_event',
   },
   {
+    slug: 'attempts',
+    label: 'Attempts',
+    hint: 'how often a shape is tried, and how it dies',
+    section: 'ads',
+    status: 'live',
+    question: 'How many times have we tried this product in this block with this creative, and at what ROAS did those attempts get closed?',
+    source: 'camp_day_state + meta_analysis_campaign_daily + camp_product_resolved',
+  },
+  {
     slug: 'blocks',
     label: 'Sales Blocks',
     hint: 'audience performance & closure',
