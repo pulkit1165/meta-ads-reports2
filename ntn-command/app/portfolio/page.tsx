@@ -3,7 +3,7 @@ import {
 } from '@/lib/portfolio';
 import { PORTAL_NAME } from '@/lib/ads';
 import { adDatesAvailable } from '@/lib/brief';
-import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { rank, money, pctOf, type Finding } from '@/lib/insights';
 import { Line, StackedBars, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -155,7 +155,10 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
   /* ── day-wise history ─────────────────────────────────────────────────── */
   type HRow = { date: string };
   const hcols: Col<HRow>[] = [
-    { key: 'd', head: 'Day', align: 'l', render: (h) => (
+    { key: 'wd', head: 'Day', align: 'l', render: (h) => (
+        <span className={isWeekend(h.date) ? 'text-muted/70' : 'text-muted'}>{weekday(h.date)}</span>
+      ) },
+    { key: 'd', head: 'Date', align: 'l', render: (h) => (
         <span className={h.date === day ? 'text-gold' : ''}>{label(h.date)}</span>
       ) },
     ...BANDS.map((b) => ({

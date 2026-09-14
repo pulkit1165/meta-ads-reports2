@@ -1,6 +1,6 @@
 import { campDays, bandOf, BAND_KEYS, LOSING, PORTAL_NAME, PORTALS, roasOf, share } from '@/lib/ads';
 import { ROAS_BANDS, StackedBars, Line, ShareBar } from '@/components/charts';
-import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, trend, type Finding } from '@/lib/insights';
 import PageControls from '@/components/PageControls';
 import { Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col } from '@/components/ui';
@@ -59,7 +59,10 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   })).reverse();
 
   const cols: Col<DRow>[] = [
-    { key: 'd', head: 'Day', align: 'l', render: (r) => (
+    { key: 'wd', head: 'Day', align: 'l', render: (r) => (
+        <span className={isWeekend(r.date) ? 'text-muted/70' : 'text-muted'}>{weekday(r.date)}</span>
+      ) },
+    { key: 'd', head: 'Date', align: 'l', render: (r) => (
         <span className={r.date === istNow ? 'text-warn' : ''}>
           {label(r.date)}{r.date === istNow && <span className="ml-1.5 text-[10px]">partial</span>}
         </span>

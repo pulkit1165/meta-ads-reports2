@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import Stat from '@/components/Stat';
+import ExportButton from '@/components/ExportButton';
 
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN');
 const WINDOWS = [
@@ -69,6 +70,9 @@ export default function Orders() {
             onClick={load}
             className="rounded-lg border border-edge px-3 py-1.5 text-[12px] text-muted hover:text-gold"
           >{busy ? '…' : 'Refresh'}</button>
+          {/* This page predates the Page shell, so it carries the export
+              button itself rather than inheriting it. */}
+          <ExportButton />
         </div>
       </header>
 

@@ -4,7 +4,8 @@ import type { Range, Scope } from '@/lib/range';
 
 /**
  * The header controls every module carries: website, then date window, then
- * theme. All three read the URL, so a link to a module reproduces exactly what
+ * theme. The Excel export lives in the Page shell instead, so a module that
+ * renders no controls still has it. All three read the URL, so a link to a module reproduces exactly what
  * the sender was looking at.
  *
  * DateRange and SiteSwitch call useSearchParams, which needs a Suspense

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ExportButton from './ExportButton';
 import type { ReactNode } from 'react';
 
 /* ── formatting ─────────────────────────────────────────────────────────── */
@@ -26,7 +27,12 @@ export function Page({
             <h1 className="font-display text-xl leading-tight text-gold">{title}</h1>
             {subtitle && <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>}
           </div>
-          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            {actions}
+            {/* Every module gets Excel export, whether or not it renders the
+                date and website controls. */}
+            <ExportButton />
+          </div>
         </div>
       </header>
       <div className="space-y-5 p-6">{children}</div>

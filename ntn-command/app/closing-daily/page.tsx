@@ -3,7 +3,7 @@ import {
   type ClosingDayRow, type Move,
 } from '@/lib/closingdaily';
 import { roasOf } from '@/lib/ads';
-import { resolveRange, resolveScope, dayLabel, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, dayLabel, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { rank, money, pctOf, type Finding } from '@/lib/insights';
 import { StackedBars, Line } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -146,16 +146,43 @@ export default async function ClosingDailyPage({ searchParams }: { searchParams:
 
   /* ── table ────────────────────────────────────────────────────────────── */
   const cols: Col<ClosingDayRow>[] = [
-    { key: 'd', head: 'Day', align: 'l', render: (r) => (
+    { key: 'wd', head: 'Day', align: 'l', render: (r) => (
+        <span className={isWeekend(r.date) ? 'text-muted/70' : 'text-muted'}>{weekday(r.date)}</span>
+      ) },
+    { key: 'd', head: 'Date', align: 'l', render: (r) => (
         <span className={r.date === range.today ? 'text-gold' : ''}>{dayLabel(r.date)}</span>
       ) },
     { key: 'a', head: 'Allocated', align: 'r', render: (r) => rs(r.allocated) },
     { key: 'mv', head: 'Against yesterday', align: 'l', render: (r) => <MoveChip r={r} /> },
+    { key: 'sp', head: 'Spend', align: 'r', render: (r) => rs(r.spend) },
+    // Delivery against the allowance. Over 100% is real rather than an error —
+    // Meta over-delivers, and a campaign closed mid-day keeps spending briefly
+    // after the pause. Today's row is naturally low because the day is short.
+    { key: 'spp', head: '% of budget spent', align: 'r', render: (r) => {
+        const v = shareOf(r.spend, r.allocated);
+        return (
+          <span
+            className={v >= 95 ? 'text-warn' : v < 40 ? 'text-muted' : ''}
+            title={`${rs(r.spend)} delivered against ${rs(r.allocated)} allocated`}
+          >
+            {pct(v)}
+          </span>
+        );
+      } },
     { key: 't', head: 'Closed by 10:00', align: 'r', render: (r) => (
         <span title={`${r.campsByTen} campaigns`}>{r.closedByTen ? rs(r.closedByTen) : <span className="text-muted">–</span>}</span>
       ) },
-    { key: 'tp', head: '% by 10:00', align: 'r', render: (r) => (
-        <span className="text-muted">{pct(shareOf(r.closedByTen, r.allocated))}</span>
+    // Both percentages share the allocated book as their denominator, so the
+    // header says so — one is a part of the other, not a different measure.
+    { key: 'tp', head: '% of book by 10:00', align: 'r', render: (r) => (
+        <span
+          className="text-muted"
+          title={r.closed > 0
+            ? `${pct(shareOf(r.closedByTen, r.closed))} of the day's closing had happened by 10:00`
+            : 'nothing closed this day'}
+        >
+          {pct(shareOf(r.closedByTen, r.allocated))}
+        </span>
       ) },
     { key: 'c', head: 'Closed, whole day', align: 'r', render: (r) => rs(r.closed) },
     { key: 'cp', head: '% of book closed', align: 'r', render: (r) => (
@@ -286,6 +313,15 @@ export default async function ClosingDailyPage({ searchParams }: { searchParams:
         the day happened at or before 10:00 IST and which were still off at midnight, so it is always
         a part of the whole-day figure rather than a separate count. A campaign cut at 09:00 and
         reopened at 11:00 appears in neither.
+        {' '}<b className="text-text-strong">Both percentages are shares of the same allocated
+        book</b>, so <span className="text-text">% of book by 10:00</span> is always a part of{' '}
+        <span className="text-text">% of book closed</span> and the gap between them is what the
+        remaining fourteen hours added. Hover the morning figure to see how much of that day&apos;s
+        closing was already done.
+        {' '}<b className="text-text-strong">% of budget spent</b> is the day&apos;s delivery against
+        that same allocated book. It can pass 100% — Meta over-delivers, and a campaign paused
+        mid-day keeps spending for a while afterwards — and today&apos;s row reads low simply because
+        the day is not over.
         {' '}<b className="text-text-strong">Allocated</b> counts only campaigns that were active at
         some point that day; budget parked on something that never went live was never part of the
         book.

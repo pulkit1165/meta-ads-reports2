@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { closeLog, bucket, hourBlock, HOUR_BLOCKS, type CloseEvent, type Bucket } from '@/lib/closinglog';
-import { resolveRange, resolveScope, dayLabel, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, dayLabel, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { ageBand, AGE_BANDS, creativeTags, roasOf, PORTAL_NAME } from '@/lib/ads';
 import { rank, money, type Finding } from '@/lib/insights';
 import { StackedBars, BarList, ShareBar } from '@/components/charts';
@@ -82,7 +82,8 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
   const byBlock = bucket(ev, (e) => e.saleBlock).slice(0, 14);
   const byType = bucket(ev, (e) => creativeTags(e.creativeType));
   const bySent = bucket(ev, (e) => e.sentiments);
-  const byDay = bucket(ev, (e) => e.date).sort((a, b) => b.key.localeCompare(a.key));
+  const byDay = bucket(ev, (e) => `${weekday(e.date)} ${dayLabel(e.date)}`)
+    .sort((a, b) => b.key.slice(4).split('/').reverse().join().localeCompare(a.key.slice(4).split('/').reverse().join()));
 
   const medPctBot = med(bots.filter((e) => e.budget > 0).map((e) => e.pct));
   const medPctMan = med(mans.filter((e) => e.budget > 0).map((e) => e.pct));
@@ -192,6 +193,7 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
   const logCols: Col<CloseEvent>[] = [
     { key: 'w', head: 'When', align: 'l', render: (e) => (
         <span className="whitespace-nowrap">
+          <span className={isWeekend(e.date) ? 'text-muted/70' : 'text-muted'}>{weekday(e.date)}</span>{' '}
           <span className="text-muted">{dayLabel(e.date)}</span>{' '}
           <span className="tabular-nums text-text-strong">{e.at}</span>
         </span>

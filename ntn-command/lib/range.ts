@@ -110,6 +110,23 @@ export function eachDay(r: Range): string[] {
 
 export const dayLabel = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}`;
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Which day of the week a date fell on.
+ *
+ * Parsed as UTC midnight rather than local: a bare YYYY-MM-DD is treated as
+ * local time by Date, so on a server west of the date line the weekday would
+ * come out one day early for every row.
+ */
+export const weekday = (d: string) => WEEKDAYS[new Date(`${d}T00:00:00Z`).getUTCDay()] ?? '';
+
+/** True for Saturday and Sunday, which trade differently from a weekday. */
+export const isWeekend = (d: string) => {
+  const w = new Date(`${d}T00:00:00Z`).getUTCDay();
+  return w === 0 || w === 6;
+};
+
 /* ── website scope ──────────────────────────────────────────────────────── */
 
 /**

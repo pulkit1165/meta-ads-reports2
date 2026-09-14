@@ -2,7 +2,7 @@ import {
   campDays, productMap, creativeTags, roasOf, share,
   LOSING, bandOf, PORTAL_NAME,
 } from '@/lib/ads';
-import { resolveRange, resolveScope, istToday, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, istToday, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { rank, money, pctOf, trend, steadiness, type Finding } from '@/lib/insights';
 import { Line, BarList, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -217,7 +217,10 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   ];
 
   const cols: Col<DRow>[] = [
-    { key: 'd', head: 'Day', align: 'l', render: (r) => label(r.date) },
+    { key: 'wd', head: 'Day', align: 'l', render: (r) => (
+        <span className={isWeekend(r.date) ? 'text-muted/70' : 'text-muted'}>{weekday(r.date)}</span>
+      ) },
+    { key: 'd', head: 'Date', align: 'l', render: (r) => label(r.date) },
     { key: 's', head: 'Spend', align: 'r', render: (r) => rs(r.spend) },
     { key: 'i', head: 'Impressions', align: 'r', render: (r) => num(r.impressions) },
     { key: 'c', head: 'Clicks', align: 'r', render: (r) => num(r.clicks) },

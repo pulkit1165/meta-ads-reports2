@@ -3,7 +3,7 @@ import {
   roasOf, share, ageBand, AGE_BANDS, creativeTags,
   PORTAL_NAME, PORTALS, bandOf, type CmpAgg, type AgedState,
 } from '@/lib/ads';
-import { resolveRange, resolveScope, type SearchParams } from '@/lib/range';
+import { resolveRange, resolveScope, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { rank, pctOf, money, concentration, type Finding } from '@/lib/insights';
 import { ROAS_BANDS, BarList, ShareBar, Line } from '@/components/charts';
 import PageControls from '@/components/PageControls';
@@ -388,7 +388,10 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
           <Card title="Every day" note="allocated counts only campaigns that were active at some point that day">
             <Table
               cols={[
-                { key: 'd', head: 'Day', align: 'l', render: (h: (typeof history)[number]) => (
+                { key: 'wd', head: 'Day', align: 'l', render: (h: (typeof history)[number]) => (
+        <span className={isWeekend(h.date) ? 'text-muted/70' : 'text-muted'}>{weekday(h.date)}</span>
+      ) },
+    { key: 'd', head: 'Date', align: 'l', render: (h: (typeof history)[number]) => (
                     <span className={h.date === day ? 'text-gold' : ''}>
                       {h.date.slice(8) + '/' + h.date.slice(5, 7)}
                     </span>
