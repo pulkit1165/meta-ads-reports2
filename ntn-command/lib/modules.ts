@@ -114,6 +114,15 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_campaign_snapshot status flips + bot_pause_event',
   },
   {
+    slug: 'closing-daily',
+    label: 'Daily Closing',
+    hint: 'by 10am vs whole day, bot vs manual, push or minus',
+    section: 'ads',
+    status: 'live',
+    question: 'How much of each day\u2019s book was closed, how early, by whom, and was the book pushed or cut?',
+    source: 'camp_day_state + camp_close_event + bot_pause_event',
+  },
+  {
     slug: 'attempts',
     label: 'Attempts',
     hint: 'how often a shape is tried, and how it dies',
