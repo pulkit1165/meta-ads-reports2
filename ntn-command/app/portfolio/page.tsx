@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   portfolio, BANDS, forDay, roasOf, verdictOf, type PortfolioRow,
 } from '@/lib/portfolio';
@@ -153,13 +154,36 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
   ];
 
   /* ── day-wise history ─────────────────────────────────────────────────── */
+  const dayHref = (d: string) => {
+    const qs = new URLSearchParams();
+    if (range.custom) { qs.set('from', range.from); qs.set('to', range.to); }
+    else qs.set('days', String(range.days));
+    if (scope.key !== 'all') qs.set('site', scope.key);
+    qs.set('day', d);
+    return `/portfolio?${qs.toString()}`;
+  };
+
   type HRow = { date: string };
   const hcols: Col<HRow>[] = [
     { key: 'wd', head: 'Day', align: 'l', render: (h) => (
         <span className={isWeekend(h.date) ? 'text-muted/70' : 'text-muted'}>{weekday(h.date)}</span>
       ) },
+    // Clicking a date selects it, so the summary, the band table and the
+    // findings above all switch to that day while this table stays put
+    // underneath to scroll and compare against.
     { key: 'd', head: 'Date', align: 'l', render: (h) => (
-        <span className={h.date === day ? 'text-gold' : ''}>{label(h.date)}</span>
+        h.date === day ? (
+          <span className="font-medium text-gold" title="the day shown above">{label(h.date)}</span>
+        ) : (
+          <Link
+            href={dayHref(h.date)}
+            scroll={false}
+            title={`Open ${h.date} above`}
+            className="text-text underline decoration-edge decoration-dotted underline-offset-4 transition hover:text-gold hover:decoration-gold/60"
+          >
+            {label(h.date)}
+          </Link>
+        )
       ) },
     ...BANDS.map((b) => ({
       key: `r_${b.key}`,
@@ -259,7 +283,7 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <Card title="Every day" note="ROAS against target per band, and the budget closed that day">
+      <Card title="Every day" note="ROAS against target per band, and the budget closed that day \u00b7 click a date to open it above">
         <Table cols={hcols} rows={hrows} />
       </Card>
 
