@@ -209,7 +209,7 @@ summary .m{font-weight:400;color:var(--mut2);font-size:12px}
 .ok{font-size:13px;color:var(--pos);font-weight:600}
 .foot{font-size:11px;color:var(--mut);text-align:center;line-height:1.7;padding:8px 8px 0}
 /* ── left sidebar shell ── */
-.shell{display:flex;max-width:1330px;margin:0 auto;align-items:flex-start}
+.shell{display:flex;max-width:1660px;margin:0 auto;align-items:flex-start}
 .side{width:242px;flex:0 0 242px;background:var(--card);color:var(--ink2);padding:20px 14px 26px;
       display:flex;flex-direction:column;gap:16px;position:sticky;top:0;height:100vh;overflow-y:auto;
       border-right:1px solid var(--line)}
@@ -230,7 +230,7 @@ a.ritem .rr{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
 a.ritem.top{background:var(--top-bg)}
 a.ritem.top .rr{color:var(--pos)}
 .rnone{font-size:12px;color:var(--mut);padding:6px 10px;line-height:1.5}
-.main{flex:1;min-width:0;max-width:1088px;padding:20px 22px 52px}
+.main{flex:1;min-width:0;max-width:1400px;padding:20px 22px 52px}
 @media(max-width:900px){
   .shell{flex-direction:column}
   .side{width:auto;flex:none;position:static;height:auto;padding:12px 12px;gap:10px;border-right:none;
