@@ -73,7 +73,22 @@ jobs:
           fi
 
       - name: Collect hourly snapshot (all active campaigns)
-        run: python3 scripts/v2/camp_snapshot.py --db "$DB"
+        id: snap
+        run: |
+          # This workflow fires three times an hour so a skipped GitHub cron
+          # tick never loses an hour, but only the FIRST run at/after the
+          # boundary actually captures — the other two print "already
+          # captured" and no-op. They were still redeploying the site, which
+          # is 2 of every 3 deploys done for nothing. Record which kind of run
+          # this was so the deploy steps can skip.
+          out=$(python3 scripts/v2/camp_snapshot.py --db "$DB" 2>&1)
+          echo "$out"
+          if echo "$out" | grep -qi "already captured"; then
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::nothing new captured — the deploy will be skipped"
+          else
+            echo "captured=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # ── :58 hourly WhatsApp report: fresh sales overlay → table → deploy → send ──
       - name: Build hourly WhatsApp table (complete hour @ :58)
@@ -105,6 +120,10 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_FILE=google-service-account.json             python3 scripts/v2/sub_dispatch_tracker.py roas-live/sub_dispatch.json || true
 
       - name: Deploy table + notify Worker to send
+        # Vercel bills a per-build minimum regardless of how long the build
+        # takes, so a redeploy of unchanged content is pure cost. roas-live
+        # builds in ~1 second and was being redeployed 12 times an hour.
+        if: steps.snap.outputs.captured == 'true'
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -171,7 +190,7 @@ jobs:
       # Optional: publish the dashboard to Vercel. No-op until LIVE_ROAS_PROJECT_ID
       # var + VERCEL_TOKEN secret are set, so safe to merge immediately.
       - name: Deploy dashboard to Vercel
-        if: ${{ vars.LIVE_ROAS_PROJECT_ID != '' }}
+        if: ${{ vars.LIVE_ROAS_PROJECT_ID != '' && steps.snap.outputs.captured == 'true' }}
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
