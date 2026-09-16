@@ -480,6 +480,24 @@ async function fetchTable() {
   return { t, ageMin: (Date.now() - Date.parse(t.built_at)) / 60000 };
 }
 
+// Which hourly SLOT a table belongs to, as "YYYY-MM-DD:HH".
+//
+// The capture normally runs at HH:58, and the closing document used to be sent
+// only when data_through ended in ":58" — so every hour the capture ran late
+// (a Meta account returning zero campaigns aborts the write and the next run
+// retries) silently dropped that hour's closing report: 18 of them in the eight
+// days to 16 Sep, clustered in the afternoon. The slot, not the wall clock, is
+// what should be sent once: a capture before :58 belongs to the hour before it,
+// exactly as camp_snapshot.py stamps hour_slot.
+function slotOf(t) {
+  const [hh, mm] = t.data_through.split(':').map(Number);
+  if (mm >= 58) return `${t.day}:${String(hh).padStart(2, '0')}`;
+  if (hh > 0) return `${t.day}:${String(hh - 1).padStart(2, '0')}`;
+  const d = new Date(t.day + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return `${d.toISOString().slice(0, 10)}:23`;
+}
+
 // One hourly cycle — image, then the closing document on full hours — for a
 // table already checked for freshness, KV-deduped on its stamp. A send that
 // throws releases the key so the next tick retries instead of losing the hour.
@@ -494,8 +512,8 @@ async function sendHourlyCycle(env, t) {
     await env.WA_STATE.delete(kvKey);
     throw e;
   }
-  if (env.WHAPI_TOKEN && /:58$/.test(t.data_through)) {
-    const dk = `push:closingdoc:${t.day}:${t.data_through}`;
+  if (env.WHAPI_TOKEN) {
+    const dk = `push:closingdoc:${slotOf(t)}`;
     if (!(await env.WA_STATE.get(dk))) {
       await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
       try {
