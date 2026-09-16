@@ -389,10 +389,13 @@ async function whapiLive(env) {
   } catch (e) { return false; }
 }
 
-async function hourlyPush(env, only) {
-  const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
-  if (!r.ok) return 'wa_table fetch failed ' + r.status;
-  const t = await r.json();
+async function hourlyPush(env, only, table) {
+  let t = table;
+  if (!t) {
+    const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+    if (!r.ok) return 'wa_table fetch failed ' + r.status;
+    t = await r.json();
+  }
   const line = x => `${x.website}: Rs ${x.sales.toLocaleString('en-IN')} / Rs ${x.spend.toLocaleString('en-IN')} · ROAS ${x.roas ?? '-'}`;
   // hour rows carry `delta` = % change vs the previous equal-length window
   const arrow = v => v > 0 ? `▲${v}%` : v < 0 ? `▼${Math.abs(v)}%` : '=';
@@ -456,6 +459,75 @@ async function hourlyPush(env, only) {
   return `hourly → ${out.join(' ')}`;
 }
 
+// A table is only worth sending while it is THIS cycle's table. Anything
+// older is the previous hour, still being served by the edge.
+const TABLE_FRESH_MIN = 12;
+
+// built_at alone can't prove the edge has caught up: roas-email rebuilds the
+// table every ~10 min without advancing data_through, so a stale read can look
+// young. The stamp we have not sent yet is the real signal.
+async function unsentTable(env) {
+  const { t, ageMin, err } = await fetchTable();
+  if (err) return { err };
+  return { t, ageMin, sent: !!(await env.WA_STATE.get(`push:hourly58:${t.day}:${t.data_through}`)) };
+}
+
+async function fetchTable() {
+  const r = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
+  if (!r.ok) return { err: `table HTTP ${r.status}` };
+  const t = await r.json().catch(() => null);
+  if (!t || !t.day || !t.data_through || !t.built_at) return { err: 'table malformed' };
+  return { t, ageMin: (Date.now() - Date.parse(t.built_at)) / 60000 };
+}
+
+// One hourly cycle — image, then the closing document on full hours — for a
+// table already checked for freshness, KV-deduped on its stamp. A send that
+// throws releases the key so the next tick retries instead of losing the hour.
+async function sendHourlyCycle(env, t) {
+  const kvKey = `push:hourly58:${t.day}:${t.data_through}`;
+  if (await env.WA_STATE.get(kvKey)) return 'already sent ' + t.data_through;
+  await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
+  let out;
+  try {
+    out = await hourlyPush(env, null, t);
+  } catch (e) {
+    await env.WA_STATE.delete(kvKey);
+    throw e;
+  }
+  if (env.WHAPI_TOKEN && /:58$/.test(t.data_through)) {
+    const dk = `push:closingdoc:${t.day}:${t.data_through}`;
+    if (!(await env.WA_STATE.get(dk))) {
+      await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
+      try {
+        out += ' | ' + await closingDocPush(env, null, t.data_through);
+      } catch (e) {
+        await env.WA_STATE.delete(dk);   // retry next tick
+        out += ' | closingdoc deferred: ' + e.message;
+      }
+    }
+  }
+  return out;
+}
+
+// camp-snapshots curls /notify-hourly within a second of the Vercel alias
+// flip, so the edge is usually still serving the PREVIOUS hour's table.
+// Reading that stale table hit its already-used dedupe key and answered
+// "already sent 11:58" — the hour's report was then lost until the :15
+// backstop (16 Sep, 1 PM arrived 13:15) or lost outright. So: never send a
+// stale table, and keep looking for the fresh one instead of giving up.
+// 14 polls x 11s ~= 2.5 min, and the send itself costs ~20 subrequests —
+// together they stay under the Workers per-invocation subrequest limit.
+async function notifyWhenFresh(env, tries = 14, waitMs = 11000) {
+  let last = '';
+  for (let i = 0; i < tries; i++) {
+    const { t, ageMin, sent, err } = await unsentTable(env);
+    if (t && !sent && ageMin <= TABLE_FRESH_MIN) return await sendHourlyCycle(env, t);
+    last = err || `${t.data_through} ${sent ? 'already sent' : Math.round(ageMin) + 'm old'}`;
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+  return `no fresh table after ${Math.round(tries * waitMs / 60000)}m — ${last}`;
+}
+
 async function pushReport(env, kind, only) {
   let rep;
   try { rep = kind === 'morning' ? await morningReport() : await eveningReport(); }
@@ -501,29 +573,8 @@ export default {
       // notify-hourly, so double-sends can't happen.
       if (m >= 15 && !(await env.WA_STATE.get('pause:hourly'))) {
         try {
-          const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
-          if (tr.ok) {
-            const tt = await tr.json();
-            const age = Date.now() - Date.parse(tt.built_at);
-            const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
-            if (tt.day && tt.data_through &&
-                age < 25 * 60000 && !(await env.WA_STATE.get(kvKey))) {
-              await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
-              console.log(`[${ts}] backstop ${await hourlyPush(env)}`);
-              if (env.WHAPI_TOKEN && /:58$/.test(tt.data_through)) {
-                const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
-                if (!(await env.WA_STATE.get(dk))) {
-                  await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
-                  try {
-                    console.log(`[${ts}] ${await closingDocPush(env, null, tt.data_through)}`);
-                  } catch (e) {
-                    await env.WA_STATE.delete(dk);
-                    console.error(`[${ts}] closingdoc deferred: ${e.message}`);
-                  }
-                }
-              }
-            }
-          }
+          const { t, ageMin } = await fetchTable();
+          if (t && ageMin < 25) console.log(`[${ts}] backstop ${await sendHourlyCycle(env, t)}`);
         } catch (e) { console.error('hourly backstop err', e.message); }
       }
       return;
@@ -534,7 +585,7 @@ export default {
     console.log(`[${ts}] cron "${event.cron}" → ${file} ${r.ok ? 'ok' : 'FAIL ' + r.status}`);
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'text/plain' };
     if (url.pathname === '/webhook' && request.method === 'GET') {
@@ -610,30 +661,18 @@ export default {
       if (url.searchParams.get('key') !== 'ntnhourly2026') {
         return new Response('nope', { status: 403, headers: cors });
       }
-      // Dedupe on the table's data_through stamp so retries can't double-send.
-      const tr = await fetch(WA_TABLE + '?t=' + Date.now(), { cf: { cacheTtl: 0 } });
-      if (!tr.ok) return new Response('table fetch fail', { headers: cors });
-      const tt = await tr.json().catch(() => ({}));
-      if (!tt.day || !tt.data_through) return new Response('table malformed — not sending', { headers: cors });
-      const kvKey = `push:hourly58:${tt.day}:${tt.data_through}`;
-      if (await env.WA_STATE.get(kvKey)) return new Response('already sent ' + tt.data_through, { headers: cors });
-      await env.WA_STATE.put(kvKey, '1', { expirationTtl: 172800 });
-      let out = await hourlyPush(env);
-      // Full-hour cadence only (:58 stamps): follow the image with the
-      // interactive closing-report document.
-      if (env.WHAPI_TOKEN && /:58$/.test(tt.data_through || '')) {
-        const dk = `push:closingdoc:${tt.day}:${tt.data_through}`;
-        if (!(await env.WA_STATE.get(dk))) {
-          await env.WA_STATE.put(dk, '1', { expirationTtl: 172800 });
-          try {
-            out += ' | ' + await closingDocPush(env, null, tt.data_through);
-          } catch (e) {
-            await env.WA_STATE.delete(dk);   // retry next tick
-            out += ' | closingdoc deferred: ' + e.message;
-          }
-        }
+      // Dedupe on the table's data_through stamp so retries can't double-send
+      // — but only ever on a table fresh enough to BE this cycle's table.
+      const { t, ageMin, sent, err } = await unsentTable(env);
+      if (t && !sent && ageMin <= TABLE_FRESH_MIN) {
+        return new Response(await sendHourlyCycle(env, t), { headers: cors });
       }
-      return new Response(out, { headers: cors });
+      // The deploy hasn't reached the edge yet. Don't hold the caller's curl
+      // open (it is a GitHub step) — poll in the background and send when it
+      // lands, so the hour no longer waits on the :15 backstop.
+      ctx.waitUntil(notifyWhenFresh(env).then(o => console.log('notify-deferred:', o)));
+      const why = err || `edge still on ${t.data_through} (${sent ? 'already sent' : Math.round(ageMin) + 'm old'})`;
+      return new Response(`deferred — ${why}; polling up to 2.5m`, { headers: cors });
     }
     if (url.pathname === '/test-dispatch') {
       try {
