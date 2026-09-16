@@ -48,7 +48,8 @@ export async function POST(req, { params }) {
   const single = (k, v) => v ? { namespace: "custom", key: k, value: String(v), type: "single_line_text_field" } : null;
   const multi = (k, v) => v ? { namespace: "custom", key: k, value: String(v), type: "multi_line_text_field" } : null;
   const metafields = [
-    pb.subtitle ? { namespace: "descriptors", key: "subtitle", value: pb.subtitle, type: "single_line_text_field" } : null,
+    // Shopify's standard descriptors.subtitle definition caps the value at 70 chars
+    pb.subtitle ? { namespace: "descriptors", key: "subtitle", value: String(pb.subtitle).slice(0, 70), type: "single_line_text_field" } : null,
     multi("product_brief", pb.product_brief),
     multi("what_we_put_in_", pb.what_we_put_in),
     multi("product_benefits", pb.product_benefits),

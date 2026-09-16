@@ -68,6 +68,10 @@ def init() -> None:
             c.execute("ALTER TABLE users ADD COLUMN pending_question TEXT")
         if "language" not in cols:
             c.execute("ALTER TABLE users ADD COLUMN language TEXT")
+        # The free report PDF ships once per customer. Everyone who onboarded before the
+        # feature existed has this NULL, so they receive it on their next message.
+        if "report_sent_at" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN report_sent_at REAL")
 
 
 # ── users ────────────────────────────────────────────────────────────────

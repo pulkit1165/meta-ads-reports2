@@ -45,3 +45,4 @@ yarn-error.*
 .eas-token
 credentials/
 *.p8
+credentials.json

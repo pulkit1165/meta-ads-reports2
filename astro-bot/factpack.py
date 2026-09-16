@@ -144,14 +144,15 @@ class StateOnlyError(RuntimeError):
     geocoding failure ("send a bigger nearby city" is actively confusing here)."""
 
 
-def fetch(user: dict, topic: str | None = None, force: bool = False) -> dict:
+def fetch(user: dict, topic: str | None = None, force: bool = False,
+          question: str | None = None) -> dict:
     """Return the fact pack for a user, from cache when fresh (transits move, so TTL is short)."""
     phone = user["phone"]
     if not force:
         cached = store.get_factpack(phone)
         if cached:
             if topic:
-                cached["topicFacts"] = _filter_topic(cached, topic)
+                cached["topicFacts"] = _filter_topic(cached, topic, question)
             return cached
 
     params = {"dob": user["dob"], "place": user["place"] or "", "name": user.get("name") or ""}
@@ -171,7 +172,7 @@ def fetch(user: dict, topic: str | None = None, force: bool = False) -> dict:
     pack = r.json()
     store.put_factpack(phone, pack)
     if topic:
-        pack["topicFacts"] = _filter_topic(pack, topic)
+        pack["topicFacts"] = _filter_topic(pack, topic, question)
     return pack
 
 
@@ -193,17 +194,110 @@ TOPIC_MAP = {
 }
 
 
-def _filter_topic(pack: dict, topic: str) -> list[dict]:
+# ── entity routing ───────────────────────────────────────────────────────
+# TOPIC_MAP alone decides which facts a question sees, and it is keyed on life-topics only.
+# A question that names an astrological ENTITY ("Mera Rahu 1st house mein hai") matches no
+# topic keyword, falls through to "general", and general's planet list does not contain Rahu
+# — so the model was handed no Rahu fact and correctly refused to answer, while the pack held
+# the answer all along. That refusal is worse than useless: the customer sees the bot deny
+# data it has. Entity hits are therefore ADDED on top of the topic's facts, never substituted,
+# so retrieval stays deterministic and can only ever widen, never narrow.
+PLANET_ALIASES = {
+    "Sun":     ["sun", "surya", "soorya", "ravi", "सूर्य", "सुर्य", "रवि", "સૂર્ય", "ਸੂਰਜ", "সূর্য", "சூரியன்"],
+    "Moon":    ["moon", "chandra", "chandrama", "chand", "चंद्र", "चन्द्र", "चाँद", "ચંદ્ર", "ਚੰਦਰਮਾ", "চন্দ্র", "சந்திரன்"],
+    "Mars":    ["mars", "mangal", "mangala", "kuja", "मंगल", "मङ्गल", "મંગળ", "ਮੰਗਲ", "মঙ্গল", "செவ்வாய்"],
+    "Mercury": ["mercury", "budh", "budha", "बुध", "બુધ", "ਬੁੱਧ", "বুধ", "புதன்"],
+    "Jupiter": ["jupiter", "guru", "brihaspati", "brihaspathi", "गुरु", "बृहस्पति", "ગુરુ", "ਗੁਰੂ", "বৃহস্পতি", "குரு"],
+    "Venus":   ["venus", "shukra", "shukr", "शुक्र", "શુક્ર", "ਸ਼ੁਕਰ", "শুক্র", "சுக்கிரன்"],
+    "Saturn":  ["saturn", "shani", "shanidev", "sade sati", "sadesati", "शनि", "शनी", "શનિ", "ਸ਼ਨੀ", "শনি", "சனி"],
+    "Rahu":    ["rahu", "राहु", "રાહુ", "ਰਾਹੂ", "রাহু", "ராகு"],
+    "Ketu":    ["ketu", "केतु", "કેતુ", "ਕੇਤੂ", "কেতু", "கேது"],
+}
+SIGN_ALIASES = {
+    "Aries": ["aries", "mesh", "मेष"], "Taurus": ["taurus", "vrishabh", "vrish", "वृषभ"],
+    "Gemini": ["gemini", "mithun", "मिथुन"], "Cancer": ["cancer", "kark", "karka", "कर्क"],
+    "Leo": ["leo", "simha", "sinh", "सिंह"], "Virgo": ["virgo", "kanya", "कन्या"],
+    "Libra": ["libra", "tula", "तुला"], "Scorpio": ["scorpio", "vrishchik", "वृश्चिक"],
+    "Sagittarius": ["sagittarius", "dhanu", "धनु"], "Capricorn": ["capricorn", "makar", "मकर"],
+    "Aquarius": ["aquarius", "kumbh", "कुंभ", "कुम्भ"], "Pisces": ["pisces", "meen", "मीन"],
+}
+NAKSHATRAS = ["Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra", "Punarvasu",
+              "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni", "Hasta",
+              "Chitra", "Swati", "Vishakha", "Anuradha", "Jyeshtha", "Mula", "Purva Ashadha",
+              "Uttara Ashadha", "Shravana", "Dhanishta", "Shatabhisha", "Purva Bhadrapada",
+              "Uttara Bhadrapada", "Revati"]
+_ORDINALS = {
+    "first": 1, "pehla": 1, "pehle": 1, "second": 2, "dusra": 2, "doosra": 2, "third": 3,
+    "teesra": 3, "tisra": 3, "fourth": 4, "chautha": 4, "fifth": 5, "panchva": 5, "sixth": 6,
+    "chhata": 6, "chhta": 6, "seventh": 7, "satva": 7, "saatva": 7, "eighth": 8, "aathva": 8,
+    "ninth": 9, "navva": 9, "tenth": 10, "dasva": 10, "dashva": 10, "eleventh": 11,
+    "gyarahva": 11, "twelfth": 12, "barahva": 12,
+}
+_HOUSE_WORD = r"(?:house|houses|bhav|bhaav|bhava|ghar|भाव|घर|ਘਰ|ઘર)"
+_HOUSE_PATTERNS = [
+    re.compile(r"\b(\d{1,2})\s*(?:st|nd|rd|th)?\s*" + _HOUSE_WORD, re.I),
+    re.compile(_HOUSE_WORD + r"\s*(?:no\.?|number|#)?\s*(\d{1,2})\b", re.I),
+    re.compile(r"(\d{1,2})\s*(?:वें|वाँ|वा|व)?\s*(?:भाव|घर)"),
+]
+
+
+def entities(question: str) -> dict:
+    """Astrological entities named outright in the question. Deterministic, no model."""
+    q = (question or "").lower()
+    tokens = {t.strip(string.punctuation + "?！？।॥،؟") for t in q.split()}
+    tokens.discard("")
+
+    def _hit(alias: str) -> bool:
+        a = alias.lower()
+        if " " in a or not a.isascii():
+            return a in q                       # phrases and Indic scripts: substring
+        return any(t == a or t.startswith(a) for t in tokens)   # latin: whole token/prefix
+
+    planets = {p for p, al in PLANET_ALIASES.items() if any(_hit(a) for a in al)}
+    signs = {sg for sg, al in SIGN_ALIASES.items() if any(_hit(a) for a in al)}
+    naks = {n for n in NAKSHATRAS if n.lower() in q}
+    houses = set()
+    for pat in _HOUSE_PATTERNS:
+        for m in pat.finditer(q):
+            try:
+                n = int(m.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= n <= 12:
+                houses.add(n)
+    if re.search(_HOUSE_WORD, q, re.I):
+        for word, n in _ORDINALS.items():
+            if word in tokens:
+                houses.add(n)
+    return {"planets": planets, "signs": signs, "nakshatras": naks, "houses": houses}
+
+
+def _filter_topic(pack: dict, topic: str, question: str | None = None) -> list[dict]:
     m = TOPIC_MAP.get(topic, TOPIC_MAP["general"])
     always = {"birth", "dasha", "transit", "numerology"}
+    ents = entities(question) if question else {"planets": set(), "signs": set(),
+                                                "nakshatras": set(), "houses": set()}
     out = []
     for f in pack.get("facts", []):
         t, txt = f["topic"], f["text"]
         if t in always:
             out.append(f)
-        elif t == "chart" and (any(txt.startswith(p + " ") for p in m["planets"])
-                               or txt.startswith(("Moon ", "Sun ", "Ascendant "))):
-            out.append(f)
-        elif t == "houses" and any(txt.startswith(f"House {h} ") for h in m["houses"]):
+            continue
+        keep = False
+        if t == "chart":
+            keep = (any(txt.startswith(p + " ") for p in m["planets"])
+                    or txt.startswith(("Moon ", "Sun ", "Ascendant "))
+                    # named outright, or the fact places a planet in a sign/nakshatra the
+                    # customer asked about
+                    or any(txt.startswith(p + " ") for p in ents["planets"])
+                    or any(sg in txt for sg in ents["signs"])
+                    or any(nk in txt for nk in ents["nakshatras"]))
+        elif t == "houses":
+            keep = (any(txt.startswith(f"House {h} ") for h in m["houses"])
+                    or any(txt.startswith(f"House {h} ") for h in ents["houses"])
+                    # "which house is my Rahu in" also wants the house Rahu sits in
+                    or any(p in txt for p in ents["planets"])
+                    or any(sg in txt for sg in ents["signs"]))
+        if keep:
             out.append(f)
     return out

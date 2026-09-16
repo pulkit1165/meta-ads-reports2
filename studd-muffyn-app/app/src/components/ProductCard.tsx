@@ -52,7 +52,8 @@ export function ProductCard({
     const v = product.variants.find((x) => x.available) ?? product.variants[0];
     if (!v) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await WebBrowser.openBrowserAsync(await startCheckoutUrl([{ variantId: v.id, qty: 1 }]));
+    const url = await startCheckoutUrl([{ variantId: v.id, qty: 1 }]);
+    router.push({ pathname: '/checkout', params: { url } });
   };
 
   return (

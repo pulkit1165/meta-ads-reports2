@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime
 
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 PACK_SKUS = {          # title-slug → questions granted
     "3-questions-for-399": 3,   # NTN1130 · SML
     "6-questions-for-299": 6,   # NTN1130 · SM
+    "6-questions-for-399": 6,   # NTN1130 · SML (same SKU, SML prices it at 399)
     "5-questions-for-169": 5,   # NTN1131 · SM
     "5-questions-for-599": 5,   # NTN1131 · SML
     "10-questions-for-999": 10, # NTN1132 · both
@@ -134,6 +136,15 @@ STRINGS = {
                              "Then send: order <your order number>"),
         "answer_trailer_left": "\n\n— {left} question{s} left",
         "answer_trailer_last": "\n\n— that was your last question. New pack: {shop_url}",
+        "fix_details": ("Your birth details can be corrected any time — it is free and it "
+                        "will NOT use up any of your questions. 🌙\n\nJust reply: restart\n\n"
+                        "I'll ask for your name, date, time and place again and rebuild your "
+                        "kundli from scratch."),
+        "support": ("A human from our team will help you. 🙏\n\nWrite to us on WhatsApp at "
+                    "+91 78600 00768, or reply here with what went wrong and we'll read it.\n\n"
+                    "If your birth details are wrong, reply: restart — that's free and rebuilds "
+                    "your kundli."),
+        "report_caption": "\U0001F4C4 Your free Astro Destiny Report — your full chart, dasha timeline and numerology, calculated from your birth details.",
     },
     "hi": {
         "greeting": ("🙏 नमस्ते, {brand} में आपका स्वागत है।\n\n"
@@ -193,6 +204,13 @@ STRINGS = {
                              "फिर भेजें: order <आपका order number>"),
         "answer_trailer_left": "\n\n— {left} सवाल बचे हैं",
         "answer_trailer_last": "\n\n— यह आपका आखिरी सवाल था। नया pack: {shop_url}",
+        "fix_details": ("आपकी जन्म जानकारी कभी भी ठीक की जा सकती है — यह मुफ़्त है और इससे आपका "
+                        "कोई सवाल खर्च नहीं होगा। 🌙\n\nबस भेजें: restart\n\nमैं आपका नाम, तारीख, "
+                        "समय और जगह दोबारा पूछूँगा और नई कुंडली बनाऊँगा।"),
+        "support": ("हमारी टीम से कोई आपकी मदद करेगा। 🙏\n\nWhatsApp पर लिखें: +91 78600 00768, "
+                    "या यहीं बताइए क्या दिक्कत हुई।\n\nअगर जन्म जानकारी गलत है तो भेजें: restart — "
+                    "यह मुफ़्त है और नई कुंडली बना देगा।"),
+        "report_caption": "\U0001F4C4 आपकी मुफ़्त Astro Destiny Report — आपकी पूरी कुंडली, दशा और अंक ज्योतिष, आपकी जन्म जानकारी से गणना की हुई।",
     },
 }
 
@@ -242,6 +260,69 @@ def parse_time(text: str) -> tuple[str | None, bool]:
     if not (0 <= hh <= 23 and 0 <= mm <= 59):
         return None, True
     return f"{hh:02d}:{mm:02d}", True
+
+
+# A customer out of quota used to get the "buy another pack" wall for EVERY message — including
+# "my place of birth is wrong" and "customer care". Two real customers hit that wall on 10 Sep
+# while trying to CORRECT their birth details, which is free, never costs a question, and is
+# exactly what makes their readings right. Upselling someone who is telling you your data is
+# wrong reads as a scam; these two intents must answer before the quota gate.
+_CORRECTION_RE = re.compile(
+    r"\b(wrong|incorrect|galat|galt|change|update|correct|edit|mistake|nahi hai|not correct)\b"
+    r"|place of birth|birth place|my dob|date of birth|birth time|time of birth"
+    r"|\bगलत\b|\bबदल|\bसुधार|जन्म स्थान|जन्म तिथि|जन्म समय",
+    re.I)
+_BIRTH_WORD_RE = re.compile(r"\b(dob|birth|born|janam|janm)\b|जन्म", re.I)
+_SUPPORT_RE = re.compile(
+    r"customer care|customer support|\bsupport\b|\bagent\b|\bhuman\b|talk to|speak to"
+    r"|\brefund\b|\bcomplain|\bhelpline\b|\bcall me\b|\bcontact\b"
+    r"|कस्टमर|सपोर्ट|शिकायत|रिफंड|बात कर",
+    re.I)
+
+
+def _wants_correction(text: str) -> bool:
+    """True only when the message is about their BIRTH details being wrong — not any
+    complaint containing the word 'wrong'."""
+    return bool(_CORRECTION_RE.search(text or "")) and bool(_BIRTH_WORD_RE.search(text or ""))
+
+
+def _wants_support(text: str) -> bool:
+    return bool(_SUPPORT_RE.search(text or ""))
+
+
+def send_free_report(phone: str, pack: dict, user: dict | None = None,
+                     force: bool = False) -> None:
+    """Deliver the free Astro Destiny Report PDF alongside the reading.
+
+    Fire-and-forget on its own thread and swallowing every error on purpose: the report is a
+    bonus, so a PDF or WhatsApp failure must never delay or break the reading the customer is
+    waiting on. Only valid right after a customer message (24h window), which is exactly when
+    both call sites run.
+    """
+    if not force and (store.get_user(phone) or {}).get("report_sent_at"):
+        return
+    # Stamp before sending, not after: two messages arriving together must not each fire a
+    # copy. Cleared again if the send fails, so a transient failure still retries next time.
+    store.upsert_user(phone, report_sent_at=time.time())
+
+    def _run():
+        try:
+            import report_pdf
+            import wa
+            data = report_pdf.build(pack)
+            first = ((pack.get("birth") or {}).get("name") or "").strip().split(" ")[0]
+            fname = "Astro-Destiny-Report" + (f"-{first}" if first else "") + ".pdf"
+            fname = re.sub(r"[^A-Za-z0-9._-]", "", fname) or "Astro-Destiny-Report.pdf"
+            cap = t(user, "report_caption")
+            wa.send_document(phone, data, fname, cap)
+            log.info("free report PDF sent to %s (%d bytes)", phone, len(data))
+        except Exception:
+            try:
+                store.upsert_user(phone, report_sent_at=None)   # let it retry next message
+            except Exception:
+                pass
+            log.exception("free report PDF failed for %s (reading was unaffected)", phone)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 # ── deterministic renderings (no model) ──────────────────────────────────
@@ -414,7 +495,7 @@ def answer_question(user: dict, question: str) -> tuple[str, str, str]:
     # only when classify() found nothing to go on and only when there IS a last topic.
     if topic == "general" and history and history[-1].get("topic") and history[-1]["topic"] != "general":
         topic = history[-1]["topic"]
-    pack = factpack.fetch(user, topic=topic)
+    pack = factpack.fetch(user, topic=topic, question=question)
     facts = pack.get("topicFacts") or pack["facts"]
     facts_text = _facts_text(facts)
     prompt = llm.build_prompt(question, pack, topic, facts, history=history)
@@ -462,7 +543,9 @@ def handle(phone: str, text: str) -> str:
     if low.startswith(("order", "/order")):
         return _handle_order(phone, text)
     if low in ("reading", "/reading", "kundli", "my kundli") and user.get("dob"):
-        return render_reading(factpack.fetch(user), user.get("language") or "en")
+        _pack = factpack.fetch(user)
+        send_free_report(phone, _pack, user, force=True)
+        return render_reading(_pack, user.get("language") or "en")
 
     state = user.get("state") or "new"
 
@@ -555,6 +638,7 @@ def handle(phone: str, text: str) -> str:
             log.exception("factpack failed")
             store.upsert_user(phone, state="await_place")
             return t(user, "place_not_found", place=place)
+        send_free_report(phone, pack, user)
         reading = render_reading(pack, user.get("language") or "en")
         n = store.remaining(phone)
         tail = (t(user, "reading_tail_ready", n=n, s="s" if n != 1 else "") if n else
@@ -571,7 +655,22 @@ def handle(phone: str, text: str) -> str:
         answered = _answer_billed(phone, store.get_user(phone), pending)
         return reading + t(user, "pending_answered", pending=pending, answered=answered)
 
-    # state == ready → a question
+    # state == ready → a question.
+    # Customers who finished onboarding before the free report existed never hit the
+    # onboarding trigger, so catch them here — they have just messaged, which is exactly the
+    # 24h window a document send needs. Guarded to one delivery per customer.
+    if user.get("dob") and not user.get("report_sent_at"):
+        try:
+            send_free_report(phone, factpack.fetch(user), user)
+        except Exception:
+            log.exception("catch-up report failed for %s", phone)
+
+    # These two answer before the quota gate on purpose — see _wants_correction above.
+    if _wants_correction(text):
+        return t(user, "fix_details")
+    if _wants_support(text):
+        return t(user, "support")
+
     if len(text) < 6:
         return t(user, "ask_full_question")
     if store.remaining(phone) <= 0:

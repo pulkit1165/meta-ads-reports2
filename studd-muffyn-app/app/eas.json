@@ -16,7 +16,8 @@
       "channel": "production",
       "env": {
         "APP_BRAND": "sml"
-      }
+      },
+      "credentialsSource": "local"
     },
     "preview-sml": {
       "distribution": "internal",

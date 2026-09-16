@@ -49,6 +49,41 @@ def send_template(to: str, name: str, params: list[str], lang: str = "en") -> di
     return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
 
 
+def upload_media(content: bytes, filename: str, mime: str = "application/pdf") -> str | None:
+    """Upload a file to WhatsApp and return its media id.
+
+    Uploading beats sending by link: Meta fetches link media from the public internet, which
+    would mean hosting a customer's personal birth chart at a guessable URL. A media id is
+    scoped to this phone number and expires on its own.
+    """
+    r = requests.post(
+        _url(f"{os.environ['WA_PHONE_NUMBER_ID']}/media"),
+        headers={"Authorization": f"Bearer {os.environ['WA_ACCESS_TOKEN']}"},
+        files={"file": (filename, content, mime)},
+        data={"messaging_product": "whatsapp", "type": mime},
+        timeout=120)
+    if not r.ok:
+        log.error("media upload failed %s %s", r.status_code, r.text[:400])
+        return None
+    return (r.json() or {}).get("id")
+
+
+def send_document(to: str, content: bytes, filename: str, caption: str = "") -> dict:
+    """Send a PDF as a WhatsApp document. Only valid inside the 24h customer-service window;
+    reaching someone outside it needs an approved template with a document header."""
+    media_id = upload_media(content, filename)
+    if not media_id:
+        return {}
+    payload = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": to,
+               "type": "document",
+               "document": {"id": media_id, "filename": filename, "caption": caption[:1024]}}
+    r = requests.post(_url(f"{os.environ['WA_PHONE_NUMBER_ID']}/messages"),
+                      headers=_headers(), json=payload, timeout=60)
+    if not r.ok:
+        log.error("send_document failed %s %s", r.status_code, r.text[:400])
+    return r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+
+
 def mark_read(message_id: str) -> None:
     try:
         requests.post(_url(f"{os.environ['WA_PHONE_NUMBER_ID']}/messages"), headers=_headers(),

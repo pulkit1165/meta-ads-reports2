@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -27,6 +28,7 @@ import wa               # noqa: E402
 import store            # noqa: E402
 import flow             # noqa: E402
 import shopify_webhook  # noqa: E402
+import admin_api        # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -97,6 +99,28 @@ def _process(sender: str, text: str, message_id: str) -> None:
         log.exception("send failed for %s", sender)
 
 
+def _log_status(st: dict) -> None:
+    """Meta reports every outbound message's fate here: sent → delivered → read, or failed.
+
+    These callbacks used to be dropped on the floor, which is exactly why an order-confirmation
+    template that Meta accepted with a 200 (wamid returned, nothing logged as an error) but never
+    actually delivered was invisible from our side — the send call's return value looks identical
+    either way. A MARKETING-category template dropped under Meta's per-user engagement cap
+    (error 131049) is the case this was written for.
+    """
+    status = st.get("status", "?")
+    to = st.get("recipient_id", "?")
+    if status == "failed":
+        errs = st.get("errors") or []
+        detail = "; ".join(
+            f"{e.get('code')} {e.get('title')}: "
+            f"{(e.get('error_data') or {}).get('details') or e.get('message') or ''}".strip()
+            for e in errs) or "no error detail supplied"
+        log.error("WA DELIVERY FAILED to %s — %s (wamid %s)", to, detail, st.get("id"))
+    else:
+        log.info("WA status %s → %s", status, to)
+
+
 @app.get("/healthz")
 def healthz():
     return jsonify({"ok": True, "backend": os.environ.get("ASTRO_LLM_BACKEND", "claude_cli")})
@@ -117,7 +141,10 @@ def event():
     payload = request.get_json(silent=True) or {}
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-            for msg in (change.get("value", {}) or {}).get("messages", []):
+            value = change.get("value", {}) or {}
+            for st in value.get("statuses", []):
+                _log_status(st)
+            for msg in value.get("messages", []):
                 mid = msg.get("id", "")
                 with _seen_lock:
                     if mid in _seen_ids:
@@ -137,6 +164,26 @@ def event():
                 log.info("← %s: %s", sender, text[:100].replace("\n", " "))
                 threading.Thread(target=_process, args=(sender, text, mid), daemon=True).start()
     return jsonify({"status": "received"}), 200
+
+
+@app.get("/admin/conversations")
+def admin_conversations():
+    """Read-only feed for the NTN Command dashboard. Token in the query string, same pattern
+    as the Shopify webhook — the vhost is HTTPS, so the token never crosses the wire in
+    clear, and nothing here can write."""
+    if not admin_api.authorised(request.args.get("token", "")):
+        abort(401)
+    return jsonify(admin_api.conversations())
+
+
+@app.get("/admin/conversation")
+def admin_conversation():
+    if not admin_api.authorised(request.args.get("token", "")):
+        abort(401)
+    phone = re.sub(r"\D", "", request.args.get("phone", ""))
+    if not phone:
+        abort(400)
+    return jsonify(admin_api.transcript(phone))
 
 
 @app.post("/shopify-webhook")

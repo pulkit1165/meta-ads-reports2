@@ -34,7 +34,10 @@ export interface ClosingRow {
 
 const DAY_COLS = 10;
 const BUCKET_GRID = '170px 74px 116px 104px 88px 82px 92px 104px';
-const CAMP_GRID = '54px minmax(200px,1fr) 56px 44px 92px 92px 74px 68px 86px';
+// Fixed widths, not 1fr: the day table sizes itself to its widest content, and a
+// flexible name column would stretch it to the longest campaign name — pushing
+// "Closed by", the reason for opening this at all, off the right edge.
+const CAMP_GRID = '54px 380px 52px 44px 92px 92px 74px 68px 80px';
 
 const head = 'text-[10.5px] uppercase tracking-[0.12em] text-muted font-medium';
 const cellR = 'px-2 py-1.5 text-right tabular-nums';

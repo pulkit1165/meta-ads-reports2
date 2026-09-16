@@ -2,14 +2,14 @@
   "expo": {
     "name": "Studd Muffyn",
     "slug": "studd-muffyn",
-    "version": "5.0.0",
+    "version": "5.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.StuddMuffyn.ShopifyApp",
-      "buildNumber": "5.0.3",
+      "buildNumber": "2.2.1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -23,7 +23,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.studdmuffinn.shopifyapp",
-      "versionCode": 50000
+      "versionCode": 50100
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -46,8 +46,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "9cc32f92-0f1c-4b0d-b532-a28bdab9aab8"
-      }
+        "projectId": "99e92f83-b27f-4cf5-88be-5214186fa909"
+      },
+      "brand": "sml"
     },
     "owner": "nature-touch-nutritiom",
     "runtimeVersion": {
