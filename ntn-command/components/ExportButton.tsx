@@ -18,6 +18,9 @@ import { buildXlsx, sheetName, toCell, type Cell, type Sheet } from '@/lib/xlsx'
 function cellText(el: Element): string {
   const out: string[] = [];
   const walk = (node: Node) => {
+    // A drill-down opened inside a cell is UI, not data: without this the whole
+    // expanded panel would land in the spreadsheet fused into one cell.
+    if (node instanceof Element && node.getAttribute('data-export') === 'skip') return;
     if (node.nodeType === Node.TEXT_NODE) {
       const t = node.textContent ?? '';
       if (t.trim()) out.push(t.trim());

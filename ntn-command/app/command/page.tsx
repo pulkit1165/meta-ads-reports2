@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { todayRead, delta, pctOf as pctSafe } from '@/lib/today';
 import { ydayFinal, totalRow as ydayTotal } from '@/lib/yday';
 import { dailyClosing, shareOf } from '@/lib/closingdaily';
+import { closingDrill } from '@/lib/closingdrill';
+import ClosingDrill, { type ClosingRow } from '@/components/ClosingDrill';
 import { campDays, productMap, roasOf, share, PORTAL_NAME, type CampDay } from '@/lib/ads';
 import { resolveRange, resolveScope, weekday, isWeekend, dayLabel, type SearchParams } from '@/lib/range';
 import { wilson, pctOf } from '@/lib/insights';
@@ -51,10 +53,11 @@ export default async function CommandPage({ searchParams }: { searchParams: Prom
   const scope = resolveScope(sp);
   const controls = <PageControls range={range} scope={scope} />;
 
-  const [now, yday, closing, rows, pmap] = await Promise.all([
+  const [now, yday, closing, drill, rows, pmap] = await Promise.all([
     todayRead(scope.codes).catch(() => null),
     ydayFinal(range.yesterday, scope.codes).catch(() => []),
     dailyClosing(range.from, range.today, scope.codes).catch(() => []),
+    closingDrill(range.from, range.today, scope.codes).catch(() => []),
     campDays(range.from, range.to, scope.codes),
     productMap(),
   ]);
@@ -62,6 +65,24 @@ export default async function CommandPage({ searchParams }: { searchParams: Prom
   const yTot = yday.length ? ydayTotal(yday) : null;
   const spent = rows.reduce((s, r) => s + r.spend, 0);
   const earned = rows.reduce((s, r) => s + r.revenue, 0);
+
+  /* ── 3. closing: day rows, each opening into its ROAS bands ──────────── */
+  const drillByDay = new Map(drill.map((d) => [d.date, d]));
+  const closingRows: ClosingRow[] = [...closing].reverse().map((c) => ({
+    date: c.date,
+    weekday: weekday(c.date),
+    weekend: isWeekend(c.date),
+    label: dayLabel(c.date),
+    allocated: c.allocated,
+    spend: c.spend,
+    closed: c.closed,
+    closedCamps: c.closedCamps,
+    closedPct: shareOf(c.closed, c.allocated),
+    byTenPct: shareOf(c.closedByTen, c.allocated),
+    closeRoas: c.closedSpend > 0 ? roasOf(c.closedRevenue, c.closedSpend) : null,
+    dayRoas: roasOf(c.revenue, c.spend),
+    drill: drillByDay.get(c.date) ?? null,
+  }));
 
   /* ── 4. budget and return, day by day ─────────────────────────────────── */
   const byDay = fold(rows, (r) => r.date).sort((a, b) => b.key.localeCompare(a.key));
@@ -157,28 +178,13 @@ export default async function CommandPage({ searchParams }: { searchParams: Prom
         </Card>
       )}
 
-      {/* 3 ─ closing, day by day */}
-      {closing.length > 0 && (
-        <Card title="3 · Closing, day by day" note="how much of each day's book was switched off">
-          <Table
-            cols={[
-              { key: 'wd', head: 'Day', align: 'l', render: (c) => (
-                  <span className={isWeekend(c.date) ? 'text-muted/70' : 'text-muted'}>{weekday(c.date)}</span>) },
-              { key: 'd', head: 'Date', align: 'l', render: (c) => dayLabel(c.date) },
-              { key: 'a', head: 'Allocated', align: 'r', render: (c) => rs(c.allocated) },
-              { key: 'sp', head: 'Spent', align: 'r', render: (c) => rs(c.spend) },
-              { key: 'cb', head: 'Closed', align: 'r', render: (c) => rs(c.closed) },
-              { key: 'cp', head: 'Closed %', align: 'r', render: (c) => (
-                  <Meter value={shareOf(c.closed, c.allocated)}
-                         tone={shareOf(c.closed, c.allocated) >= 70 ? 'warn' : 'neutral'} />) },
-              { key: 't', head: 'By 10:00', align: 'r', render: (c) => (
-                  <span className="text-muted">{pct(shareOf(c.closedByTen, c.allocated))}</span>) },
-              { key: 'r', head: 'ROAS at close', align: 'r', render: (c) =>
-                  c.closedSpend > 0 ? <Roas v={roasOf(c.closedRevenue, c.closedSpend)} /> : <span className="text-muted">–</span> },
-              { key: 'dr', head: 'Day ROAS', align: 'r', render: (c) => <Roas v={roasOf(c.revenue, c.spend)} /> },
-            ]}
-            rows={[...closing].reverse()}
-          />
+      {/* 3 ─ closing, day by day — click a day, then a band, then see the camps */}
+      {closingRows.length > 0 && (
+        <Card
+          title="3 · Closing, day by day"
+          note="how much of each day's book was switched off — click a day to open it"
+        >
+          <ClosingDrill rows={closingRows} />
           <div className="mt-3">{more('/closing-daily', 'bot vs manual, push or minus, 25 days')}</div>
         </Card>
       )}
