@@ -37,6 +37,15 @@ export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
 
 export const MODULES: ModuleDef[] = [
   {
+    slug: 'command',
+    label: 'Command',
+    hint: 'all eight daily reads on one page',
+    section: 'daily',
+    status: 'live',
+    question: 'Everything that matters today, in one place — today, yesterday, closing, budget, elimination, blocks, products, allocation.',
+    source: 'every daily module, digested',
+  },
+  {
     slug: 'today',
     label: 'Today\u2019s ROAS',
     hint: 'live, against the same time yesterday',
