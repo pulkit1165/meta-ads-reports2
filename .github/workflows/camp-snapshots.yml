@@ -81,8 +81,14 @@ jobs:
           # captured" and no-op. They were still redeploying the site, which
           # is 2 of every 3 deploys done for nothing. Record which kind of run
           # this was so the deploy steps can skip.
-          out=$(python3 scripts/v2/camp_snapshot.py --db "$DB" 2>&1)
+          # `set -e` + command substitution swallowed the whole failure: a
+          # non-zero exit killed the step BEFORE the echo, so every aborted
+          # capture logged nothing but "exit code 1". Print first, then fail.
+          set +e
+          out=$(python3 scripts/v2/camp_snapshot.py --db "$DB" 2>&1); rc=$?
+          set -e
           echo "$out"
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           if echo "$out" | grep -qi "already captured"; then
             echo "captured=false" >> "$GITHUB_OUTPUT"
             echo "::notice::nothing new captured — the deploy will be skipped"

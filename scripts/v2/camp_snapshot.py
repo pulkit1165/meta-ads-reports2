@@ -14,6 +14,7 @@ Usage:
 """
 import argparse
 import os
+import time
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -151,7 +152,33 @@ def main():
     # how NBP Skin cost ~Rs1L/day undetected. Permission errors are excluded
     # from this check: they are permanent and already known, so blocking on them
     # would mean never writing a snapshot at all.
+    permanent = [e for e in ACCOUNT_ERRORS if 'NOT grant' in e[2]]
     transient = [e for e in ACCOUNT_ERRORS if 'NOT grant' not in e[2]]
+
+    # Meta's per-account rate limit ("too many calls to this ad-account") clears
+    # in a minute or two, but aborting on it costs the operator the whole hour's
+    # WhatsApp report — 16 Sep 3 PM, and three of 15 Sep's :28 slots, all died
+    # on one throttled account. So re-pull JUST the throttled accounts after a
+    # cool-off before giving up. One retry a minute is not the hammering that
+    # _get() refuses to do; the partial-hour guard below still stands.
+    for wait in (60, 120):
+        if not transient:
+            break
+        ids = [aid for aid, _, _ in transient]
+        print(f"cooling off {wait}s, then retrying {len(ids)} throttled "
+              f"account(s): {', '.join(ids)}")
+        time.sleep(wait)
+        rows += fetch_active_campaigns(tok, ids, now=now)
+        still = [e for e in ACCOUNT_ERRORS if 'NOT grant' not in e[2]]
+        permanent += [e for e in ACCOUNT_ERRORS if 'NOT grant' in e[2]]
+        recovered = len(transient) - len(still)
+        if recovered:
+            print(f"  recovered {recovered} account(s) on retry")
+        transient = still
+    # ACCOUNT_ERRORS holds only the LAST call's failures; restore the true
+    # picture so the warning at the end of the run reports every bad account.
+    ACCOUNT_ERRORS[:] = permanent + transient
+
     if transient:
         print(f"ABORTING WRITE: {len(transient)} account(s) failed transiently — "
               f"refusing to save a partial hour that would understate spend:")
