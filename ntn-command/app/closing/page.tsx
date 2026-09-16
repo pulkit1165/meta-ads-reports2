@@ -1,11 +1,18 @@
+import Link from 'next/link';
 import {
   closingOn, closingHistory, closingCompare, compareStates, groupStates, familyOf,
   roasOf, share, ageBand, AGE_BANDS, creativeTags,
   PORTAL_NAME, PORTALS, bandOf, type CmpAgg, type AgedState,
 } from '@/lib/ads';
-import { resolveRange, resolveScope, weekday, isWeekend, type SearchParams } from '@/lib/range';
+import {
+  resolveRange, resolveScope, weekday, isWeekend, dayLabel as dayLabelOf, type SearchParams,
+} from '@/lib/range';
 import { rank, pctOf, money, concentration, type Finding } from '@/lib/insights';
-import { ROAS_BANDS, BarList, ShareBar, Line } from '@/components/charts';
+import {
+  closingBook, byDate as bookByDate, byAge as bookByAge,
+  total as bookTotal, pctOfSafe, type BookAgg,
+} from '@/lib/closingbook';
+import { ROAS_BANDS, BarList, ShareBar, Line, Meter, BandBar } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, lakh, rs, pct, num, type Col,
@@ -34,11 +41,19 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   // The day before the one on screen, read at the same clock time — see
   // closingCompare for why the hour matters so much on a live day.
   const prev = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
-  const [snap, history, cmp] = await Promise.all([
+  // Seven days ending on the chosen day: enough to see a pattern, short
+  // enough that every row still gets read.
+  const BOOK = 7;
+  const bookFrom = new Date(Date.parse(day) - (BOOK - 1) * 86400000).toISOString().slice(0, 10);
+  const [snap, history, cmp, book] = await Promise.all([
     closingOn(day, scope.codes),
     closingHistory(histFrom, day, scope.codes).catch(() => []),
     closingCompare(day, prev, scope.codes).catch(() => null),
+    closingBook(bookFrom, day, scope.codes).catch(() => []),
   ]);
+  const bookDates = bookByDate(book);
+  const bookAges = bookByAge(book);
+  const bookAll = bookTotal(bookDates);
   const rows = snap.rows;
 
   const controls = <PageControls range={range} scope={scope} />;
@@ -206,6 +221,48 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
   ];
 
   const dayLabel = day.slice(8) + '/' + day.slice(5, 7);
+
+  /* ── the seven-day book, read two ways ──────────────────────────────────
+     Allocated counts only campaigns that went live. Used is spend against the
+     whole cohort's allocation; burn is the closed campaigns' spend against
+     only their own budget — the honest measure of how much was already gone
+     when the decision got made. A cohort can be lightly used and heavily
+     burnt at the same time, which is why both columns are here. */
+  const bookCols = (head: string, first: (b: BookAgg) => React.ReactNode): Col<BookAgg>[] => [
+    { key: 'k', head, align: 'l', render: first },
+    { key: 'c', head: 'Camps', align: 'r', render: (b) => num(b.camps) },
+    { key: 'a', head: 'Allocated', align: 'r', render: (b) => rs(b.allocated) },
+    { key: 's', head: 'Spent', align: 'r', render: (b) => rs(b.spend) },
+    { key: 'u', head: 'Used', align: 'r', render: (b) => (
+        <Meter value={pctOfSafe(b.spend, b.allocated)} max={120} />
+      ) },
+    { key: 'n', head: 'Closed', align: 'r', render: (b) => num(b.closedCamps) },
+    { key: 'cb', head: 'Budget closed', align: 'r', render: (b) => rs(b.closedBudget) },
+    { key: 'cp', head: 'Closed', align: 'r', render: (b) => (
+        <Meter value={pctOfSafe(b.closedBudget, b.allocated)} tone={pctOfSafe(b.closedBudget, b.allocated) >= 70 ? 'warn' : 'neutral'} />
+      ) },
+    { key: 'cs', head: 'Spent by them', align: 'r', render: (b) => rs(b.closedSpend) },
+    { key: 'bn', head: 'Burn', align: 'r', render: (b) => (
+        <Meter value={pctOfSafe(b.closedSpend, b.closedBudget)} max={120}
+               tone={pctOfSafe(b.closedSpend, b.closedBudget) >= 60 ? 'warn' : 'neutral'} />
+      ) },
+    { key: 'd', head: 'How they ended', align: 'l', render: (b) => (
+        <BandBar bands={b.bands} survived={b.survived} />
+      ) },
+    { key: 'r', head: 'ROAS at close', align: 'r', render: (b) =>
+        b.closedSpend > 0 ? <Roas v={roasOf(b.closedRevenue, b.closedSpend)} /> : <span className="text-muted">–</span> },
+    { key: 'dr', head: 'Cohort ROAS', align: 'r', render: (b) =>
+        b.spend > 0 ? <Roas v={roasOf(b.revenue, b.spend)} /> : <span className="text-muted">–</span> },
+  ];
+
+  /** Clicking a date moves the whole Desk onto that day. */
+  const dateHref = (d: string) => {
+    const qs = new URLSearchParams();
+    qs.set('from', d); qs.set('to', d);
+    if (scope.key !== 'all') qs.set('site', scope.key);
+    return `/closing?${qs.toString()}`;
+  };
+
 
   /** One comparison table shape, reused for every cut of the same data. */
   const cmpCols = (head: string, wide = false): Col<CmpAgg>[] => [
@@ -416,6 +473,59 @@ export default async function ClosingPage({ searchParams }: { searchParams: Prom
               ]}
               rows={[...history].reverse()}
             />
+          </Card>
+        </>
+      )}
+
+      {book.length > 0 && (
+        <>
+          <Card
+            title="The week, day by day"
+            note={`${bookFrom} → ${day} · click a date to move the whole desk onto it · allocated counts only campaigns that went live`}
+          >
+            <Table
+              cols={bookCols('Day', (b) => (
+                <Link
+                  href={dateHref(String(b.order))}
+                  className={`whitespace-nowrap underline decoration-edge decoration-dotted underline-offset-4 transition hover:text-gold hover:decoration-gold/60 ${
+                    String(b.order) === day ? 'font-medium text-gold' : ''
+                  }`}
+                  title={`Open ${b.order} on the desk above`}
+                >
+                  <span className={isWeekend(String(b.order)) ? 'text-muted/70' : 'text-muted'}>
+                    {weekday(String(b.order))}
+                  </span>{' '}
+                  {dayLabelOf(String(b.order))}
+                </Link>
+              ))}
+              rows={bookDates}
+              footer={{ ...bookAll, key: 'All 7 days', order: '' }}
+            />
+          </Card>
+
+          <Card
+            title="The same week, by campaign age"
+            note="age counts from the first day a campaign spent · days 1-7 exactly, everything older folded together"
+          >
+            <Table
+              cols={bookCols('Campaign age', (b) => (
+                <span className={b.key === 'Day 1' ? 'font-medium text-gold' : ''}>{b.key}</span>
+              ))}
+              rows={bookAges}
+              footer={{ ...bookAll, key: 'All ages', order: '' }}
+            />
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10.5px] text-muted">
+              {ROAS_BANDS.map((b) => (
+                <span key={b.key} className="inline-flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-[2px]" style={{ background: b.color }} />
+                  closed at {b.label}
+                </span>
+              ))}
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-[2px] bg-edge" />
+                survived the day
+              </span>
+            </div>
           </Card>
         </>
       )}

@@ -26,8 +26,8 @@ export interface ModuleDef {
 export type SectionKey = 'daily' | 'ads' | 'catalogue' | 'commerce' | 'customers' | 'intel' | 'admin';
 
 export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
-  { key: 'daily', label: 'Daily', blurb: 'The morning read, saved every day' },
-  { key: 'ads', label: 'Ads', blurb: 'What we spent and what it closed' },
+  { key: 'daily', label: 'The Daily Read', blurb: 'In the order you read them each morning' },
+  { key: 'ads', label: 'Ads, in depth', blurb: 'The detail behind the daily read' },
   { key: 'catalogue', label: 'Catalogue', blurb: 'Which products carry the spend' },
   { key: 'commerce', label: 'Commerce', blurb: 'Orders as the shop actually took them' },
   { key: 'customers', label: 'Customers', blurb: 'Who buys, and who stopped' },
@@ -37,16 +37,14 @@ export const SECTIONS: { key: SectionKey; label: string; blurb: string }[] = [
 
 export const MODULES: ModuleDef[] = [
   {
-    slug: 'conversations',
-    label: 'WhatsApp Conversations',
-    hint: 'astro bot · open, paid, spent',
-    section: 'customers',
+    slug: 'today',
+    label: 'Today\u2019s ROAS',
+    hint: 'live, against the same time yesterday',
+    section: 'daily',
     status: 'live',
-    question: 'Who is talking to the astro bot, who bought, and who paid but has not asked yet?',
-    source: 'astro.db on EC2 via the bot\'s token-gated /admin feed',
+    question: 'Where does every website stand right now, and how does that compare with yesterday at this hour?',
+    source: 'meta_campaign_snapshot (live) + shopify sales',
   },
-
-  // ── Daily ──────────────────────────────────────────────────────────────
   {
     slug: 'brief',
     label: "Yesterday's Brief",
@@ -56,7 +54,60 @@ export const MODULES: ModuleDef[] = [
     question: 'What happened yesterday, product by product, in the team-report format?',
     source: 'meta_analysis_ad_daily (ad level)',
   },
-
+  {
+    slug: 'closing-daily',
+    label: 'Daily Closing',
+    hint: 'by 10am vs whole day, bot vs manual, push or minus',
+    section: 'daily',
+    status: 'live',
+    question: 'How much of each day\u2019s book was closed, how early, by whom, and was the book pushed or cut?',
+    source: 'camp_day_state + camp_close_event + bot_pause_event',
+  },
+  {
+    slug: 'budget',
+    label: 'Budget & ROAS',
+    hint: 'day-wise split, ROAS buckets',
+    section: 'daily',
+    status: 'live',
+    question: 'Where does the budget sit across ROAS bands, and how is that moving?',
+    source: 'meta_analysis_campaign_daily',
+  },
+  {
+    slug: 'blocks',
+    label: 'Sales Blocks',
+    hint: 'audience performance & closure',
+    section: 'daily',
+    status: 'live',
+    question: 'Which audience blocks earn their budget, and which get closed out?',
+    source: 'meta_analysis_campaign_daily.sale_block',
+  },
+  {
+    slug: 'products',
+    label: 'Product Success',
+    hint: 'per-product hit rate',
+    section: 'daily',
+    status: 'live',
+    question: 'Which products win when we put budget behind them?',
+    source: 'meta_camp_product_map + meta_analysis_campaign_daily',
+  },
+  {
+    slug: 'allocation',
+    label: 'Allocation',
+    hint: 'website × product, 70/30',
+    section: 'daily',
+    status: 'live',
+    question: 'Is spend split across products the way we intended?',
+    source: 'meta_camp_product_map + meta_analysis_campaign_daily',
+  },
+  {
+    slug: 'conversations',
+    label: 'WhatsApp Conversations',
+    hint: 'astro bot · open, paid, spent',
+    section: 'customers',
+    status: 'live',
+    question: 'Who is talking to the astro bot, who bought, and who paid but has not asked yet?',
+    source: 'astro.db on EC2 via the bot\'s token-gated /admin feed',
+  },
   {
     slug: 'continuous',
     label: '7 Days+ Continuous',
@@ -84,8 +135,6 @@ export const MODULES: ModuleDef[] = [
     question: 'Where is budget allocated by product and audience, and what should be pushed tomorrow?',
     source: 'camp_product_resolved + meta_campaign_snapshot',
   },
-
-  // ── Ads ────────────────────────────────────────────────────────────────
   {
     slug: 'overview',
     label: 'Ads Overview',
@@ -114,15 +163,6 @@ export const MODULES: ModuleDef[] = [
     source: 'meta_campaign_snapshot status flips + bot_pause_event',
   },
   {
-    slug: 'closing-daily',
-    label: 'Daily Closing',
-    hint: 'by 10am vs whole day, bot vs manual, push or minus',
-    section: 'ads',
-    status: 'live',
-    question: 'How much of each day\u2019s book was closed, how early, by whom, and was the book pushed or cut?',
-    source: 'camp_day_state + camp_close_event + bot_pause_event',
-  },
-  {
     slug: 'attempts',
     label: 'Attempts',
     hint: 'how often a shape is tried, and how it dies',
@@ -130,24 +170,6 @@ export const MODULES: ModuleDef[] = [
     status: 'live',
     question: 'How many times have we tried this product in this block with this creative, and at what ROAS did those attempts get closed?',
     source: 'camp_day_state + meta_analysis_campaign_daily + camp_product_resolved',
-  },
-  {
-    slug: 'blocks',
-    label: 'Sales Blocks',
-    hint: 'audience performance & closure',
-    section: 'ads',
-    status: 'live',
-    question: 'Which audience blocks earn their budget, and which get closed out?',
-    source: 'meta_analysis_campaign_daily.sale_block',
-  },
-  {
-    slug: 'budget',
-    label: 'Budget & ROAS',
-    hint: 'day-wise split, ROAS buckets',
-    section: 'ads',
-    status: 'live',
-    question: 'Where does the budget sit across ROAS bands, and how is that moving?',
-    source: 'meta_analysis_campaign_daily',
   },
   {
     slug: 'creative',
@@ -167,28 +189,6 @@ export const MODULES: ModuleDef[] = [
     question: 'Which combination of settings actually produces a winner?',
     source: 'meta_analysis_campaign_daily + meta_camp_product_map',
   },
-
-  // ── Catalogue ──────────────────────────────────────────────────────────
-  {
-    slug: 'products',
-    label: 'Product Success',
-    hint: 'per-product hit rate',
-    section: 'catalogue',
-    status: 'live',
-    question: 'Which products win when we put budget behind them?',
-    source: 'meta_camp_product_map + meta_analysis_campaign_daily',
-  },
-  {
-    slug: 'allocation',
-    label: 'Allocation',
-    hint: 'website × product, 70/30',
-    section: 'catalogue',
-    status: 'live',
-    question: 'Is spend split across products the way we intended?',
-    source: 'meta_camp_product_map + meta_analysis_campaign_daily',
-  },
-
-  // ── Commerce ───────────────────────────────────────────────────────────
   {
     slug: 'orders',
     label: 'Orders',
@@ -216,8 +216,6 @@ export const MODULES: ModuleDef[] = [
     question: 'How much is the mobile app taking versus the website?',
     source: 'shopify_orders.tags (appmaker / App_android_device)',
   },
-
-  // ── Customers ──────────────────────────────────────────────────────────
   {
     slug: 'cohorts',
     label: 'New vs Returning',
@@ -245,8 +243,6 @@ export const MODULES: ModuleDef[] = [
     question: 'Which recency window is filling up, and which is draining?',
     source: 'customer_lifetime + cohort_daily',
   },
-
-  // ── Intelligence ───────────────────────────────────────────────────────
   {
     slug: 'signals',
     label: 'Signals',
@@ -256,8 +252,6 @@ export const MODULES: ModuleDef[] = [
     question: 'What changed today that nobody asked about?',
     source: 'every module above',
   },
-
-  // ── Admin ──────────────────────────────────────────────────────────────
   {
     slug: 'access',
     label: 'Access',

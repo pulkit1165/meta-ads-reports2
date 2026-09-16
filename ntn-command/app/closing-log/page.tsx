@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { closeLog, bucket, hourBlock, HOUR_BLOCKS, type CloseEvent, type Bucket } from '@/lib/closinglog';
+import { dailyClosing, shareOf, type ClosingDayRow } from '@/lib/closingdaily';
 import { resolveRange, resolveScope, dayLabel, weekday, isWeekend, type SearchParams } from '@/lib/range';
 import { ageBand, AGE_BANDS, creativeTags, roasOf, PORTAL_NAME } from '@/lib/ads';
 import { rank, money, type Finding } from '@/lib/insights';
@@ -36,7 +37,10 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
   const only = String(Array.isArray(sp.by) ? sp.by[0] : sp.by ?? 'all');
   const actorFilter = only === 'bot' || only === 'manual' ? only : 'all';
 
-  const log = await closeLog(from, to, scope.codes);
+  const [log, book] = await Promise.all([
+    closeLog(from, to, scope.codes),
+    dailyClosing(from, to, scope.codes),
+  ]);
   const all = log.events;
   const ev = actorFilter === 'all' ? all : all.filter((e) => e.actor === actorFilter);
 
@@ -85,6 +89,18 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
   const byDay = bucket(ev, (e) => `${weekday(e.date)} ${dayLabel(e.date)}`)
     .sort((a, b) => b.key.slice(4).split('/').reverse().join().localeCompare(a.key.slice(4).split('/').reverse().join()));
 
+  /* ── the book, day by day ─────────────────────────────────────────────── */
+  // dailyClosing counts a campaign as closed only if it ended the day off, so
+  // these figures are the day's verdict rather than every intraday flip.
+  const bookDays = [...book].reverse();               // newest first
+  const doneDays = book.filter((b) => b.date < range.today && b.allocated > 0);
+  const avgClosedPct = doneDays.length
+    ? doneDays.reduce((s, b) => s + shareOf(b.closed, b.allocated), 0) / doneDays.length
+    : 0;
+  const doneClosedSpend = doneDays.reduce((s, b) => s + b.closedSpend, 0);
+  const doneClosedRev = doneDays.reduce((s, b) => s + b.closedRevenue, 0);
+  const doneClosed = doneDays.reduce((s, b) => s + b.closed, 0);
+
   const medPctBot = med(bots.filter((e) => e.budget > 0).map((e) => e.pct));
   const medPctMan = med(mans.filter((e) => e.budget > 0).map((e) => e.pct));
   const medDayBot = med(bots.map((e) => e.dayNo));
@@ -95,6 +111,17 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
 
   /* ── findings ─────────────────────────────────────────────────────────── */
   const findings: Finding[] = [];
+
+  if (doneDays.length) {
+    findings.push({
+      severity: avgClosedPct >= 60 ? 'watch' : 'neutral',
+      headline: `A typical day ends with ${pct(avgClosedPct)} of the book switched off`,
+      detail: `Across ${num(doneDays.length)} complete days, ${money(doneClosed)} of allocated budget ended its day closed — ${money(doneClosedSpend)} already burnt at a combined ${roasOf(doneClosedRev, doneClosedSpend).toFixed(2)} ROAS before the cut.`,
+      action: avgClosedPct >= 60
+        ? 'More than half the book is being allocated to campaigns that do not survive their own day. The day-by-day table below shows which days carry it.'
+        : undefined,
+    });
+  }
 
   findings.push({
     severity: 'neutral',
@@ -188,6 +215,38 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
         b.spend > 0 ? <Roas v={b.roas} /> : <span className="text-muted">–</span> },
     { key: 'u', head: 'Undone', align: 'r', render: (b) =>
         b.reopened ? <span className="text-warn">{num(b.reopened)}</span> : <span className="text-muted">–</span> },
+  ];
+
+  const bookCols: Col<ClosingDayRow>[] = [
+    { key: 'd', head: 'Day', align: 'l', render: (b) => (
+        <span className="whitespace-nowrap">
+          <span className={isWeekend(b.date) ? 'text-muted/70' : 'text-muted'}>{weekday(b.date)}</span>{' '}
+          <span className="text-text-strong">{dayLabel(b.date)}</span>
+          {b.date === range.today && <span className="ml-1.5 text-[10px] text-warn">so far</span>}
+        </span>
+      ) },
+    { key: 'a', head: 'Book', align: 'r', render: (b) => rs(b.allocated) },
+    { key: 'c', head: 'Closed', align: 'r', render: (b) => (
+        <span className="whitespace-nowrap">
+          {rs(b.closed)} <span className="text-muted/70">· {num(b.closedCamps)}</span>
+        </span>
+      ) },
+    { key: 'p', head: '% of book', align: 'r', render: (b) => {
+        const p = shareOf(b.closed, b.allocated);
+        return <span className={p >= 60 ? 'text-warn' : ''}>{pct(p)}</span>;
+      } },
+    { key: 'bm', head: 'Bot / manual', align: 'r', render: (b) => (
+        <span className="whitespace-nowrap tabular-nums">
+          <span style={{ color: BOT }}>{rs(b.botBudget)}</span>
+          <span className="text-muted/60"> / </span>
+          <span style={{ color: MANUAL }}>{rs(b.manualBudget)}</span>
+        </span>
+      ) },
+    { key: 's', head: 'Burnt first', align: 'r', render: (b) => rs(b.closedSpend) },
+    { key: 'r', head: 'ROAS at cut', align: 'r', render: (b) =>
+        b.closedSpend > 0
+          ? <Roas v={roasOf(b.closedRevenue, b.closedSpend)} />
+          : <span className="text-muted">–</span> },
   ];
 
   const logCols: Col<CloseEvent>[] = [
@@ -347,11 +406,20 @@ export default async function ClosingLogPage({ searchParams }: { searchParams: P
         </div>
       </Card>
 
+      <Card
+        title="Day by day, against the book"
+        note={doneDays.length
+          ? `campaigns that ended their day switched off, against everything allocated that day · complete-day average: ${pct(avgClosedPct)} of the book closed, cut at ${roasOf(doneClosedRev, doneClosedSpend).toFixed(2)}`
+          : 'campaigns that ended their day switched off, against everything allocated that day'}
+      >
+        <Table cols={bookCols} rows={bookDays} empty="No snapshot days in this window." />
+      </Card>
+
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Card title="By campaign age" note="age counts from the first day the campaign spent">
           <Table cols={patternCols('Day window')} rows={byAge} />
         </Card>
-        <Card title="Day by day" note="closes per calendar day in the window">
+        <Card title="Every flip per day" note="closes per calendar day — every intraday flip, reopened ones included">
           <Table cols={patternCols('Day')} rows={byDay} />
         </Card>
       </div>

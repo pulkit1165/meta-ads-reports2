@@ -323,3 +323,60 @@ export function Donut({
     </div>
   );
 }
+
+/* ── in-cell bars: a number and its size, in one column ─────────────────── */
+
+/**
+ * A percentage with its own bar underneath. Reading "74%" against "59%" in a
+ * column of numbers takes a moment; seeing one bar longer than another does
+ * not, and the bar costs no extra width because it sits under the figure.
+ */
+export function Meter({
+  value, tone = 'neutral', max = 100,
+}: { value: number; tone?: 'neutral' | 'warn' | 'good'; max?: number }) {
+  const w = Math.max(0, Math.min(100, (value / max) * 100));
+  const color = tone === 'warn' ? '#eb6834' : tone === 'good' ? '#1baf7a' : '#5aa9a3';
+  return (
+    <span className="block">
+      <span className="tabular-nums">{value.toFixed(0)}%</span>
+      <span className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-edge">
+        <span className="block h-full rounded-full" style={{ width: `${w}%`, background: color }} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * How a set of campaigns ended, as one bar: closed campaigns banded by the
+ * ROAS they died at, then the ones that survived the day.
+ *
+ * Survivors are included rather than left out so the bar always spans every
+ * campaign and its segments mean the same thing on every row.
+ */
+export function BandBar({
+  bands, survived, width = 150,
+}: { bands: Record<string, number>; survived: number; width?: number }) {
+  const total = ROAS_BANDS.reduce((s, b) => s + (bands[b.key] ?? 0), 0) + survived;
+  if (total <= 0) return <span className="text-muted">–</span>;
+  const title = ROAS_BANDS
+    .filter((b) => (bands[b.key] ?? 0) > 0)
+    .map((b) => `${bands[b.key]} closed at ${b.label}`)
+    .concat(survived ? [`${survived} survived`] : [])
+    .join('  ·  ');
+  return (
+    <span
+      className="flex h-[11px] overflow-hidden rounded-sm bg-tint"
+      style={{ width }}
+      title={title}
+    >
+      {ROAS_BANDS.map((b) =>
+        (bands[b.key] ?? 0) > 0 ? (
+          <span key={b.key} style={{ width: `${((bands[b.key] ?? 0) / total) * 100}%`, background: b.color }} />
+        ) : null,
+      )}
+      {survived > 0 && (
+        <span style={{ width: `${(survived / total) * 100}%`, background: 'var(--edge)' }} />
+      )}
+    </span>
+  );
+}
