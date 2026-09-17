@@ -356,7 +356,7 @@ async function buildConfig(html, site = DEFAULT_SITE) {
       messages: announcements.length ? announcements.slice(0, 3) : ['FREE SHIPPING ON PREPAID ORDERS'],
     },
     menu,
-    sections: rightSizeImages(sections),
+    sections: rightSizeImages(dropDecorativeBanners(sections)),
   };
 }
 
@@ -394,6 +394,31 @@ function rightSizeImages(sections) {
     }
   }
   return sections;
+}
+
+// ---- decorative dividers -----------------------------------------------
+// Shopify themes separate sections with a small flourish image. Parsed as a
+// banner it becomes a full-bleed strip — on SML the same ornament.png landed
+// seven times, each reserving ~170pt of a phone screen for a broken URL.
+//
+// Two signals, no per-brand filenames: an image used as a banner three or more
+// times is furniture rather than content, and the usual decorative names are
+// dropped outright.
+const DECOR_NAME = /(ornament|divider|separator|flourish|border|swirl|deco)[-_.]?\d*\.(png|jpe?g|webp|svg)/i;
+
+function dropDecorativeBanners(sections) {
+  const count = new Map();
+  for (const s of sections) {
+    if (s.type !== 'imageBanner' || !s.image) continue;
+    const base = String(s.image).split('?')[0];
+    count.set(base, (count.get(base) || 0) + 1);
+  }
+  return sections.filter((s) => {
+    if (s.type !== 'imageBanner' || !s.image) return true;
+    const base = String(s.image).split('?')[0];
+    if (DECOR_NAME.test(base)) return false;
+    return (count.get(base) || 0) < 3;
+  });
 }
 
 module.exports = async (req, res) => {

@@ -22,12 +22,13 @@ import {
 import { getProduct } from '../../src/api/shopify';
 import { useShop } from '../../src/store/shop';
 import { colors } from '../../src/theme';
+import { BRAND_LOGO } from '../../src/config/brand';
 
 function Header() {
   const router = useRouter();
   return (
     <View style={s.header}>
-      <Image source={require('../../assets/logo.png')} style={s.logo} contentFit="contain" />
+      <Image source={BRAND_LOGO} style={s.logo} contentFit="contain" />
       <View style={{ flex: 1 }} />
       <Pressable hitSlop={10} onPress={() => router.push('/(tabs)/search')} style={s.hIcon}>
         <Ionicons name="search-outline" size={22} color={colors.text} />
