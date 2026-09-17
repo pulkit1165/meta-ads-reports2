@@ -42,6 +42,10 @@ DRY_RUN  = os.environ.get('DRY_RUN', '') == '1'
 KILL_SPEND_PCT = 0.40   # spent >= 40% of daily budget
 KILL_ROAS      = 0.40   # and 1d ROAS <= 0.4
 MIN_SPEND      = 500    # ₹ floor so tiny campaigns don't trigger on noise
+# Day-1 protocol ONLY (operator, 17 Sep): the bot may cut a campaign within its
+# first 72h from start/creation and must never touch anything older — mature
+# camps are closed by hand. 72h covers a day-1 launch plus its settling days.
+MAX_AGE_H      = 72
 
 STATE_FILE = STATE_DIR / 'auto_close_kills.json'
 TAB        = '🔴 Auto-Closed'
@@ -183,10 +187,13 @@ def main():
             budget = safe_float(braw) / 100
             if budget <= 0:                    continue   # lifetime-budget camps: no daily % to measure
             too_young = False
+            too_old = True   # unknown age reads as old: never cut what we can't age
             try:
                 raw_st = camp.get('start_time') or camp.get('created_time')
                 st = datetime.strptime(raw_st, '%Y-%m-%dT%H:%M:%S%z')
-                too_young = (now - st).total_seconds() < 2 * 3600
+                age_h = (now - st).total_seconds() / 3600
+                too_young = age_h < 2
+                too_old = age_h > MAX_AGE_H
             except Exception:
                 pass
 
@@ -194,6 +201,7 @@ def main():
             spend_pct = spend / budget
             if spend < MIN_SPEND:              continue
             if too_young:                      continue
+            if too_old:                        continue   # day-1 protocol: past 72h is manual territory
             if spend_pct < KILL_SPEND_PCT:     continue
             if roas_1d > KILL_ROAS:            continue
 
