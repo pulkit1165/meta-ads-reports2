@@ -78,7 +78,8 @@ export async function closeLog(
                   ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING
                 ) AS back_on
            FROM meta_campaign_snapshot
-          WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1::date AND $2::date
+          WHERE snapshot_at >= ($1::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+            AND snapshot_at <  ($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
          WINDOW w AS (PARTITION BY campaign_id ORDER BY snapshot_at)
        ),
        ev AS (SELECT * FROM snaps WHERE prev_active AND NOT active),

@@ -118,7 +118,8 @@ export async function closingOn(day: string, portals: readonly string[] = PORTAL
   const rows = await q(
     `WITH today AS (
        SELECT * FROM meta_campaign_snapshot
-        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
+        WHERE snapshot_at >= ($2::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          AND snapshot_at <  ($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
      ),
      latest AS (SELECT max(snapshot_at) AS ts FROM today),
      ever   AS (SELECT DISTINCT campaign_id FROM today WHERE effective_status = 'ACTIVE'),
@@ -432,11 +433,13 @@ export async function closingCompare(
   const rows = await q(
     `WITH day_cut AS (
        SELECT MAX(snapshot_at) AS ts FROM meta_campaign_snapshot
-        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+        WHERE snapshot_at >= ($1::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          AND snapshot_at <  ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
      ),
      prev_cut AS (
        SELECT MAX(snapshot_at) AS ts FROM meta_campaign_snapshot
-        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
+        WHERE snapshot_at >= ($2::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          AND snapshot_at <  ($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
           AND (snapshot_at AT TIME ZONE 'Asia/Kolkata')::time
               <= (SELECT (ts AT TIME ZONE 'Asia/Kolkata')::time FROM day_cut)
      ),

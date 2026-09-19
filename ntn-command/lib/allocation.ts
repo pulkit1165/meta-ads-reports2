@@ -73,7 +73,8 @@ export async function allocationOn(
        SELECT DISTINCT ON (s.campaign_id)
               s.campaign_id, s.daily_budget, s.effective_status
          FROM meta_campaign_snapshot s
-        WHERE (s.snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+        WHERE s.snapshot_at >= ($1::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          AND s.snapshot_at <  ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
         ORDER BY s.campaign_id, s.snapshot_at DESC
      )
      SELECT d.campaign_id, d.campaign_name, d.portal, d.product,

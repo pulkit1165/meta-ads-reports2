@@ -30,7 +30,8 @@ export async function ydayFinal(
   const rows = await q(
     `WITH snaps AS (
        SELECT * FROM meta_campaign_snapshot
-        WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+        WHERE snapshot_at >= ($1::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          AND snapshot_at <  ($1::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
      ),
      slot AS (
        -- the capture at or before 22:00 IST, else the last one of the day

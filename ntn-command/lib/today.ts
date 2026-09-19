@@ -69,16 +69,31 @@ export async function todayRead(portals: readonly string[] = PORTALS): Promise<T
     // campaign state: today's newest snapshot, and yesterday's at the same
     // clock time so spend is compared over equal parts of the day
     q(
-      `WITH today AS (
-         SELECT * FROM meta_campaign_snapshot
-          WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+      // The day is expressed as a half-open range on snapshot_at rather than a
+      // date cast of it. The cast is not sargable: it made every read of this
+      // page scan all 766MB of meta_campaign_snapshot, which is why the page
+      // got slower every day the table grew — 2.3s in September against 57ms
+      // for the same answer through the (snapshot_at, campaign_id) index.
+      // Yesterday's cut is likewise "the same instant a day earlier" instead
+      // of a time-of-day comparison, which is the same thing and indexable.
+      `WITH bounds AS (
+         SELECT ((NOW() AT TIME ZONE 'Asia/Kolkata')::date)::timestamp
+                  AT TIME ZONE 'Asia/Kolkata' AS t0,
+                (((NOW() AT TIME ZONE 'Asia/Kolkata')::date + 1))::timestamp
+                  AT TIME ZONE 'Asia/Kolkata' AS t1,
+                (((NOW() AT TIME ZONE 'Asia/Kolkata')::date - 1))::timestamp
+                  AT TIME ZONE 'Asia/Kolkata' AS y0
+       ),
+       today AS (
+         SELECT s.* FROM meta_campaign_snapshot s, bounds b
+          WHERE s.snapshot_at >= b.t0 AND s.snapshot_at < b.t1
        ),
        cut AS (SELECT MAX(snapshot_at) AS ts FROM today),
        ycut AS (
-         SELECT MAX(snapshot_at) AS ts FROM meta_campaign_snapshot
-          WHERE (snapshot_at AT TIME ZONE 'Asia/Kolkata')::date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - 1
-            AND (snapshot_at AT TIME ZONE 'Asia/Kolkata')::time
-                <= (SELECT (ts AT TIME ZONE 'Asia/Kolkata')::time FROM cut)
+         SELECT MAX(s.snapshot_at) AS ts
+           FROM meta_campaign_snapshot s, bounds b, cut c
+          WHERE s.snapshot_at >= b.y0 AND s.snapshot_at < b.t0
+            AND s.snapshot_at <= c.ts - INTERVAL '1 day'
        ),
        ever AS (SELECT DISTINCT campaign_id FROM today WHERE effective_status = 'ACTIVE'),
        dims AS (
@@ -110,13 +125,29 @@ export async function todayRead(portals: readonly string[] = PORTALS): Promise<T
     // Shopify, cancellations excluded. created_at is TEXT holding an ISO
     // string with the +05:30 offset, so it sorts lexically and a text range is
     // both correct and index-friendly — casting it would lose the index.
+    //
+    // Sales are cut at the SAME instant as the spend snapshot, not at NOW().
+    // Spend above comes from the newest campaign snapshot (10-20 min old);
+    // counting sales to the second while spend stops at the snapshot paired
+    // fresh revenue with stale cost and read ~0.1-0.2 ROAS high all morning —
+    // which is why this page used to disagree with the WhatsApp table, whose
+    // :58 capture pairs both sides at one moment. Now both reports use the
+    // same method: everything "data through" one instant.
     q(
-      `WITH b AS (
-         SELECT to_char((NOW() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')       AS t0,
-                to_char(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD"T"HH24:MI')      AS t1,
-                to_char((NOW() AT TIME ZONE 'Asia/Kolkata')::date - 1, 'YYYY-MM-DD')   AS y0,
-                to_char((NOW() AT TIME ZONE 'Asia/Kolkata') - INTERVAL '1 day', 'YYYY-MM-DD"T"HH24:MI') AS y1,
-                to_char((NOW() AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')       AS yend
+      `WITH cut AS (
+         SELECT COALESCE(
+                  (SELECT MAX(snapshot_at) FROM meta_campaign_snapshot
+                    WHERE snapshot_at >= ((NOW() AT TIME ZONE 'Asia/Kolkata')::date)::timestamp
+                                           AT TIME ZONE 'Asia/Kolkata'),
+                  NOW()) AS ts
+       ),
+       b AS (
+         SELECT to_char((ts AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')       AS t0,
+                to_char(ts AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD"T"HH24:MI')      AS t1,
+                to_char((ts AT TIME ZONE 'Asia/Kolkata')::date - 1, 'YYYY-MM-DD')   AS y0,
+                to_char((ts AT TIME ZONE 'Asia/Kolkata') - INTERVAL '1 day', 'YYYY-MM-DD"T"HH24:MI') AS y1,
+                to_char((ts AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')       AS yend
+           FROM cut
        )
        SELECT o.store,
               COUNT(*)      FILTER (WHERE o.created_at >= b.t0 AND o.created_at < b.t1) AS orders,
