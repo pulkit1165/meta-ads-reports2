@@ -95,7 +95,7 @@ export async function closingDrill(
               LAG(effective_status = 'ACTIVE') OVER x AS prev_active,
               LAG(snapshot_at)                 OVER x AS prev_at
          FROM meta_campaign_snapshot, w
-        WHERE snapshot_at >= (w.today - INTERVAL '5 hours 30 minutes')
+        WHERE snapshot_at >= (w.today - INTERVAL '1 day 5 hours 30 minutes')
        WINDOW x AS (PARTITION BY campaign_id ORDER BY snapshot_at)
      ),
      today_state AS (
@@ -107,7 +107,7 @@ export async function closingDrill(
      ev AS (
        SELECT e.d, e.campaign_id, e.closed_at, e.prev_at, e.budget, e.spend, e.revenue, e.by_bot
          FROM camp_close_event e, w
-        WHERE e.d BETWEEN w.a AND w.b AND e.d < w.today
+        WHERE e.d BETWEEN w.a AND w.b AND e.d < w.today - 1
        UNION ALL
        -- today is not in camp_close_event yet; the bot's own log says who
        SELECT s.d, s.campaign_id, s.snapshot_at, s.prev_at,
@@ -125,7 +125,7 @@ export async function closingDrill(
      state AS (
        SELECT c.d, c.campaign_id, c.ever_active, c.closed_at_eod
          FROM camp_day_state c, w
-        WHERE c.d BETWEEN w.a AND w.b AND c.d < w.today
+        WHERE c.d BETWEEN w.a AND w.b AND c.d < w.today - 1
        UNION ALL
        SELECT d, campaign_id, ever_active, closed_at_eod FROM today_state
      ),

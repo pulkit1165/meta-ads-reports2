@@ -71,13 +71,13 @@ export async function dailyClosing(
               BOOL_OR(effective_status = 'ACTIVE') AS ever_active,
               (ARRAY_AGG(effective_status ORDER BY snapshot_at DESC))[1] <> 'ACTIVE' AS closed_at_eod
          FROM meta_campaign_snapshot, w
-        WHERE snapshot_at >= (w.today - INTERVAL '5 hours 30 minutes')
+        WHERE snapshot_at >= (w.today - INTERVAL '1 day 5 hours 30 minutes')
         GROUP BY 1, 2
      ),
      state AS (
        SELECT c.d, c.campaign_id, c.budget, c.ever_active, c.closed_at_eod
          FROM camp_day_state c, w
-        WHERE c.d BETWEEN w.a AND w.b AND c.d < w.today
+        WHERE c.d BETWEEN w.a AND w.b AND c.d < w.today - 1
        UNION ALL
        SELECT t.d, t.campaign_id, t.budget, t.ever_active, t.closed_at_eod
          FROM today_state t, w WHERE t.d BETWEEN w.a AND w.b
@@ -91,7 +91,7 @@ export async function dailyClosing(
                       LAG(effective_status = 'ACTIVE') OVER x AS prev_active,
                       LAG(snapshot_at)                 OVER x AS prev_at
                  FROM meta_campaign_snapshot, w
-                WHERE snapshot_at >= (w.today - INTERVAL '5 hours 30 minutes')
+                WHERE snapshot_at >= (w.today - INTERVAL '1 day 5 hours 30 minutes')
                WINDOW x AS (PARTITION BY campaign_id ORDER BY snapshot_at)) s
          LEFT JOIN bot_pause_event b
                 ON b.campaign_id = s.campaign_id
@@ -101,7 +101,7 @@ export async function dailyClosing(
      ),
      ev AS (
        SELECT e.d, e.campaign_id, e.closed_at, e.by_bot
-         FROM camp_close_event e, w WHERE e.d BETWEEN w.a AND w.b AND e.d < w.today
+         FROM camp_close_event e, w WHERE e.d BETWEEN w.a AND w.b AND e.d < w.today - 1
        UNION ALL SELECT d, campaign_id, closed_at, by_bot FROM today_ev
      ),
      -- A campaign can be cut, reopened and cut again in one day. What closed

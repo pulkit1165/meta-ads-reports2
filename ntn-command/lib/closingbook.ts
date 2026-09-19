@@ -62,7 +62,8 @@ export async function closingBook(
               BOOL_OR(effective_status = 'ACTIVE') AS ever_active,
               (ARRAY_AGG(effective_status ORDER BY snapshot_at DESC))[1] <> 'ACTIVE' AS closed_at_eod
          FROM meta_campaign_snapshot
-        WHERE snapshot_at >= ((NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '5 hours 30 minutes')
+        WHERE snapshot_at >= ((NOW() AT TIME ZONE 'Asia/Kolkata')::date
+                                - INTERVAL '1 day 5 hours 30 minutes')
         GROUP BY 1, 2
      ),
      -- the rollup covers settled days; today is recomputed live because the
@@ -71,7 +72,7 @@ export async function closingBook(
        SELECT d, campaign_id, budget, ever_active, closed_at_eod
          FROM camp_day_state
         WHERE d BETWEEN $1::date AND $2::date
-          AND d < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          AND d < (NOW() AT TIME ZONE 'Asia/Kolkata')::date - 1
        UNION ALL
        SELECT d, campaign_id, budget, ever_active, closed_at_eod
          FROM today_state WHERE d BETWEEN $1::date AND $2::date
