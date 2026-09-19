@@ -4,15 +4,17 @@ import {
 } from '@/lib/brief';
 import { ydayFinal, totalRow, chg, type YdayRow } from '@/lib/yday';
 import { changesOn, tally, sentimentsFor, typesFor } from '@/lib/changes';
-import { roasOf, share, PORTAL_NAME } from '@/lib/ads';
+import { roasOf, share, bandOf, PORTAL_NAME } from '@/lib/ads';
 import { resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, type Finding } from '@/lib/insights';
+import { dailyClosing, shareOf } from '@/lib/closingdaily';
+import { weekday, isWeekend, dayLabel } from '@/lib/range';
 import {
   closingBook, cleanSlate, slateTotal, learningBudget, learningTotal, profitFor,
   moveFor, MOVE_TEXT, PUSH_AT, MINUS_BELOW, AGE_TARGETS, type Move,
 } from '@/lib/plan';
 import ProfitBoard, { type ProfitSite } from '@/components/ProfitBoard';
-import { BarList, SERIES } from '@/components/charts';
+import { BarList, SERIES, ROAS_BANDS } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
   Page, Card, Grid, Stat, Table, Roas, Note, Analysis, Delta, lakh, rs, pct, num, type Col,
@@ -76,7 +78,7 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   // something; every other section reports the single day.
   const fromISO = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
   const prevDay = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
-  const [dayRows, history, finalRows, prevRows, changes, book, profits] = await Promise.all([
+  const [dayRows, history, finalRows, prevRows, changes, book, profits, byDay] = await Promise.all([
     adDays(day, day, scope.codes),
     adDays(fromISO, day, scope.codes),
     ydayFinal(day, scope.codes),
@@ -84,6 +86,10 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
     changesOn(day, scope.codes),
     closingBook(day, day, scope.codes),
     profitFor(day),
+    dailyClosing(
+      new Date(Date.parse(day) - 13 * 86400000).toISOString().slice(0, 10),
+      day, scope.codes,
+    ).catch(() => []),
   ]);
 
   if (!dayRows.length) {
@@ -346,9 +352,39 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
     }))
     .sort((a, b) => b.spend - a.spend);
 
+  const DECIDE_ROWS = 30;
+  const shownDecisions = productDecisions.slice(0, DECIDE_ROWS);
+  const hiddenDecisions = productDecisions.length - shownDecisions.length;
+  const hiddenSpend = productDecisions.slice(DECIDE_ROWS).reduce((a, d) => a + d.spend, 0);
+
   const moveCount = (m: Move) => productDecisions.filter((d) => d.move === m).length;
   const moveSpend = (m: Move) =>
     productDecisions.filter((d) => d.move === m).reduce((a, d) => a + d.spend, 0);
+
+  // The same campaigns as the clean slate, banded by what they returned
+  // instead of by how old they are — the two answer different questions off
+  // one fetch.
+  const buckets = ROAS_BANDS.map((b) => {
+    const rows = book.filter((r) => r.spend > 0 && bandOf(roasOf(r.revenue, r.spend)) === b.key);
+    const spend = rows.reduce((a, r) => a + r.spend, 0);
+    const revenue = rows.reduce((a, r) => a + r.revenue, 0);
+    return {
+      key: b.key, label: b.label, color: b.color,
+      camps: rows.length,
+      budget: rows.reduce((a, r) => a + r.budget, 0),
+      spend, revenue, roas: roasOf(revenue, spend),
+      closed: rows.filter((r) => r.closed).length,
+    };
+  }).filter((b) => b.camps > 0);
+  const bucketTotal = {
+    key: 'all', label: 'All campaigns', color: '',
+    camps: buckets.reduce((a, b) => a + b.camps, 0),
+    budget: buckets.reduce((a, b) => a + b.budget, 0),
+    spend: buckets.reduce((a, b) => a + b.spend, 0),
+    revenue: buckets.reduce((a, b) => a + b.revenue, 0),
+    roas: roasOf(buckets.reduce((a, b) => a + b.revenue, 0), buckets.reduce((a, b) => a + b.spend, 0)),
+    closed: buckets.reduce((a, b) => a + b.closed, 0),
+  };
 
   const slate = cleanSlate(book);
   const slateAll = slateTotal(slate);
@@ -436,6 +472,53 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
         <span className={share(r.closed, r.allocated) >= 70 ? 'text-warn' : 'text-muted'}>
           {pct(share(r.closed, r.allocated))}
         </span>) },
+  ];
+
+  const bucketCols: Col<typeof bucketTotal>[] = [
+    { key: 'b', head: 'ROAS at close of day', align: 'l', render: (b) => (
+        <span className="whitespace-nowrap">
+          {b.color && (
+            <span className="mr-2 inline-block h-2 w-2 rounded-full align-middle"
+                  style={{ background: b.color }} />
+          )}
+          <span className="align-middle">{b.label}</span>
+        </span>) },
+    { key: 'c', head: 'Camps', align: 'r', render: (b) => num(b.camps) },
+    { key: 'bu', head: 'Budget', align: 'r', render: (b) => rs(b.budget) },
+    { key: 's', head: 'Spend', align: 'r', render: (b) => rs(b.spend) },
+    { key: 'sh', head: 'Share of spend', align: 'r', render: (b) => (
+        <span className="text-muted">{pct(share(b.spend, bucketTotal.spend))}</span>) },
+    { key: 'rv', head: 'Revenue', align: 'r', render: (b) => rs(b.revenue) },
+    { key: 'n', head: 'After ad cost', align: 'r', render: (b) => (
+        <span className={b.revenue - b.spend < 0 ? 'text-bad' : 'text-good'}>
+          {rs(b.revenue - b.spend)}
+        </span>) },
+    { key: 'cl', head: 'Closed', align: 'r', render: (b) => (
+        <span className="text-muted">{num(b.closed)}</span>) },
+    { key: 'r', head: 'ROAS', align: 'r', render: (b) => <Roas v={b.roas} /> },
+  ];
+
+  const dayCols: Col<(typeof byDay)[number]>[] = [
+    { key: 'w', head: 'Day', align: 'l', render: (d) => (
+        <span className={isWeekend(d.date) ? 'text-muted/70' : 'text-muted'}>{weekday(d.date)}</span>) },
+    { key: 'd', head: 'Date', align: 'l', render: (d) => (
+        <span className={d.date === day ? 'text-gold' : ''}>{dayLabel(d.date)}</span>) },
+    { key: 'c', head: 'Camps', align: 'r', render: (d) => num(d.camps) },
+    { key: 'a', head: 'Allocated', align: 'r', render: (d) => rs(d.allocated) },
+    { key: 's', head: 'Spend', align: 'r', render: (d) => rs(d.spend) },
+    { key: 'sp', head: 'Spend %', align: 'r', render: (d) => (
+        <span className="text-muted">{pct(shareOf(d.spend, d.allocated))}</span>) },
+    { key: 'rv', head: 'Revenue', align: 'r', render: (d) => rs(d.revenue) },
+    { key: 'n', head: 'After ad cost', align: 'r', render: (d) => (
+        <span className={d.revenue - d.spend < 0 ? 'text-bad' : 'text-good'}>
+          {rs(d.revenue - d.spend)}
+        </span>) },
+    { key: 'cb', head: 'Closed', align: 'r', render: (d) => rs(d.closed) },
+    { key: 'cp', head: 'Closed %', align: 'r', render: (d) => (
+        <span className={shareOf(d.closed, d.allocated) >= 70 ? 'text-warn' : 'text-muted'}>
+          {pct(shareOf(d.closed, d.allocated))}
+        </span>) },
+    { key: 'r', head: 'ROAS', align: 'r', render: (d) => <Roas v={roasOf(d.revenue, d.spend)} /> },
   ];
 
   const decisionCols: Col<Decision>[] = [
@@ -582,8 +665,14 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
         <p className="mb-2 mt-5 text-[11px] uppercase tracking-[0.12em] text-muted">
           By product · Rs {MIN_DECIDE}+ of spend
         </p>
-        <Table cols={decisionCols} rows={productDecisions}
+        <Table cols={decisionCols} rows={shownDecisions}
                empty={`No product spent Rs ${MIN_DECIDE} on ${day}.`} />
+        {hiddenDecisions > 0 && (
+          <p className="mt-2 text-[11px] text-muted">
+            {num(hiddenDecisions)} smaller products are not listed — {rs(hiddenSpend)} of spend
+            between them, every one of them below {rs(shownDecisions[DECIDE_ROWS - 1]?.spend ?? 0)}.
+          </p>
+        )}
 
         <Note>
           Website rows use <b className="text-text-strong">Shopify sales over Meta spend</b>, the
@@ -655,6 +744,35 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
         note="same four cuts, bottom three · the 30-day elimination segment is further down"
       >
         <Table cols={cutCols} rows={cutRows} empty="Nothing cleared the spend floor." />
+      </Card>
+
+      <Card
+        title={`ROAS buckets · ${day}`}
+        note="where the day's money ended up, banded by what each campaign returned"
+      >
+        <Table cols={bucketCols} rows={buckets} footer={bucketTotal}
+               empty={`Nothing spent on ${day}.`} />
+        <Note>
+          Every campaign that took money on {day}, placed in the band it finished the day in.
+          The bands are the ones used everywhere else in this dashboard, so a row here and a row
+          in the closing module mean the same thing. <b className="text-text-strong">Closed</b> is
+          how many of that band were switched off before midnight — a band with a high count is
+          one the protocol is already policing; a losing band with a low count is one nobody
+          touched.
+        </Note>
+      </Card>
+
+      <Card
+        title="Day by day · last 14 days"
+        note="the book, what it spent, what it returned and how much was switched off"
+      >
+        <Table cols={dayCols} rows={[...byDay].reverse()}
+               empty="The closing rollup has nothing for this window." />
+        <div className="mt-3">
+          <a href="/command" className="text-[11px] text-muted underline decoration-edge decoration-dotted underline-offset-4 transition hover:text-gold">
+            open a day into its ROAS bands and campaigns &rarr;
+          </a>
+        </div>
       </Card>
 
       <Card title={`Vs ${prevDay}`} note="day over day">
