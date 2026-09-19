@@ -7,6 +7,11 @@ import { changesOn, tally, sentimentsFor, typesFor } from '@/lib/changes';
 import { roasOf, share, PORTAL_NAME } from '@/lib/ads';
 import { resolveScope, istToday, type SearchParams } from '@/lib/range';
 import { rank, wilson, enough, money, pctOf, type Finding } from '@/lib/insights';
+import {
+  closingBook, cleanSlate, slateTotal, learningBudget, learningTotal, profitFor,
+  moveFor, MOVE_TEXT, PUSH_AT, MINUS_BELOW, AGE_TARGETS, type Move,
+} from '@/lib/plan';
+import ProfitBoard, { type ProfitSite } from '@/components/ProfitBoard';
 import { BarList, SERIES } from '@/components/charts';
 import PageControls from '@/components/PageControls';
 import {
@@ -15,6 +20,18 @@ import {
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+/** Push, maintain or minus, coloured the way the desk reads them. */
+function MoveChip({ move }: { move: Move }) {
+  const cls = move === 'push'
+    ? 'bg-good/15 text-good'
+    : move === 'minus' ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn';
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11.5px] font-medium ${cls}`}>
+      {MOVE_TEXT[move]}
+    </span>
+  );
+}
 
 /** Attempts before an elimination decision is defensible, per the template. */
 const MIN_ATTEMPTS = 15;
@@ -59,12 +76,14 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
   // something; every other section reports the single day.
   const fromISO = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
   const prevDay = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10);
-  const [dayRows, history, finalRows, prevRows, changes] = await Promise.all([
+  const [dayRows, history, finalRows, prevRows, changes, book, profits] = await Promise.all([
     adDays(day, day, scope.codes),
     adDays(fromISO, day, scope.codes),
     ydayFinal(day, scope.codes),
     ydayFinal(prevDay, scope.codes),
     changesOn(day, scope.codes),
+    closingBook(day, day, scope.codes),
+    profitFor(day),
   ]);
 
   if (!dayRows.length) {
@@ -274,6 +293,171 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
     });
   }
 
+  /* ── profit, decisions, the clean slate, and what is still learning ───── */
+  const profitOf = (portal: string) => profits.find((e) => e.portal === portal);
+  const profitSites: ProfitSite[] = [
+    ...finalRows.map((f) => ({
+      portal: f.portal,
+      name: PORTAL_NAME[f.portal] ?? f.portal,
+      sales: f.sales,
+      spend: f.spend,
+      profit: profitOf(f.portal)?.profit ?? null,
+      note: profitOf(f.portal)?.note ?? '',
+      updatedAt: profitOf(f.portal)?.updatedAt ?? null,
+    })),
+    {
+      portal: 'ALL', name: 'All three',
+      sales: finalRows.reduce((a, f) => a + f.sales, 0),
+      spend: finalRows.reduce((a, f) => a + f.spend, 0),
+      profit: profitOf('ALL')?.profit ?? null,
+      note: profitOf('ALL')?.note ?? '',
+      updatedAt: profitOf('ALL')?.updatedAt ?? null,
+    },
+  ];
+
+  // Portal decisions run on the SHOPIFY ratio the sales report shows, product
+  // decisions on Meta revenue — the shop cannot attribute a sale to a product's
+  // ads, and Meta can. Two measures, each used where it is the honest one.
+  type Decision = {
+    key: string; name: string; spend: number; revenue: number; roas: number;
+    move: Move; camps?: number; source: 'shop' | 'meta';
+  };
+  const portalDecisions: Decision[] = finalRows.map((f) => ({
+    key: f.portal,
+    name: PORTAL_NAME[f.portal] ?? f.portal,
+    spend: f.spend,
+    revenue: f.sales,
+    roas: roasOf(f.sales, f.spend),
+    move: moveFor(roasOf(f.sales, f.spend)),
+    source: 'shop' as const,
+  }));
+
+  const MIN_DECIDE = 300;
+  const productDecisions: Decision[] = [...prodPerf.values()]
+    .filter((pp) => pp.spend >= MIN_DECIDE)
+    .map((pp) => ({
+      key: pp.key,
+      name: pp.key,
+      spend: pp.spend,
+      revenue: pp.revenue,
+      roas: perfRoas(pp),
+      move: moveFor(perfRoas(pp)),
+      source: 'meta' as const,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  const moveCount = (m: Move) => productDecisions.filter((d) => d.move === m).length;
+  const moveSpend = (m: Move) =>
+    productDecisions.filter((d) => d.move === m).reduce((a, d) => a + d.spend, 0);
+
+  const slate = cleanSlate(book);
+  const slateAll = slateTotal(slate);
+  const learning = learningBudget(book);
+  const learningAll = learningTotal(learning);
+
+  /* ── scale and cut, on four cuts of the same day ──────────────────────── */
+  const offerPerf = new Map<string, Perf>();
+  for (const r of spent) if (r.offer) accumulate(offerPerf, r.offer, r);
+  const untaggedSpend = spent.filter((r) => !r.offer).reduce((a, r) => a + r.spend, 0);
+
+  type Cut = {
+    dim: string; key: string; spend: number; revenue: number; roas: number; net: number;
+  };
+  const toCuts = (m: Map<string, Perf>, dim: string, floor: number): Cut[] =>
+    [...m.values()]
+      .filter((x) => x.spend >= floor)
+      .map((x) => ({
+        dim, key: x.key, spend: x.spend, revenue: x.revenue,
+        roas: perfRoas(x), net: x.revenue - x.spend,
+      }));
+
+  const FLOOR = 1000;
+  const cutPool = [
+    ...toCuts(blockPerf, 'Sale block', FLOOR),
+    ...toCuts(prodPerf, 'Product', FLOOR),
+    ...toCuts(offerPerf, 'Deal', FLOOR),
+  ];
+  const bestOf = (dim: string, n = 3) =>
+    cutPool.filter((c) => c.dim === dim).sort((a, b) => b.roas - a.roas).slice(0, n);
+  const worstOf = (dim: string, n = 3) =>
+    cutPool.filter((c) => c.dim === dim).sort((a, b) => a.roas - b.roas).slice(0, n);
+  // Profitability ranks on rupees kept, not on the ratio: a 3.0 on Rs 2,000 of
+  // spend is a good sign and Rs 4,000 of margin; a 1.6 on Rs 2 lakh is the one
+  // paying the bills.
+  const bestMoney = [...cutPool].filter((c) => c.dim === 'Product')
+    .sort((a, b) => b.net - a.net).slice(0, 3)
+    .map((c) => ({ ...c, dim: 'Profitability' }));
+  const worstMoney = [...cutPool].filter((c) => c.dim === 'Product')
+    .sort((a, b) => a.net - b.net).slice(0, 3)
+    .map((c) => ({ ...c, dim: 'Profitability' }));
+
+  const scaleRows: Cut[] = [
+    ...bestOf('Sale block'), ...bestOf('Product'), ...bestOf('Deal'), ...bestMoney,
+  ];
+  const cutRows: Cut[] = [
+    ...worstOf('Sale block'), ...worstOf('Product'), ...worstOf('Deal'), ...worstMoney,
+  ];
+
+  const slateCols: Col<ReturnType<typeof cleanSlate>[number]>[] = [
+    { key: 'b', head: 'Age', align: 'l', render: (r) => r.label },
+    { key: 't', head: 'Target', align: 'r', render: (r) => (
+        r.target ? <span className="text-muted tabular-nums">{r.target.toFixed(2)}</span>
+                 : <span className="text-muted">–</span>) },
+    { key: 'c', head: 'Camps', align: 'r', render: (r) => num(r.camps) },
+    { key: 'bu', head: 'Budget', align: 'r', render: (r) => rs(r.budget) },
+    { key: 'sp', head: 'Spend', align: 'r', render: (r) => rs(r.spend) },
+    { key: 'ro', head: 'ROAS', align: 'r', render: (r) => <Roas v={r.roas} /> },
+    { key: 'kc', head: 'Keep', align: 'r', render: (r) => (
+        <span className="whitespace-nowrap text-good">{num(r.keepCamps)} · {rs(r.keepBudget)}</span>) },
+    { key: 'cc', head: 'Cut', align: 'r', render: (r) => (
+        <span className="whitespace-nowrap text-bad">{num(r.cutCamps)} · {rs(r.cutBudget)}</span>) },
+    { key: 'ic', head: 'Never spent', align: 'r', render: (r) => (
+        <span className="whitespace-nowrap text-muted">{num(r.idleCamps)} · {rs(r.idleBudget)}</span>) },
+    { key: 'kp', head: 'Book kept', align: 'r', render: (r) => (
+        <span className="tabular-nums">{pct(share(r.keepBudget, r.budget))}</span>) },
+  ];
+
+  const learnCols: Col<ReturnType<typeof learningBudget>[number]>[] = [
+    { key: 'p', head: 'Website', align: 'l', render: (r) => (
+        <span className={r.portal === 'all' ? 'font-medium' : ''}>
+          {r.portal === 'all' ? 'All three' : (PORTAL_NAME[r.portal] ?? r.portal)}
+        </span>) },
+    { key: 'c', head: 'Launches', align: 'r', render: (r) => num(r.camps) },
+    { key: 'a', head: 'Allocated', align: 'r', render: (r) => rs(r.allocated) },
+    { key: 's', head: 'Spend', align: 'r', render: (r) => rs(r.spend) },
+    { key: 'sp', head: 'Spend %', align: 'r', render: (r) => (
+        <span className="text-muted">{pct(share(r.spend, r.allocated))}</span>) },
+    { key: 'ro', head: 'ROAS', align: 'r', render: (r) => <Roas v={r.roas} /> },
+    { key: 'ac', head: 'Still active', align: 'r', render: (r) => (
+        <span className="whitespace-nowrap">{num(r.activeCamps)} · {rs(r.active)}</span>) },
+    { key: 'cl', head: 'Switched off', align: 'r', render: (r) => (
+        <span className="whitespace-nowrap text-muted">{num(r.closedCamps)} · {rs(r.closed)}</span>) },
+    { key: 'cp', head: 'Off %', align: 'r', render: (r) => (
+        <span className={share(r.closed, r.allocated) >= 70 ? 'text-warn' : 'text-muted'}>
+          {pct(share(r.closed, r.allocated))}
+        </span>) },
+  ];
+
+  const decisionCols: Col<Decision>[] = [
+    { key: 'n', head: 'Name', align: 'l', render: (d) => (
+        <span className="block max-w-[280px] truncate" title={d.name}>{d.name}</span>) },
+    { key: 's', head: 'Spend', align: 'r', render: (d) => rs(d.spend) },
+    { key: 'rv', head: 'Revenue', align: 'r', render: (d) => rs(d.revenue) },
+    { key: 'r', head: 'ROAS', align: 'r', render: (d) => <Roas v={d.roas} /> },
+    { key: 'm', head: 'Tomorrow', align: 'l', render: (d) => <MoveChip move={d.move} /> },
+  ];
+
+  const cutCols: Col<Cut>[] = [
+    { key: 'd', head: 'Cut', align: 'l', render: (c) => <span className="text-muted">{c.dim}</span> },
+    { key: 'k', head: 'Name', align: 'l', render: (c) => (
+        <span className="block max-w-[260px] truncate" title={c.key}>{c.key}</span>) },
+    { key: 's', head: 'Spend', align: 'r', render: (c) => rs(c.spend) },
+    { key: 'rv', head: 'Revenue', align: 'r', render: (c) => rs(c.revenue) },
+    { key: 'n', head: 'After ad cost', align: 'r', render: (c) => (
+        <span className={c.net < 0 ? 'text-bad' : 'text-good'}>{rs(c.net)}</span>) },
+    { key: 'r', head: 'ROAS', align: 'r', render: (c) => <Roas v={c.roas} /> },
+  ];
+
   /* ── tables ───────────────────────────────────────────────────────────── */
   const blockCols: Col<Perf>[] = [
     { key: 'c', head: 'Code', align: 'l', render: (b) => (
@@ -363,6 +547,13 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
       subtitle={`${day}${day === today ? ' · today, still filling' : ''} · ${scope.label} · ad-level, built to the ADS PLANNER structure`}
       actions={controls}
     >
+      <Card
+        title={`Profit · ${day}`}
+        note="the one figure the warehouse cannot work out — type it in"
+      >
+        <ProfitBoard day={day} sites={profitSites} />
+      </Card>
+
       <Card title={`Yesterday final · ${day}`} note="sales from Shopify, spend from Meta, budgets from the hourly snapshots">
         <Table cols={finalCols} rows={finals} />
         <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
@@ -370,6 +561,100 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
           it closes. The emailed PNG freezes its figure at 1 AM, so the two can differ by a few
           tenths of a percent — everything else on this row reconciles exactly.
         </p>
+      </Card>
+
+      <Card
+        title="Decision for tomorrow"
+        note={`push at ${PUSH_AT.toFixed(2)} and above · minus below ${MINUS_BELOW.toFixed(2)} · maintain in between`}
+      >
+        <Grid cols={3}>
+          <Stat label="Push" value={num(moveCount('push'))}
+                sub={`${rs(moveSpend('push'))} of spend behind them`} />
+          <Stat label="Maintain" value={num(moveCount('maintain'))}
+                sub={`${rs(moveSpend('maintain'))} holding`} />
+          <Stat label="Minus" value={num(moveCount('minus'))}
+                sub={`${rs(moveSpend('minus'))} to come down`} />
+        </Grid>
+
+        <p className="mb-2 mt-4 text-[11px] uppercase tracking-[0.12em] text-muted">By website</p>
+        <Table cols={decisionCols} rows={portalDecisions} />
+
+        <p className="mb-2 mt-5 text-[11px] uppercase tracking-[0.12em] text-muted">
+          By product · Rs {MIN_DECIDE}+ of spend
+        </p>
+        <Table cols={decisionCols} rows={productDecisions}
+               empty={`No product spent Rs ${MIN_DECIDE} on ${day}.`} />
+
+        <Note>
+          Website rows use <b className="text-text-strong">Shopify sales over Meta spend</b>, the
+          same ratio as the report above. Product rows use{' '}
+          <b className="text-text-strong">Meta revenue</b>, because the shop cannot attribute an
+          order to the ads for one product and Meta can — so the two do not add up, and each is
+          used where it is the honest measure. The protocol sets which way to move, not how far:
+          say the step you want and it goes in this table as a rupee figure.
+        </Note>
+      </Card>
+
+      <Card
+        title="Clean-slate budget"
+        note="every campaign measured against the target for its age — what survives a rebuild from scratch"
+      >
+        <Table cols={slateCols} rows={slate} footer={slateAll} />
+        <Grid cols={3}>
+          <Stat label="Would be kept" value={lakh(slateAll.keepBudget)}
+                sub={`${num(slateAll.keepCamps)} campaigns at or above target · ${pct(share(slateAll.keepBudget, slateAll.budget))} of the book`} />
+          <Stat label="Would be cut" value={lakh(slateAll.cutBudget)}
+                sub={`${num(slateAll.cutCamps)} campaigns under target`} />
+          <Stat label="Never spent" value={lakh(slateAll.idleBudget)}
+                sub={`${num(slateAll.idleCamps)} campaigns took nothing — they proved nothing either way`} />
+        </Grid>
+        <Note>
+          Targets are the ones the desk set:{' '}
+          {AGE_TARGETS.map((b) => `${b.label} ${b.target.toFixed(2)}`).join(' · ')}. A campaign
+          counts as kept when its return on {day} reached the target for its age, and the bands do
+          not overlap — Day 1 is judged at 1.15, not at the 1.40 its second day will ask for.
+          This is a rebuild on paper: it ignores what was actually closed, which the closing
+          module reports separately.
+        </Note>
+      </Card>
+
+      <Card
+        title="Learning budget · day 1"
+        note="what was committed to launches, and how much of it was still running at midnight"
+      >
+        <Table cols={learnCols} rows={learning} footer={learningAll}
+               empty={`Nothing launched on ${day}.`} />
+        <Note>
+          Day 1 is the learning cohort: Meta has not settled delivery, the target is the lowest of
+          any band at 1.15, and it is also the band the closing protocol polices hardest. Allocated
+          against still-active is therefore the honest read on whether a launch was given its
+          chance or withdrawn — {learningAll.allocated > 0
+            ? `${pct(share(learningAll.closed, learningAll.allocated))} of yesterday's launch budget was switched off before midnight`
+            : 'nothing was launched to judge'}.
+        </Note>
+      </Card>
+
+      <Card
+        title="Scale — the best of the day"
+        note="top three on each cut · Rs 1,000+ of spend so a single order cannot top the list"
+      >
+        <Table cols={cutCols} rows={scaleRows} empty="Nothing cleared the spend floor." />
+        <Note>
+          <b className="text-text-strong">Profitability ranks rupees kept, not the ratio</b> — a
+          2.5 on a small budget is a good sign; the row that pays the bills is usually a 1.6 on a
+          large one, and both belong in the list for different reasons. The{' '}
+          <b className="text-text-strong">Deal</b> cut only sees ads whose name carries an offer
+          tag: {rs(untaggedSpend)} of {day}&rsquo;s spend
+          ({pct(share(untaggedSpend, totalSpend))}) is on ads with none, so treat it as a read on
+          the tagged campaigns rather than on the whole book.
+        </Note>
+      </Card>
+
+      <Card
+        title="Elimination — the worst of the day"
+        note="same four cuts, bottom three · the 30-day elimination segment is further down"
+      >
+        <Table cols={cutCols} rows={cutRows} empty="Nothing cleared the spend floor." />
       </Card>
 
       <Card title={`Vs ${prevDay}`} note="day over day">
