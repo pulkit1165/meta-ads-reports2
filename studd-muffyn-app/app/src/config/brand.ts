@@ -19,3 +19,11 @@ export const LOGOS: Record<BrandKey, number> = {
   sml: require('../../assets/sml/logo.png'),
 };
 export const BRAND_LOGO = LOGOS[key];
+
+/** Bundled catalog snapshot per brand — require() needs a literal path.
+ *  Without this an SML build boots with Studd Muffyn's products. */
+export const CATALOGS: Record<BrandKey, unknown> = {
+  sm: require('../data/catalog.json'),
+  sml: require('../data/catalog.sml.json'),
+};
+export const BRAND_CATALOG = CATALOGS[key];

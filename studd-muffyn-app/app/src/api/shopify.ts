@@ -3,13 +3,12 @@
 // then silently refreshes from studdmuffyn.com's public Shopify JSON
 // endpoints so prices / availability / new launches stay live.
 // Checkout is 100% Shopify via cart permalinks.
-import catalogJson from '../data/catalog.json';
 import type { Catalog, Product, Collection } from './types';
-import { APP_API, SITE } from '../config/brand';
+import { APP_API, BRAND_CATALOG, BRAND_KEY, SITE } from '../config/brand';
 
 export const BASE = SITE;
 
-const catalog = catalogJson as unknown as Catalog;
+const catalog = BRAND_CATALOG as unknown as Catalog;
 
 const byHandle = new Map<string, Product>();
 for (const p of catalog.products) byHandle.set(p.handle, p);
@@ -121,7 +120,7 @@ export async function startCheckoutUrl(
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 6000);
-    const r = await fetch(`${APP_API}/api/fastrr-checkout`, {
+    const r = await fetch(`${APP_API}/api/fastrr-checkout?brand=${BRAND_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: lines }),
@@ -145,7 +144,7 @@ export async function refreshCatalogFromCloud(): Promise<number> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 15000);
-    const r = await fetch(`${APP_API}/api/catalog`, { signal: ctrl.signal });
+    const r = await fetch(`${APP_API}/api/catalog?brand=${BRAND_KEY}`, { signal: ctrl.signal });
     clearTimeout(t);
     if (!r.ok) return 0;
     const j = await r.json();

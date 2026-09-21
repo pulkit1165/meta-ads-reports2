@@ -2,13 +2,13 @@
 // Judge.me review data, Pairs-well-with, and theme detail sections.
 // Served as static JSON from the app's Vercel deployment.
 import { useEffect, useState } from 'react';
-import { APP_API } from '../config/brand';
+import { APP_API, BRAND_KEY } from '../config/brand';
 
 // APP_API comes from the brand config
 const EXTRAS_BASE = `${APP_API}/extras`;
 // Live endpoint reads the real product page on demand; the static snapshot
 // under /extras is the offline/last-resort fallback.
-const LIVE_EXTRAS = `${APP_API}/api/extras`;
+const LIVE_EXTRAS = `${APP_API}/api/extras?brand=${BRAND_KEY}`;
 
 export interface Review {
   score: number;
@@ -75,7 +75,7 @@ export function useProductExtras(handle?: string): ProductExtras | null {
       };
       // live first (always current), static snapshot as fallback
       const j =
-        (await load(`${LIVE_EXTRAS}?handle=${encodeURIComponent(handle)}`, 9000)) ??
+        (await load(`${LIVE_EXTRAS}&handle=${encodeURIComponent(handle)}`, 9000)) ??
         (await load(`${EXTRAS_BASE}/${handle}.json`, 7000));
       cache.set(handle, j);
       if (alive && j) setExtras(j);
