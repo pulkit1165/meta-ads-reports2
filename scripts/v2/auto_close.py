@@ -2,8 +2,8 @@
 """
 Auto-close — pauses campaigns that hit the kill rule. LIVE (writes to Meta API).
 
-Kill rule (per operator, backed by ROAS kill-point analysis):
-  spend >= 40% of daily budget  AND  today's 1d_click ROAS <= 0.4
+Kill rule (per operator, 23 Sep 2026):
+  spend >= 40% of daily budget  AND  today's 1d_click ROAS <= 0.25
 
 Guardrails:
   - only the 6 ROAS-dashboard accounts
@@ -40,7 +40,7 @@ IST      = ZoneInfo('Asia/Kolkata')
 DRY_RUN  = os.environ.get('DRY_RUN', '') == '1'
 
 KILL_SPEND_PCT = 0.40   # spent >= 40% of daily budget
-KILL_ROAS      = 0.40   # and 1d ROAS <= 0.4
+KILL_ROAS      = 0.25   # and 1d ROAS <= 0.25 (operator, 23 Sep: re-armed at 0.25/40%)
 MIN_SPEND      = 500    # ₹ floor so tiny campaigns don't trigger on noise
 # Day-1 protocol ONLY (operator, 17 Sep): the bot may cut a campaign within its
 # first 72h from start/creation and must never touch anything older — mature
