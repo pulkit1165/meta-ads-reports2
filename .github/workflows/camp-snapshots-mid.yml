@@ -57,6 +57,8 @@ jobs:
           SHOPIFY_ACCESS_TOKEN_SML: ${{ secrets.SHOPIFY_ACCESS_TOKEN_SML }}
           SHOPIFY_STORE_URL_SML: ${{ secrets.SHOPIFY_STORE_URL_SML }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ROAS_SITE_ID: ${{ secrets.NETLIFY_ROAS_SITE_ID }}
         run: |
           pip install pillow requests -q
           git fetch --depth=1 origin state:refs/remotes/origin/state || true
@@ -70,7 +72,7 @@ jobs:
           python3 scripts/v2/build_yday_report.py \
             --snap-db "$DB" --finals state/daily_finals.json \
             --out roas-live/yday_report.json
-          if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
+          if [ -f roas-live/wa_table.json ] && [ -n "$NETLIFY_AUTH_TOKEN" ]; then
             export VERCEL_ORG_ID=team_AocNAz8F008iWPSLVvar2Xb5
             git show origin/camp-snapshots:closing_aud_cache.json > state/closing_aud_cache.json 2>/dev/null || echo '{}' > state/closing_aud_cache.json
             git show origin/state:auto_close_kills.json > state/auto_close_kills.json 2>/dev/null || true
@@ -79,10 +81,11 @@ jobs:
             STAGE=$(mktemp -d)
             rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
             for f in index.html summary.json status.json; do
-              curl -fsS --max-time 20 "https://roas-live.vercel.app/$f" -o "$STAGE/$f" || true
+              curl -fsS --max-time 20 "https://ntn-roas-live.netlify.app/$f" -o "$STAGE/$f" || true
             done
             if [ -s "$STAGE/index.html" ]; then
-              npx --yes vercel@latest deploy "$STAGE" --prod --yes --token="$VERCEL_TOKEN"
+              npx --yes netlify-cli@latest deploy --prod --dir "$STAGE" \
+                --site "$NETLIFY_ROAS_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
               # Notify can race the alias flip / a stale edge and see the OLD
               # table ("already sent HH:58") — the mid report would be silently
               # lost (4 Aug 15:28 sheet). Retry until the worker sees OUR stamp.

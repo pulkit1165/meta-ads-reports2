@@ -133,8 +133,10 @@ jobs:
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_ROAS_SITE_ID: ${{ secrets.NETLIFY_ROAS_SITE_ID }}
         run: |
-          if [ -f roas-live/wa_table.json ] && [ -n "$VERCEL_TOKEN" ]; then
+          if [ -f roas-live/wa_table.json ] && [ -n "$NETLIFY_AUTH_TOKEN" ]; then
             # This checkout NEVER has index.html (gitignored; only roas-email
             # generates it), so deploying roas-live/ as-is replaces the whole
             # site with a page-less version — that was the 404 flip-flop that
@@ -147,10 +149,11 @@ jobs:
             STAGE=$(mktemp -d)
             rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
             for f in index.html summary.json status.json; do
-              curl -fsS --max-time 20 "https://roas-live.vercel.app/$f" -o "$STAGE/$f" || true
+              curl -fsS --max-time 20 "https://ntn-roas-live.netlify.app/$f" -o "$STAGE/$f" || true
             done
             if [ -s "$STAGE/index.html" ]; then
-              npx --yes vercel@latest deploy "$STAGE" --prod --yes --token="$VERCEL_TOKEN"
+              npx --yes netlify-cli@latest deploy --prod --dir "$STAGE" \
+                --site "$NETLIFY_ROAS_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
             else
               echo "live page unreachable — skipping deploy so we never ship a page-less site"
             fi
