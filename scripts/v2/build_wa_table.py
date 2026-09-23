@@ -422,7 +422,15 @@ def main():
         yts = dict(scon.execute(
             "SELECT hour_slot, MAX(ts) FROM campaign_hourly_snapshots "
             "WHERE hour_slot LIKE ? GROUP BY hour_slot", (yday + '%',)).fetchall())
-        ymatch = ([h for h in yslots if yts[h][11:16] <= cut] or [None])[-1]
+        # The capture's own DATE has to match the slot, not just its clock
+        # time. A day's last capture can run past midnight — 22 Sep's 23:00
+        # slot was captured at 00:27 — and "00:27" <= any cutoff, so that
+        # slot won as "nearest 15:58" and the baseline became yesterday's
+        # WHOLE day: today's spend to 15:58 was read against a full day of
+        # it (-20% instead of +13%) and ROAS against a full day's spend
+        # divided by half a day's sales (+28% instead of -10%).
+        ymatch = ([h for h in yslots
+                   if yts[h][:10] == yday and yts[h][11:16] <= cut] or [None])[-1]
         if ymatch:
             y_spend, y_bud = spend_at(ymatch, yday), active_budget_at(ymatch)
             y_closed = closed_budget_at(ymatch)
