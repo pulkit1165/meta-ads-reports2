@@ -1,0 +1,14 @@
+# Stopgap host while the Vercel account is blocked for an unpaid invoice
+# (23 Sep 2026). The Next runtime turns the App Router's dynamic pages into
+# Netlify Functions; every module here is force-dynamic, so nothing is
+# prerendered and the database is read on each request exactly as before.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[functions]
+  # pg is a Node driver: keep it out of the bundler's ESM rewriting
+  external_node_modules = ["pg", "pg-native"]
