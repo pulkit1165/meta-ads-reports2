@@ -202,13 +202,47 @@ def main():
                 "SELECT account_name, COUNT(*) FROM campaign_hourly_snapshots "
                 "WHERE hour_slot=? GROUP BY account_name", (_prev_slot,)).fetchall()
             ) if _prev_slot else {}
+            # ids for the same accounts, so a silent empty can be re-pulled
+            _prev_ids = dict(_c.execute(
+                "SELECT account_name, account_id FROM campaign_hourly_snapshots "
+                "WHERE hour_slot=? GROUP BY account_name", (_prev_slot,)).fetchall()
+            ) if _prev_slot else {}
             _c.close()
         except sqlite3.OperationalError:
-            _prev, _prev_slot = {}, None
+            _prev, _prev_ids, _prev_slot = {}, {}, None
         _now = {}
         for r in rows:
             _now[r['account_name']] = _now.get(r['account_name'], 0) + 1
         vanished = [(a, n) for a, n in _prev.items() if n >= 3 and _now.get(a, 0) == 0]
+
+        # Same cool-off the explicit-error path gets. A silent empty is the same
+        # throttle wearing a different hat, and aborting on it costs the whole
+        # slot's WhatsApp report — 24 Sep lost 13:28 (NBP Hair/Perfume) and
+        # 15:28 (SML Skin) that way, an hour apart, to one account each.
+        # fetch_active_campaigns rewrites ACCOUNT_ERRORS with only its own
+        # call's failures, so keep the full picture for the end-of-run warning.
+        _known_errors = list(ACCOUNT_ERRORS)
+        for _wait in (45, 90):
+            if not vanished:
+                break
+            _ids = [_prev_ids[a] for a, _ in vanished if _prev_ids.get(a)]
+            if not _ids:
+                break
+            print(f"silent empty from {len(vanished)} account(s): "
+                  f"{', '.join(a for a, _ in vanished)} — cooling off {_wait}s, then re-pulling")
+            time.sleep(_wait)
+            rows += fetch_active_campaigns(tok, _ids, now=now)
+            _now = {}
+            for r in rows:
+                _now[r['account_name']] = _now.get(r['account_name'], 0) + 1
+            _back = [a for a, _ in vanished if _now.get(a, 0) > 0]
+            if _back:
+                print(f"  recovered {len(_back)} account(s) on retry: {', '.join(_back)}")
+            vanished = [(a, n) for a, n in vanished if _now.get(a, 0) == 0]
+            _seen = {e[0] for e in _known_errors}
+            _known_errors += [e for e in ACCOUNT_ERRORS if e[0] not in _seen]
+        ACCOUNT_ERRORS[:] = _known_errors
+
         if vanished:
             print(f"ABORTING WRITE: account(s) returned 0 campaigns but had rows at "
                   f"{_prev_slot} — silent API failure:")
