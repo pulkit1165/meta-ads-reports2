@@ -32,7 +32,10 @@ const BRANDS = {
     splashImage: './assets/sml/splash-logo.png',
     splashBackground: '#ffffff',
     version: '2.2.0',
-    buildNumber: '2.2.0',
+    // Bump by hand: autoIncrement cannot write back into a dynamic
+    // app.config.js, so EAS reports a bumped number the binary never gets —
+    // Apple then rejects the upload as a duplicate, silently.
+    buildNumber: '2.2.3',
   },
 };
 
