@@ -39,8 +39,11 @@ GRAPH    = 'https://graph.facebook.com/v21.0'
 IST      = ZoneInfo('Asia/Kolkata')
 DRY_RUN  = os.environ.get('DRY_RUN', '') == '1'
 
-KILL_SPEND_PCT = 0.40   # spent >= 40% of daily budget
-KILL_ROAS      = 0.25   # and 1d ROAS <= 0.25 (operator, 23 Sep: re-armed at 0.25/40%)
+# Tiered kill matrix (operator, 29 Sep): the worse the ROAS, the earlier we
+# pull. (min spend fraction of daily budget, max 1d ROAS) — highest-spend band
+# first so the log names the strongest signal that fired. Replaces the old flat
+# 40%/0.25 rule.
+KILL_MATRIX = [(0.35, 0.30), (0.30, 0.20), (0.25, 0.10)]
 MIN_SPEND      = 500    # ₹ floor so tiny campaigns don't trigger on noise
 # Day-1 protocol ONLY (operator, 17 Sep): the bot may cut a campaign within its
 # first 72h from start/creation and must never touch anything older — mature
@@ -89,6 +92,15 @@ def paginate(endpoint, params, retries=3):
             print(f"  ⚠️  Request error (attempt {attempt+1}): {e}")
             time.sleep(5)
     return results
+
+
+def matrix_hit(spend_pct, roas):
+    """Return the (min_spend_frac, max_roas) band that fires, else None.
+    Highest-spend band first so the strongest signal is the one named."""
+    for frac, roas_max in KILL_MATRIX:
+        if spend_pct >= frac and roas <= roas_max:
+            return (frac, roas_max)
+    return None
 
 
 def extract_roas(raw, key='1d_click'):
@@ -147,7 +159,8 @@ def main():
     stamp    = now.strftime('%d %b %I:%M %p')
     mode     = 'DRY RUN' if DRY_RUN else 'LIVE'
     print(f"\n✂️  Auto-close [{mode}] — {stamp} IST")
-    print(f"   Rule: spend ≥ {KILL_SPEND_PCT:.0%} of budget AND 1D ROAS ≤ {KILL_ROAS} (min spend ₹{MIN_SPEND})")
+    bands = ' | '.join(f"{f:.0%}→ROAS≤{r}" for f, r in KILL_MATRIX)
+    print(f"   Matrix (Day-1 ≤{MAX_AGE_H}h, min ₹{MIN_SPEND}): {bands}")
 
     kills = load_kills()
     today_kills = set(kills.get(date_str, []))
@@ -202,12 +215,13 @@ def main():
             if spend < MIN_SPEND:              continue
             if too_young:                      continue
             if too_old:                        continue   # day-1 protocol: past 72h is manual territory
-            if spend_pct < KILL_SPEND_PCT:     continue
-            if roas_1d > KILL_ROAS:            continue
+            hit = matrix_hit(spend_pct, roas_1d)
+            if not hit:                        continue
 
             triggered += 1
+            band_frac, band_roas = hit
             name = r.get('campaign_name', camp.get('name', ''))
-            rule = f"spend {spend_pct:.0%} ≥ 40% & ROAS {roas_1d} ≤ 0.4"
+            rule = f"spend {spend_pct:.0%} ≥ {band_frac:.0%} & ROAS {roas_1d} ≤ {band_roas}"
 
             if DRY_RUN:
                 result = 'DRY RUN — would pause'
