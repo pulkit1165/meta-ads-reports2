@@ -135,6 +135,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_ROAS_SITE_ID: ${{ secrets.NETLIFY_ROAS_SITE_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ -f roas-live/wa_table.json ] && [ -n "$NETLIFY_AUTH_TOKEN" ]; then
             # This checkout NEVER has index.html (gitignored; only roas-email
@@ -149,15 +150,43 @@ jobs:
             STAGE=$(mktemp -d)
             rsync -a --exclude '.vercel' --exclude '.gitignore' --exclude 'reports' roas-live/ "$STAGE"/
             for f in index.html summary.json status.json; do
-              curl -fsS --max-time 20 "https://ntn-roas-live.netlify.app/$f" -o "$STAGE/$f" || true
+              curl -fsS --max-time 20 "https://roas.jaddibooty.in/$f" -o "$STAGE/$f" || true
             done
             if [ -s "$STAGE/index.html" ]; then
+            # Publish the bundle to roas-artifacts; the EC2 box pulls it every
+            # 2 min and serves it at ORIGIN_HOST. This is the live path now:
+            # Vercel blocked the account for an unpaid invoice on 23 Sep and
+            # Netlify ran out of deploy credits on 29 Sep, freezing the reports
+            # at 05:01. Non-fatal throughout — nothing here may starve notify.
+            ( cd "$STAGE" && git init -q && git add -A \
+              && git -c user.name=meta-ads-bot -c user.email=bot@local commit -qm "roas artifacts $(TZ=Asia/Kolkata date '+%F %H:%M IST')" \
+              && git push -qf "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" HEAD:refs/heads/roas-artifacts ) \
+              || echo "artifacts push failed (non-fatal)"
+            rm -rf "$STAGE/.git"
               npx --yes netlify-cli@latest deploy --prod --dir "$STAGE" \
-                --site "$NETLIFY_ROAS_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+                --site "$NETLIFY_ROAS_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" \
+                || echo "netlify deploy failed (non-fatal — account out of credits since 29 Sep)"
             else
               echo "live page unreachable — skipping deploy so we never ship a page-less site"
             fi
-            curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
+            # ORIGIN serves from a git pull that runs every 2 min, so the file
+            # is NOT live the instant this step finishes. Notifying now would
+            # hand the worker the previous cycle's table, it would match an
+            # already-used dedupe key and answer "already sent" — the hour lost
+            # in silence (562e4c1, edge-lag version). Wait for our own stamp.
+            WANT=$(python3 -c "import json;print(json.load(open('roas-live/wa_table.json'))['data_through'])")
+            FRESH=0
+            for i in $(seq 1 12); do
+              LIVE=$(curl -fsS --max-time 15 "https://roas.jaddibooty.in/wa_table.json?ci=$i" \
+                | python3 -c "import json,sys;print(json.load(sys.stdin).get('data_through',''))" 2>/dev/null || echo '')
+              if [ -n "$WANT" ] && [ "$LIVE" = "$WANT" ]; then FRESH=1; break; fi
+              sleep 15
+            done
+            if [ "$FRESH" = "1" ]; then
+              curl -s "https://meta-ads-cron-pinger.pulkit-studdmuffyn.workers.dev/notify-hourly?key=ntnhourly2026" | head -c 200
+            else
+              echo "::error::roas.jaddibooty.in never served data_through=$WANT — NOT notifying"
+            fi
           fi
 
       - name: Build live ROAS dashboard

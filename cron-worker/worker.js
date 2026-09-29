@@ -12,7 +12,13 @@
 
 const REPO = 'pulkit1165/meta-ads-reports2';
 const REF  = 'main';
-const PAGE = 'https://roas-live.vercel.app/';
+// Report files. Vercel blocked the account for an unpaid invoice on
+// 23 Sep 2026 and every roas-live URL answered 402, so these moved to
+// Netlify — which then ran out of deploy credits on 29 Sep and froze the
+// reports at 05:01. Now served from the EC2 box over nginx+TLS, fed by
+// the roas-artifacts branch. One line to move again.
+const ORIGIN = 'https://roas.jaddibooty.in';
+const PAGE = ORIGIN + '/';
 // Per-person report subscriptions — edit + redeploy to change who gets what.
 const RECIPIENTS = {
   '919517744959': { morning: true, evening: true, hourly: true, yday: true, closing: true },   // Pulkit
@@ -25,9 +31,9 @@ const RECIPIENTS = {
 };
 const WA_RECIPIENTS = Object.keys(RECIPIENTS);
 const PORTAL_LABELS = { SM: 'Studd Muffyn', SML: 'SM Life', NBP: 'Nuskhe by Paras' };
-const SUMMARY = 'https://roas-live.vercel.app/summary.json';
-const WA_TABLE = 'https://roas-live.vercel.app/wa_table.json';
-const WA_TABLE_PNG = 'https://roas-live.vercel.app/wa_table.png';
+const SUMMARY = ORIGIN + '/summary.json';
+const WA_TABLE = ORIGIN + '/wa_table.json';
+const WA_TABLE_PNG = ORIGIN + '/wa_table.png';
 const INR = n => '\u20B9' + Math.round(n).toLocaleString('en-IN');
 
 const CRON_TO_WORKFLOW = {
@@ -224,10 +230,10 @@ async function sendWaText(env, to, text) {
   });
 }
 
-const YDAY_JSON = 'https://roas-live.vercel.app/yday_report.json';
-const YDAY_PNG  = 'https://roas-live.vercel.app/yday_report.png';
-const CLOSING_HTML = 'https://roas-live.vercel.app/closing.html';
-const SUB_DISPATCH = 'https://roas-live.vercel.app/sub_dispatch.json';
+const YDAY_JSON = ORIGIN + '/yday_report.json';
+const YDAY_PNG  = ORIGIN + '/yday_report.png';
+const CLOSING_HTML = ORIGIN + '/closing.html';
+const SUB_DISPATCH = ORIGIN + '/sub_dispatch.json';
 
 async function dispatchReminderPush(env, only) {
   // Daily 9:30 AM: which subscription bottles (month 2/3 of prepaid plans)
