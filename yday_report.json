@@ -1,0 +1,130 @@
+{
+ "day": "2026-10-03",
+ "prev_day": "2026-10-02",
+ "built_at": "2026-10-04T02:29:36+05:30",
+ "rows": [
+  {
+   "portal": "SM",
+   "sales": 469069,
+   "orders": 485,
+   "spend": 351198,
+   "roas": 1.34,
+   "budget_alloc": 548846,
+   "budget_closed": 416358,
+   "live_10pm": 132489,
+   "spent_pct": 64.0,
+   "spent_pct_prev": 86.8,
+   "closed_pct": 75.9,
+   "closed_pct_prev": 36.8,
+   "prev": {
+    "sales": 610211,
+    "orders": 608,
+    "spend": 362414,
+    "live_10pm": 264014,
+    "closed": 153520
+   },
+   "vs_prev": {
+    "sales_pct": -23.1,
+    "orders_pct": -20.2,
+    "spend_pct": -3.1,
+    "live_pct": -49.8,
+    "closed_pct": 171.2,
+    "closed_pct_delta": 39.1,
+    "spent_pct_delta": -22.8,
+    "roas_delta": -0.34
+   }
+  },
+  {
+   "portal": "SML",
+   "sales": 107133,
+   "orders": 146,
+   "spend": 62107,
+   "roas": 1.72,
+   "budget_alloc": 87500,
+   "budget_closed": 65450,
+   "live_10pm": 22050,
+   "spent_pct": 71.0,
+   "spent_pct_prev": 77.1,
+   "closed_pct": 74.8,
+   "closed_pct_prev": 66.8,
+   "prev": {
+    "sales": 76463,
+    "orders": 110,
+    "spend": 61713,
+    "live_10pm": 26569,
+    "closed": 53431
+   },
+   "vs_prev": {
+    "sales_pct": 40.1,
+    "orders_pct": 32.7,
+    "spend_pct": 0.6,
+    "live_pct": -17.0,
+    "closed_pct": 22.5,
+    "closed_pct_delta": 8.0,
+    "spent_pct_delta": -6.1,
+    "roas_delta": 0.48
+   }
+  },
+  {
+   "portal": "NBP",
+   "sales": 297587,
+   "orders": 353,
+   "spend": 166540,
+   "roas": 1.79,
+   "budget_alloc": 271350,
+   "budget_closed": 194035,
+   "live_10pm": 77315,
+   "spent_pct": 61.4,
+   "spent_pct_prev": 91.1,
+   "closed_pct": 71.5,
+   "closed_pct_prev": 32.1,
+   "prev": {
+    "sales": 393267,
+    "orders": 454,
+    "spend": 229860,
+    "live_10pm": 171350,
+    "closed": 81000
+   },
+   "vs_prev": {
+    "sales_pct": -24.3,
+    "orders_pct": -22.2,
+    "spend_pct": -27.5,
+    "live_pct": -54.9,
+    "closed_pct": 139.5,
+    "closed_pct_delta": 39.4,
+    "spent_pct_delta": -29.7,
+    "roas_delta": 0.08
+   }
+  }
+ ],
+ "all": {
+  "sales": 873789,
+  "orders": 984,
+  "spend": 579845,
+  "roas": 1.51,
+  "budget_alloc": 907696,
+  "budget_closed": 675842,
+  "live_10pm": 231854,
+  "spent_pct": 63.9,
+  "spent_pct_prev": 87.2,
+  "closed_pct": 74.5,
+  "closed_pct_prev": 38.4,
+  "prev": {
+   "sales": 1079941,
+   "orders": 1172,
+   "spend": 653986,
+   "live_10pm": 461933,
+   "closed": 287951
+  },
+  "vs_prev": {
+   "sales_pct": -19.1,
+   "orders_pct": -16.0,
+   "spend_pct": -11.3,
+   "live_pct": -49.8,
+   "closed_pct": 134.7,
+   "closed_pct_delta": 36.1,
+   "spent_pct_delta": -23.3,
+   "roas_delta": -0.14
+  }
+ }
+}
