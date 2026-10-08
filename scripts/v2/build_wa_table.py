@@ -70,12 +70,12 @@ def render_png(rows, out_png, stamp, hour_slice=None, data_through=None,
     # up/down chip drawn to the right of a value: green ▲ / red ▼ / grey =
     DELTA_KEY = {'Sales': 'sales', 'Orders': 'orders', 'Spend': 'spend',
                  'ROAS': 'roas', 'Budget': 'budget', 'Budget live': 'budget_live',
-                 'Closed': 'closed'}
+                 'Budget left': 'budget_left', 'Closed': 'closed'}
     # Closure columns move in percentage POINTS, not percent, and more-closed
     # is neither good nor bad on its own (it can mean the protocol is working
     # or that the day is worse), so they get a neutral chip, never red/green.
     DELTA_PP = {'Closed %': 'closed_pct_pp'}
-    NEUTRAL = {'Closed', 'Closed %'}
+    NEUTRAL = {'Budget left', 'Closed', 'Closed %'}
 
     def delta_text(r, hname):
         dd = r.get('delta') or {}
@@ -291,6 +291,27 @@ def main():
                 out[pcode] = out.get(pcode, 0) + (bud or 0)
         return out
 
+    def budget_left_at(slot, dprefix=None):
+        # Mirror of portal_hourly's budget_left. Spend is carried forward per
+        # campaign exactly as spend_at does, or a campaign missing from this one
+        # slot would read as having spent nothing and inflate the headroom.
+        out = {}
+        for name, left in scon.execute(
+                "SELECT s.account_name, COALESCE(SUM(CASE "
+                "  WHEN COALESCE(s.daily_budget,0) > COALESCE(r.sp,0) "
+                "  THEN COALESCE(s.daily_budget,0) - COALESCE(r.sp,0) ELSE 0 END),0) "
+                "FROM campaign_hourly_snapshots s JOIN ("
+                "  SELECT campaign_id, MAX(COALESCE(spend,0)) AS sp "
+                "  FROM campaign_hourly_snapshots "
+                "  WHERE hour_slot LIKE ? AND hour_slot <= ? GROUP BY campaign_id"
+                ") r ON r.campaign_id = s.campaign_id "
+                "WHERE s.hour_slot=? AND s.status='Active' GROUP BY s.account_name",
+                ((dprefix or day) + '%', slot, slot)):
+            pcode = ph.portal_of(name)
+            if pcode:
+                out[pcode] = out.get(pcode, 0) + (left or 0)
+        return out
+
     # Budget already switched off as at this hour — the paused-but-delivered
     # campaigns in the slot's snapshot (mirror of portal_hourly's closed_budget).
     def closed_budget_at(slot):
@@ -434,6 +455,7 @@ def main():
         if ymatch:
             y_spend, y_bud = spend_at(ymatch, yday), active_budget_at(ymatch)
             y_closed = closed_budget_at(ymatch)
+            y_left = budget_left_at(ymatch, yday)
             y_sal, y_ord = {}, {}
             for pcode, sal, orr in ncon.execute(
                     "SELECT portal, COALESCE(SUM(total_price),0), COUNT(*) FROM shopify_orders "
@@ -441,22 +463,24 @@ def main():
                     + ph.SALES_FILTER + " GROUP BY portal", (yday, cut)):
                 y_sal[pcode] = sal
                 y_ord[pcode] = orr
-            a_s = a_p = a_o = a_b = a_c = 0
+            a_s = a_p = a_o = a_b = a_c = a_l = 0
             for pcode in ('SM', 'SML', 'NBP'):
                 sal, orr = y_sal.get(pcode, 0), y_ord.get(pcode, 0)
                 spd, bud = y_spend.get(pcode, 0), y_bud.get(pcode, 0)
-                clo = y_closed.get(pcode, 0)
-                a_s += sal; a_p += spd; a_o += orr; a_b += bud; a_c += clo
+                clo, lft = y_closed.get(pcode, 0), y_left.get(pcode, 0)
+                a_s += sal; a_p += spd; a_o += orr; a_b += bud; a_c += clo; a_l += lft
                 yday_rows.append({'website': PORTAL_NAMES[pcode], 'sales': round(sal),
                                   'orders': orr, 'spend': round(spd),
                                   'roas': round(sal / spd, 2) if spd else None,
                                   'budget_live': round(bud),
+                                  'budget_left': round(lft),
                                   'closed': round(clo),
                                   'closed_pct': _closed_pct(bud, clo)})
             yday_rows.append({'website': 'All', 'sales': round(a_s), 'orders': a_o,
                               'spend': round(a_p),
                               'roas': round(a_s / a_p, 2) if a_p else None,
                               'budget_live': round(a_b),
+                              'budget_left': round(a_l),
                               'closed': round(a_c),
                               'closed_pct': _closed_pct(a_b, a_c)})
             ymap = {r['website']: r for r in yday_rows}
@@ -465,7 +489,8 @@ def main():
                 if not b:
                     continue
                 dd = {}
-                for k in ('sales', 'orders', 'spend', 'roas', 'budget_live', 'closed'):
+                for k in ('sales', 'orders', 'spend', 'roas', 'budget_live',
+                          'budget_left', 'closed'):
                     curv, prevv = r.get(k), b.get(k)
                     if curv is None or prevv in (None, 0):
                         continue
