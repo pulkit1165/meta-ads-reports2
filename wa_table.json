@@ -1,0 +1,255 @@
+{
+ "built_at": "2026-10-25T04:58:46+05:30",
+ "stamp": "25 Oct \u00b7 data through 04:58 IST",
+ "day": "2026-10-25",
+ "data_through": "04:58",
+ "window_minutes": 60,
+ "window_label": "LAST HOUR  \u00b7  window ending 04:58 IST   vs previous window",
+ "today_label": "TODAY SO FAR  \u00b7  vs same time yesterday (04:58 IST)",
+ "hour_slice": [
+  {
+   "website": "Studd Muffyn",
+   "sales": 5224,
+   "orders": 6,
+   "spend": 2090,
+   "roas": 2.5,
+   "budget": 289664,
+   "delta": {
+    "sales": 45,
+    "orders": 50,
+    "spend": -37,
+    "roas": 129,
+    "budget": 0
+   }
+  },
+  {
+   "website": "SM Life",
+   "sales": 0,
+   "orders": 0,
+   "spend": 165,
+   "roas": 0.0,
+   "budget": 36340,
+   "delta": {
+    "sales": -100,
+    "orders": -100,
+    "spend": -28,
+    "roas": -100,
+    "budget": 0
+   }
+  },
+  {
+   "website": "Nuskhe by Paras",
+   "sales": 1205,
+   "orders": 1,
+   "spend": 661,
+   "roas": 1.82,
+   "budget": 114314,
+   "delta": {
+    "sales": 99,
+    "orders": 0,
+    "spend": -13,
+    "roas": 127,
+    "budget": -1
+   }
+  },
+  {
+   "website": "All",
+   "sales": 6429,
+   "orders": 7,
+   "spend": 2916,
+   "roas": 2.2,
+   "budget": 440318,
+   "delta": {
+    "sales": 33,
+    "orders": 17,
+    "spend": -32,
+    "roas": 96,
+    "budget": 0
+   }
+  }
+ ],
+ "prev_slice": [
+  {
+   "website": "Studd Muffyn",
+   "sales": 3606,
+   "orders": 4,
+   "spend": 3300,
+   "roas": 1.09,
+   "budget": 289664
+  },
+  {
+   "website": "SM Life",
+   "sales": 605,
+   "orders": 1,
+   "spend": 228,
+   "roas": 2.66,
+   "budget": 36340
+  },
+  {
+   "website": "Nuskhe by Paras",
+   "sales": 605,
+   "orders": 1,
+   "spend": 759,
+   "roas": 0.8,
+   "budget": 115814
+  },
+  {
+   "website": "All",
+   "sales": 4816,
+   "orders": 6,
+   "spend": 4287,
+   "roas": 1.12,
+   "budget": 441818
+  }
+ ],
+ "rows": [
+  {
+   "website": "Studd Muffyn",
+   "sales": 50863,
+   "orders": 56,
+   "spend": 27916,
+   "roas": 1.82,
+   "yday": 2.12,
+   "budget_live": 289664,
+   "budget_left": 262496,
+   "left_pct": 90.6,
+   "active_pct": 9.4,
+   "day_pct": 8.6,
+   "closed": 33772,
+   "closed_pct": 10.4,
+   "products": 11,
+   "delta": {
+    "sales": 9,
+    "orders": 47,
+    "spend": 43,
+    "roas": -24,
+    "budget_live": 25,
+    "budget_left": 23,
+    "closed": 350,
+    "closed_pct_pp": 7.3
+   }
+  },
+  {
+   "website": "SM Life",
+   "sales": 4854,
+   "orders": 6,
+   "spend": 2305,
+   "roas": 2.11,
+   "yday": 2.41,
+   "budget_live": 36340,
+   "budget_left": 34035,
+   "left_pct": 93.7,
+   "active_pct": 6.3,
+   "day_pct": 6.3,
+   "closed": 0,
+   "closed_pct": 0.0,
+   "products": 3,
+   "delta": {
+    "sales": 69,
+    "orders": 20,
+    "spend": 4,
+    "roas": 62,
+    "budget_live": 0,
+    "budget_left": 0,
+    "closed_pct_pp": 0.0
+   }
+  },
+  {
+   "website": "Nuskhe by Paras",
+   "sales": 22462,
+   "orders": 23,
+   "spend": 9440,
+   "roas": 2.38,
+   "yday": 2.04,
+   "budget_live": 114314,
+   "budget_left": 105167,
+   "left_pct": 92.0,
+   "active_pct": 8.1,
+   "day_pct": 7.6,
+   "closed": 9250,
+   "closed_pct": 7.5,
+   "products": 6,
+   "delta": {
+    "sales": 47,
+    "orders": 21,
+    "spend": -5,
+    "roas": 55,
+    "budget_live": 3,
+    "budget_left": 4,
+    "closed_pct_pp": 7.5
+   }
+  },
+  {
+   "website": "All",
+   "sales": 78180,
+   "orders": 85,
+   "spend": 39660,
+   "roas": 1.97,
+   "yday": 2.12,
+   "budget_live": 440318,
+   "budget_left": 401698,
+   "left_pct": 91.2,
+   "active_pct": 8.8,
+   "day_pct": 8.2,
+   "closed": 43022,
+   "closed_pct": 8.9,
+   "products": 20,
+   "delta": {
+    "sales": 20,
+    "orders": 37,
+    "spend": 25,
+    "roas": -4,
+    "budget_live": 16,
+    "budget_left": 15,
+    "closed": 474,
+    "closed_pct_pp": 7.0
+   }
+  }
+ ],
+ "yday_rows": [
+  {
+   "website": "Studd Muffyn",
+   "sales": 46776,
+   "orders": 38,
+   "spend": 19550,
+   "roas": 2.39,
+   "budget_live": 232492,
+   "budget_left": 213038,
+   "closed": 7500,
+   "closed_pct": 3.1
+  },
+  {
+   "website": "SM Life",
+   "sales": 2875,
+   "orders": 5,
+   "spend": 2207,
+   "roas": 1.3,
+   "budget_live": 36340,
+   "budget_left": 34133,
+   "closed": 0,
+   "closed_pct": 0.0
+  },
+  {
+   "website": "Nuskhe by Paras",
+   "sales": 15270,
+   "orders": 19,
+   "spend": 9897,
+   "roas": 1.54,
+   "budget_live": 111014,
+   "budget_left": 101466,
+   "closed": 0,
+   "closed_pct": 0.0
+  },
+  {
+   "website": "All",
+   "sales": 64921,
+   "orders": 62,
+   "spend": 31654,
+   "roas": 2.05,
+   "budget_live": 379846,
+   "budget_left": 348636,
+   "closed": 7500,
+   "closed_pct": 1.9
+  }
+ ]
+}
