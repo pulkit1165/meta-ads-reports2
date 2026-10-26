@@ -243,6 +243,27 @@ def main():
             _known_errors += [e for e in ACCOUNT_ERRORS if e[0] not in _seen]
         ACCOUNT_ERRORS[:] = _known_errors
 
+        # An account that is genuinely idle (everything paused, zero spend today)
+        # also returns 0 campaigns. Confirm with account-level insights: only an
+        # account that spent today but returned no campaigns is a silent failure.
+        if vanished:
+            from camp_live import _paged
+            still = []
+            for a, n in vanished:
+                aid = _prev_ids.get(a)
+                try:
+                    ins = _paged(f"{aid}/insights", {'fields': 'spend', 'date_preset': 'today'}, tok)
+                    spent = sum(float(i.get('spend', 0) or 0) for i in ins)
+                except Exception as e:
+                    print(f"  could not verify {a} ({e}) — treating as failure")
+                    still.append((a, n))
+                    continue
+                if spent > 0:
+                    still.append((a, n))
+                else:
+                    print(f"  {a}: 0 campaigns and 0 spend today — genuinely idle, not a failure")
+            vanished = still
+
         if vanished:
             print(f"ABORTING WRITE: account(s) returned 0 campaigns but had rows at "
                   f"{_prev_slot} — silent API failure:")
