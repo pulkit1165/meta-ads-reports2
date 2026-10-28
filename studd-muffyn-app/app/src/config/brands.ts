@@ -21,7 +21,7 @@ export const BRANDS: Record<BrandKey, Brand> = {
     name: 'Studd Muffyn',
     site: 'https://studdmuffyn.com',
     shop: 'studd-muffyn.myshopify.com',
-    apiBase: 'https://studd-muffyn-app.vercel.app',
+    apiBase: 'https://app.jaddibooty.in',
     colors: {
         bg: "#ffffff",
         surface: "#f7f7f7",
@@ -49,7 +49,7 @@ export const BRANDS: Record<BrandKey, Brand> = {
     name: 'Studd Muffyn Life',
     site: 'https://studdmuffynlife.com',
     shop: 'studdmuffynlife.myshopify.com',
-    apiBase: 'https://studd-muffyn-app.vercel.app',
+    apiBase: 'https://app.jaddibooty.in',
     colors: {
         bg: "#ffffff",
         surface: "#f8f8f8",
