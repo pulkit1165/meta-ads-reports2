@@ -1,0 +1,17 @@
+{
+ "generated": "2026-10-09T14:02:05.151974+05:30",
+ "stamp": "09 Oct 2026 \u00b7 02:02 PM IST",
+ "today": "2026-10-09",
+ "window_10d": "2026-09-29..2026-10-08",
+ "file": "products-report-2026-10-09.xlsx",
+ "grand": {
+  "active_camps": 25,
+  "active_budget": 172534,
+  "today_spend": 117639,
+  "today_rev": 139501,
+  "today_roas": 1.19,
+  "d10_spend": 1921802,
+  "d10_rev": 2643023,
+  "d10_roas": 1.38
+ }
+}
