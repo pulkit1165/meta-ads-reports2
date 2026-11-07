@@ -1,0 +1,529 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Budget Planner — NTN</title>
+<style>
+:root{--ink:#14181D;--ink2:#4A555E;--ink3:#7C8892;--rule:rgba(20,24,29,.13);--soft:#F7F7F5;
+--pos:#1f66bd;--neg:#b3261e;--warn:#9A6207;--good:#1a7f37;
+--display:'Charter','Iowan Old Style',Georgia,serif;--body:'Avenir Next','Segoe UI',system-ui,-apple-system,sans-serif;
+--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:82rem;margin:0 auto;padding:0 clamp(.9rem,3vw,2.6rem)}
+header{padding:2rem 0 1.1rem;border-bottom:2px solid var(--ink)}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(1.7rem,3.4vw,2.4rem);margin:0 0 .3rem;letter-spacing:-.02em}
+h2{font-family:var(--display);font-weight:400;font-size:1.3rem;margin:0 0 .4rem}
+h3{font-family:var(--display);font-weight:400;font-size:1.05rem;margin:1.3rem 0 .4rem}
+.lbl{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+.sub{color:var(--ink2);margin:0;max-width:68ch}
+section{padding:1.9rem 0 0}
+.ctl{display:flex;gap:1.1rem;flex-wrap:wrap;align-items:flex-end;padding:.9rem 1.1rem;border:1px solid var(--rule);
+background:var(--soft);margin-top:1.1rem}
+.ctl label{display:flex;flex-direction:column;gap:.28rem;max-width:15rem}
+.ctl .hint{font-size:.72rem;color:var(--ink3);line-height:1.35}
+.ctl label.off{opacity:.45}
+#warn{border-left:3px solid var(--neg);background:#FDF3F2;padding:.8rem 1rem;margin-top:.8rem;
+font-size:.88rem;color:var(--ink2);max-width:70ch}
+.ctl input,.ctl select{font-family:var(--mono);font-size:1rem;padding:.4rem .55rem;border:1px solid var(--rule);
+background:#fff;color:var(--ink);min-width:8rem}
+.plan{border:2px solid var(--good);padding:1.3rem 1.5rem;margin-top:1.1rem}
+.plan .top{display:flex;justify-content:space-between;gap:1.2rem;flex-wrap:wrap;align-items:baseline}
+.plan .big{font-family:var(--display);font-size:clamp(1.2rem,2.4vw,1.75rem);max-width:42ch;line-height:1.2}
+.plan .amt{font-family:var(--mono);font-size:clamp(1.4rem,3vw,2.1rem);font-weight:500;color:var(--good);white-space:nowrap}
+.plan ol{margin:.9rem 0 0;padding-left:1.1rem;color:var(--ink2);font-size:.92rem}
+.plan li{margin:.3rem 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(8.2rem,1fr));gap:1px;background:var(--rule);
+border:1px solid var(--rule);margin-top:1rem}
+.kpis div{background:#fff;padding:.9rem .85rem;display:flex;flex-direction:column;gap:.18rem}
+.kpis b{font-family:var(--mono);font-size:1.35rem;font-weight:500}
+.kpis small{font-size:.71rem;color:var(--ink3)}
+.scroll{overflow-x:auto;border:1px solid var(--rule);margin-top:.85rem}
+table{border-collapse:collapse;width:100%;font-size:.85rem;min-width:40rem}
+th,td{padding:.46rem .62rem;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-family:var(--mono);font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);
+font-weight:400;background:var(--soft)}
+th:first-child,td:first-child{text-align:left}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.nm{font-family:var(--mono);font-size:.74rem;text-align:left;max-width:27rem;overflow:hidden;text-overflow:ellipsis}
+tr.good td{background:#F0F5FB}tr.bad td{background:#FDF3F2}tr.pick td{background:#EFF6F1;font-weight:600}
+.bar{height:26px;display:flex;border:1px solid var(--rule);margin:.8rem 0 .3rem;overflow:hidden}
+.bar span{display:grid;place-items:center;font-family:var(--mono);font-size:.67rem;color:#fff;font-weight:600}
+.key{display:flex;gap:1.3rem;flex-wrap:wrap;font-size:.79rem;color:var(--ink2)}
+.key i{display:inline-block;width:10px;height:10px;margin-right:.38rem}
+.note{border-left:3px solid var(--warn);background:#FDFBF6;padding:.85rem 1.05rem;margin-top:.9rem;max-width:70ch;
+color:var(--ink2);font-size:.87rem}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.warnc{color:var(--warn)}.goodc{color:var(--good)}
+figure{margin:.9rem 0 0}figcaption{font-size:.78rem;color:var(--ink3);margin-top:.35rem}
+footer{margin-top:2.4rem;padding:1.2rem 0 2.2rem;border-top:1px solid var(--rule);display:flex;
+justify-content:space-between;gap:1rem;flex-wrap:wrap}
+#err{padding:2rem 0;color:var(--neg)}
+@media(max-width:34rem){th,td{padding:.38rem .42rem;font-size:.77rem}}
+</style></head><body><div class="wrap">
+<header>
+  <span class="lbl" id="stamp">Budget Planner</span>
+  <h1>Tomorrow&rsquo;s plan.</h1>
+  <p class="sub">Built on one rule: <strong>revenue never goes down.</strong> Free moves first &mdash; money shifted
+  out of places that cannot pay &mdash; then growth, priced so you can see exactly what each extra rupee of revenue costs.
+  Revenue is Shopify actuals.</p>
+</header>
+<div id="err"></div>
+<div id="app" hidden>
+
+<div class="ctl">
+  <label><span class="lbl">Revenue must</span><select id="iMode">
+    <option value="hold">not fall (free moves only)</option>
+    <option value="grow">grow — show me the cost</option></select>
+    <span class="hint">Free moves keep spend flat. Grow also prices extra budget.</span></label>
+  <label id="lGrow"><span class="lbl">Growth wanted</span>
+    <input id="iGrow" type="number" min="0" max="30" step="1" value="5">
+    <span class="hint">How much more revenue, in %. Only used when the box on the left says grow.</span></label>
+  <label><span class="lbl">Max move per portal</span>
+    <input id="iStep" type="number" min="5" max="30" step="5" value="20">
+    <span class="hint">Biggest budget change in one day. Over 20% resets Meta&rsquo;s learning — leave it at 20.</span></label>
+  <label><span class="lbl">ROAS goal</span>
+    <input id="iGoal" type="number" min="0.5" step="0.05" value="1.5">
+    <span class="hint">Where you want blended ROAS to land. The plan below works out what it takes.</span></label>
+  <label><span class="lbl">Reactivate at ROAS &ge;</span>
+    <input id="iReact" type="number" min="0" step="0.1" value="1.5">
+    <span class="hint">The bar a paused campaign must clear to be switched back on. Below 1.0 it loses money — keep this at 1.5.</span></label>
+</div>
+
+<div id="warn" hidden></div>
+<div class="plan" id="plan">
+  <div class="top"><div class="big" id="planTxt"></div><div class="amt" id="planAmt"></div></div>
+  <div class="kpis" id="planK" style="margin-top:1rem"></div>
+</div>
+
+<section id="doNow">
+  <span class="lbl">Do this tomorrow morning</span>
+  <h2 id="doH"></h2>
+  <p class="sub" style="font-size:.9rem" id="doSub"></p>
+
+  <h3 id="s1H"></h3>
+  <div class="scroll"><table><thead><tr><th>Switch OFF</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th></tr></thead>
+  <tbody id="s1B"></tbody></table></div>
+
+  <h3 id="s2H"></h3>
+  <div class="scroll"><table><thead><tr><th>Raise or kill</th><th>Portal</th><th>Now</th><th>Needs</th></tr></thead>
+  <tbody id="s2B"></tbody></table></div>
+
+  <h3 id="s3H"></h3>
+  <div class="scroll"><table><thead><tr><th>Switch ON</th><th>Portal</th><th>ROAS 7d</th><th>Week 1</th><th>Budget/day</th></tr></thead>
+  <tbody id="s3B"></tbody></table></div>
+
+  <h3 id="s4H"></h3>
+  <div class="scroll"><table><thead><tr><th>Portal</th><th>Spend now</th><th>Change</th><th>New spend</th><th>Last rupee earns</th></tr></thead>
+  <tbody id="s4B"></tbody></table></div>
+  <h3 id="s5H"></h3>
+  <div class="scroll" id="laterWrap" hidden><table><thead><tr><th>Hold for wave 2</th><th>Portal</th><th>ROAS 7d</th>
+  <th>Budget/day</th><th>Why not tomorrow</th></tr></thead><tbody id="laterB"></tbody></table></div>
+
+  <h3>What tomorrow looks like after you do this</h3>
+  <div class="kpis" id="afterK"></div>
+  <div class="note" id="doNote"></div>
+</section>
+
+<section>
+  <span class="lbl">1 &middot; Where you stand</span>
+  <h2>Budget, status and what is still learning.</h2>
+  <div class="kpis" id="standK"></div>
+  <div class="bar" id="statusBar"></div>
+  <div class="key"><span><i style="background:#1a7f37"></i>active &amp; delivering</span>
+    <span><i style="background:#b3261e"></i>auto-closed today</span>
+    <span><i style="background:#c8ccd0"></i>paused, idle</span></div>
+  <h3>Campaigns in learning right now</h3>
+  <p class="sub" style="font-size:.87rem" id="learnSub"></p>
+  <div class="scroll"><table><thead><tr><th>Adset</th><th>Portal</th><th>Spend/day</th><th>Conversions</th>
+  <th>Needs</th><th>Status</th></tr></thead><tbody id="learnB"></tbody></table></div>
+</section>
+
+<section>
+  <span class="lbl">2 &middot; Free moves</span>
+  <h2>Revenue up, spend unchanged.</h2>
+  <p class="sub" style="font-size:.9rem" id="freeSub"></p>
+  <div class="kpis" id="freeK"></div>
+  <h3>Shift between portals</h3>
+  <div class="scroll"><table><thead><tr><th>Portal</th><th>Spend now</th><th>Move</th><th>New spend</th>
+  <th>Marginal ROAS</th><th>Confidence</th></tr></thead><tbody id="rebalB"></tbody></table></div>
+  <h3>Shift between campaigns</h3>
+  <div class="scroll"><table><thead><tr><th>Take from</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th>
+  <th>Why</th></tr></thead><tbody id="fromB"></tbody></table></div>
+  <div class="scroll"><table><thead><tr><th>Give to</th><th>Portal</th><th>ROAS 7d</th><th>Budget/day</th>
+  <th>Week-one ROAS</th></tr></thead><tbody id="toB"></tbody></table></div>
+  <div class="note" id="freeNote"></div>
+</section>
+
+<section>
+  <span class="lbl">Reaching your ROAS goal</span>
+  <h2 id="goalH"></h2>
+  <div class="kpis" id="goalK"></div>
+  <div class="scroll"><table><thead><tr><th>What has to change</th><th>Amount</th><th>Effect on blended ROAS</th>
+  <th>Effect on revenue</th></tr></thead><tbody id="goalB"></tbody></table></div>
+  <div class="note" id="goalNote"></div>
+</section>
+
+<section>
+  <span class="lbl">3 &middot; Growth planner</span>
+  <h2 id="growH"></h2>
+  <p class="sub" style="font-size:.9rem">Revenue rises at every level &mdash; the question is only what it costs.
+  Pick the row you can afford.</p>
+  <figure><canvas id="chart" width="1120" height="260" role="img"
+    aria-label="Cost of each growth level"></canvas>
+    <figcaption id="chartCap"></figcaption></figure>
+  <div class="scroll"><table><thead><tr><th>Push</th><th>Extra spend</th><th>Extra revenue</th>
+  <th>Incremental ROAS</th><th>Net cost / gain</th><th>Blended ROAS</th><th>Learning after</th></tr></thead>
+  <tbody id="ladderB"></tbody></table></div>
+  <div class="note" id="growNote"></div>
+</section>
+
+<footer><span class="lbl">Budget Planner &middot; NTN</span><span class="lbl" id="foot"></span></footer>
+</div></div>
+<script>
+const $=i=>document.getElementById(i);
+const rs=n=>"₹"+Math.round(n||0).toLocaleString('en-IN');
+const esc=s=>String(s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const PORTALS=['SM','NBP','SML'];
+let S=null;
+
+const rev=(f,x)=>f.a*Math.pow(Math.max(x,1),f.b);
+const marg=(f,x)=>f.b*f.a*Math.pow(Math.max(x,1),f.b-1);
+const trusted=f=>f&&f.ok&&f.b>0&&f.r2>=0.25;
+
+/* Rebalance at FIXED total spend: repeatedly move a small slice from the portal
+   with the lowest marginal return to the one with the highest, inside both the
+   observed spend range and a max step. A portal whose curve we cannot trust is
+   frozen — an unreliable fit is not a reason to move money. */
+function rebalance(step){
+  const F=S.fits||{};
+  const cur={}, bnd={};
+  PORTALS.forEach(p=>{
+    const f=F[p]; if(!f||!f.ok) return;
+    cur[p]=f.cur_spend;
+    bnd[p]=trusted(f)
+      ? [Math.max(f.spend_lo,f.cur_spend*(1-step/100)), Math.min(f.spend_hi,f.cur_spend*(1+step/100))]
+      : [f.cur_spend,f.cur_spend];
+  });
+  const keys=Object.keys(cur); if(!keys.length) return null;
+  const alloc={...cur}; const SLICE=2000;
+  for(let i=0;i<3000;i++){
+    const from=keys.filter(p=>alloc[p]-SLICE>=bnd[p][0]);
+    const to=keys.filter(p=>alloc[p]+SLICE<=bnd[p][1]);
+    if(!from.length||!to.length) break;
+    const src=from.reduce((m,p)=>marg(F[p],alloc[p])<marg(F[m],alloc[m])?p:m,from[0]);
+    const dst=to.reduce((m,p)=>marg(F[p],alloc[p])>marg(F[m],alloc[m])?p:m,to[0]);
+    if(src===dst||marg(F[dst],alloc[dst])<=marg(F[src],alloc[src])) break;
+    alloc[src]-=SLICE; alloc[dst]+=SLICE;
+  }
+  const spend0=keys.reduce((x,p)=>x+cur[p],0), spend1=keys.reduce((x,p)=>x+alloc[p],0);
+  const rev0=keys.reduce((x,p)=>x+rev(F[p],cur[p]),0), rev1=keys.reduce((x,p)=>x+rev(F[p],alloc[p]),0);
+  return {cur,alloc,keys,spend0,spend1,rev0,rev1,gain:rev1-rev0,bnd};
+}
+function ladder(rb,step){
+  const F=S.fits||{}; const out=[];
+  for(const pct of [0,5,10,15,20,25,30]){
+    if(pct>step&&pct!==0) { if(pct>30) break; }
+    const sc={}; rb.keys.forEach(p=>{ sc[p]= trusted(F[p]) ? rb.alloc[p]*(1+pct/100) : rb.alloc[p]; });
+    const sp=rb.keys.reduce((x,p)=>x+sc[p],0);
+    const rv=rb.keys.reduce((x,p)=>x+rev(F[p],sc[p]),0);
+    const ds=sp-rb.spend1, dr=rv-rb.rev1;
+    out.push({pct,spend:sp,revenue:rv,ds,dr,inc:ds?dr/ds:0,blended:rv/sp,net:dr-ds});
+  }
+  return out;
+}
+function render(){
+  const step=+$('iStep').value||20, minR=+$('iReact').value||1.5;
+  const mode=$('iMode').value, want=+$('iGrow').value||0;
+  const F=S.fits||{}, LH=S.learning_headroom||{}, LP=S.learning_penalty||{}, EC=S.economics||{},
+        AU=S.closure_audit||{}, M=S.morning||{}, L=S.learning||{};
+  const rb=rebalance(step); const lad=ladder(rb,step);
+  document.getElementById('lGrow').className = (mode==='grow') ? '' : 'off';
+  const w=$('warn');
+  if(minR<1){
+    w.hidden=false;
+    w.innerHTML=`<strong>Reactivate is set to ${minR}× — that switches on campaigns that lose money.</strong>
+      A campaign at ${minR}× returns ${Math.round(minR*100)} paise for every rupee. Anything under 1.0 costs more than it
+      brings back, so it should stay off. Set this to <strong>1.5</strong> to reactivate only campaigns that genuinely pay.`;
+  } else if(minR<1.3){
+    w.hidden=false;
+    w.innerHTML=`<strong>Reactivate at ${minR}× is thin.</strong> Reactivated campaigns run at
+      ${Math.round((LP.discount_new||0.72)*100)}% of their proven ROAS while relearning, so a ${minR}× campaign delivers
+      about ${(minR*(LP.discount_new||0.72)).toFixed(2)}× in week one — under break-even. 1.5 or higher is safer.`;
+  } else { w.hidden=true; }
+
+  /* ---------- 1. where you stand ---------- */
+  const camps=S.campaigns||[];
+  const activeBudget=camps.filter(c=>c.status==='ACTIVE').reduce((x,c)=>x+c.budget,0);
+  const allocated=M.allocated||0;
+  const closedToday=M.closed_budget||0;
+  const idle=camps.filter(c=>c.status!=='ACTIVE'&&c.today_spend===0).reduce((x,c)=>x+c.budget,0);
+  $('standK').innerHTML=`
+   <div><span class="lbl">Allocated this morning</span><b>${rs(allocated)}</b><small>${M.campaigns} campaigns</small></div>
+   <div><span class="lbl">Active right now</span><b class="goodc">${rs(activeBudget)}</b><small>${camps.filter(c=>c.status==='ACTIVE').length} campaigns</small></div>
+   <div><span class="lbl">Auto-closed today</span><b class="neg">${rs(closedToday)}</b><small>${M.closed_pct}% of allocation</small></div>
+   <div><span class="lbl">Actually spent</span><b>${rs(M.spent)}</b><small>delivery ${Math.round(100*(M.delivery_rate||0))}%</small></div>
+   <div><span class="lbl">Active : learning</span><b>${Math.round(100*(1-(L.ratio||0)))} : ${Math.round(100*(L.ratio||0))}</b><small>of live spend</small></div>
+   <div><span class="lbl">Learning room</span><b class="pos">${rs(LH.headroom_now)}</b><small>${LH.slots_now} adset slots</small></div>`;
+  const settled=Math.max(0,(L.spend_live||0)-(L.spend_learning||0));
+  $('statusBar').innerHTML=`<span style="flex:${settled||1};background:#1a7f37">DELIVERING ${rs(settled+(L.spend_learning||0))}</span>
+    <span style="flex:${closedToday||1};background:#b3261e">CLOSED ${rs(closedToday)}</span>
+    <span style="flex:${idle||1};background:#c8ccd0;color:#14181D">IDLE ${rs(idle)}</span>`;
+  const lrn=(L.learning_adsets||[]);
+  $('learnSub').innerHTML=`${lrn.length} adsets are still learning, holding <strong>${rs(L.spend_learning)}</strong> of
+    today's live spend. An adset settles at about 50 sales in 7 days — at your cost per order of ${rs(EC.cac)} that needs
+    <strong>${rs(EC.min_per_adset_day)}/day</strong>. Below that it never settles.`;
+  $('learnB').innerHTML=lrn.map(x=>{
+    const ok=x.spend>=(EC.min_per_adset_day||0);
+    return `<tr class="${ok?'':'bad'}"><td class="nm">${esc(x.name)}</td><td>${x.portal}</td>
+      <td class="n">${rs(x.spend)}</td><td class="n">${x.conv}</td>
+      <td class="n">${rs(EC.min_per_adset_day)}</td>
+      <td>${ok?'on track':'<strong>cannot settle — raise or kill</strong>'}</td></tr>`}).join('')||
+    '<tr><td colspan="6" style="text-align:center;color:var(--ink3);padding:1rem">nothing in learning</td></tr>';
+
+  /* ---------- 2. free moves ---------- */
+  const stuck=lrn.filter(x=>x.spend<(EC.min_per_adset_day||0));
+  const stuckRs=stuck.reduce((x,y)=>x+y.spend,0);
+  const losers=camps.filter(c=>c.status==='ACTIVE'&&c.spend7>3000&&c.roas7<1)
+                    .sort((a,b)=>a.roas7-b.roas7);
+  const loserRs=losers.reduce((x,c)=>x+c.budget,0);
+  const pool=stuckRs+loserRs;
+  const winners=camps.filter(c=>c.status!=='ACTIVE'&&c.spend7>=2000&&c.roas7>=minR).sort((a,b)=>b.roas7-a.roas7);
+  /* Everything switched back on re-enters learning, so the wave is capped by
+     learning capacity as well as by the pool. Anything under the per-adset floor
+     is excluded outright — it could never settle. */
+  const dr=M.delivery_rate||0.59;
+  const capSpend=(EC.capacity_adsets||0)*(EC.min_per_adset_day||0);
+  const learnAfterFix=(L.spend_learning||0)-stuckRs;
+  const learnRoom=Math.max(0,capSpend-learnAfterFix);
+  const maxWave=dr?learnRoom/dr:0;
+  const eligible=winners.filter(w=>w.budget>=(EC.min_per_adset_day||0));
+  const tooSmall=winners.filter(w=>w.budget<(EC.min_per_adset_day||0));
+  let acc=0; const take=[]; const later=[];
+  eligible.forEach(w=>{
+    if(acc+w.budget<=Math.min(pool,maxWave)){ take.push(w); acc+=w.budget; }
+    else later.push(w);
+  });
+  const moved=take.reduce((x,w)=>x+w.budget,0);
+  const tax=LP.discount_new||0.72;
+  const weekOne=moved?(take.reduce((x,w)=>x+w.budget*w.roas7,0)/moved)*tax:0;
+  const nowRet=loserRs?losers.reduce((x,c)=>x+c.budget*c.roas7,0)/loserRs:0;
+  const campGain=moved*(weekOne-nowRet);
+  const freeGain=(rb?rb.gain:0)+Math.max(0,campGain);
+  $('freeSub').innerHTML=`Two shifts that cost nothing: rebalance spend between portals, and move budget out of campaigns
+    that cannot pay into paused ones that already do. Total spend does not change, so <strong>revenue cannot fall.</strong>`;
+  $('freeK').innerHTML=`
+   <div><span class="lbl">Portal rebalance</span><b class="goodc">+${rs(rb?rb.gain:0)}</b><small>per day, same spend</small></div>
+   <div><span class="lbl">Campaign shift</span><b class="goodc">+${rs(Math.max(0,campGain))}</b><small>per day, same spend</small></div>
+   <div><span class="lbl">Pool available</span><b>${rs(pool)}</b><small>stuck learning + sub-1× camps</small></div>
+   <div><span class="lbl">Free total</span><b class="goodc">+${rs(freeGain)}</b><small>revenue, zero extra spend</small></div>`;
+  $('rebalB').innerHTML=rb?rb.keys.map(p=>{
+    const f=F[p], d=rb.alloc[p]-rb.cur[p], frozen=rb.bnd[p][0]===rb.bnd[p][1];
+    return `<tr class="${d>0?'good':(d<0?'bad':'')}"><td>${p}</td><td class="n">${rs(rb.cur[p])}</td>
+      <td class="n ${d>0?'pos':(d<0?'neg':'')}">${d>0?'+':''}${d?rs(d):'—'}</td>
+      <td class="n"><strong>${rs(rb.alloc[p])}</strong></td>
+      <td class="n">${marg(f,rb.alloc[p]).toFixed(2)}</td>
+      <td>${frozen?'frozen — fit unreliable (R² '+f.r2+')':'R² '+f.r2}</td></tr>`}).join(''):'';
+  $('fromB').innerHTML=[
+    ...stuck.map(x=>`<tr class="bad"><td class="nm">${esc(x.name)}</td><td>${x.portal}</td><td class="n">—</td>
+      <td class="n">${rs(x.spend)}</td><td>too small to ever settle</td></tr>`),
+    ...losers.slice(0,8).map(c=>`<tr class="bad"><td class="nm">${esc(c.name)}</td><td>${c.portal}</td>
+      <td class="n">${c.roas7.toFixed(2)}</td><td class="n">${rs(c.budget)}</td><td>returns under 1×</td></tr>`)
+  ].join('')||'<tr><td colspan="5" style="text-align:center;color:var(--ink3);padding:1rem">nothing to take from</td></tr>';
+  $('toB').innerHTML=take.slice(0,10).map(w=>`<tr class="good"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+    <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${rs(w.budget)}</td>
+    <td class="n">${(w.roas7*tax).toFixed(2)}</td></tr>`).join('')||
+    `<tr><td colspan="5" style="text-align:center;color:var(--ink3);padding:1rem">nothing paused clears ${minR}×</td></tr>`;
+  $('freeNote').innerHTML=`Reactivated campaigns re-enter learning, so week-one ROAS is discounted to
+    <strong>${Math.round(tax*100)}%</strong> of their proven number — measured from your own campaigns, not assumed.
+    Keep each reactivation at or above ${rs(EC.min_per_adset_day)}/day or it will not settle either.`;
+
+  /* ---------- 3. growth ---------- */
+  const pick=lad.reduce((best,r)=>Math.abs(r.dr/(rb.rev1||1)*100-want)<Math.abs(best.dr/(rb.rev1||1)*100-want)?r:best,lad[0]);
+  $('growH').textContent=mode==='hold'
+    ? 'If revenue only has to hold, you are already done.'
+    : `To grow revenue about ${want}%, here is the bill.`;
+  $('ladderB').innerHTML=lad.map(r=>{
+    const chosen=(mode==='grow'&&r===pick);
+    const k=r.inc>=2?'goodc':(r.inc>=1?'warnc':'neg');
+    return `<tr class="${chosen?'pick':''}"><td>${r.pct===0?'no push':'+'+r.pct+'%'}</td>
+      <td class="n">${r.ds?rs(r.ds):'—'}</td><td class="n">${r.dr?rs(r.dr):'—'}</td>
+      <td class="n ${r.ds?k:''}">${r.ds?r.inc.toFixed(2):'—'}</td>
+      <td class="n ${r.net>=0?'goodc':'neg'}">${r.ds?(r.net>=0?'+':'')+rs(r.net):'—'}</td>
+      <td class="n">${r.blended.toFixed(2)}</td>
+      <td class="n">${Math.round(100*((L.spend_learning||0)/((L.spend_live||1)+r.ds)))}%</td></tr>`}).join('');
+  chart(lad);
+  $('chartCap').textContent='Each bar is what one extra rupee of spend brings back at that push level. Above the line at 1.0, growth pays for itself.';
+  $('growNote').innerHTML=`Every level grows revenue — none of them lose it. What changes is the cost: at
+    <strong>+${pick.pct}%</strong> you add ${rs(pick.ds)} of spend to gain ${rs(pick.dr)} of revenue, so growth costs you
+    <strong>${rs(Math.abs(pick.net))}/day</strong>. That is the honest price of volume while marginal ROAS sits under 1.
+    Cutting spend would raise profit but shrink revenue — excluded here because you asked for no revenue loss.`;
+
+  /* ---------- goal seek: what it takes to hit a blended ROAS ---------- */
+  const goal=+$('iGoal').value||1.5;
+  const spendNow=rb?rb.spend0:0, revNow=rb?rb.rev0:0;
+  const blendNow=spendNow?revNow/spendNow:0;
+  const gapPer=Math.max(0.01,(tax?weekOne/tax:0)-nowRet);          // roas gained per rupee moved, once settled
+  const needMove=Math.max(0,(goal*spendNow-revNow)/gapPer);
+  const canMove=Math.min(pool,needMove);
+  const reachable=needMove<=pool+1;
+  const maxBlend=spendNow?(revNow+pool*gapPer)/spendNow:0;
+  // if reallocation alone cannot get there, how much spend must come out?
+  const revAfterMove=revNow+canMove*gapPer;
+  const spendCut=Math.max(0,spendNow-revAfterMove/goal);
+  // cutting removes the worst spend first, so revenue lost rides the worst marginal
+  const worstMarg=Math.max(0.05,Math.min(...(rb?rb.keys.map(p=>Math.max(0.05,marg(F[p],rb.alloc[p]))):[0.5])));
+  const revLost=spendCut*worstMarg;
+  $('goalH').textContent=reachable
+    ? `Your ${goal}× goal is reachable by moving money — no spend cut needed.`
+    : `Your ${goal}× goal needs more than moving money can deliver.`;
+  $('goalK').innerHTML=`
+   <div><span class="lbl">Blended now</span><b>${blendNow.toFixed(2)}×</b><small>revenue ÷ spend</small></div>
+   <div><span class="lbl">Your goal</span><b>${goal.toFixed(2)}×</b><small>blended</small></div>
+   <div><span class="lbl">Must reallocate</span><b class="${reachable?'goodc':'neg'}">${rs(needMove)}</b>
+     <small>you have ${rs(pool)} available</small></div>
+   <div><span class="lbl">Ceiling on free moves</span><b>${maxBlend.toFixed(2)}×</b>
+     <small>if you move the whole pool</small></div>`;
+  const rows=[];
+  rows.push(`<tr class="good"><td>Move ${rs(canMove)} from campaigns under 1× into proven ones</td>
+    <td class="n">${rs(canMove)}</td>
+    <td class="n">${blendNow.toFixed(2)} → ${((revNow+canMove*gapPer)/spendNow).toFixed(2)}</td>
+    <td class="n goodc">+${rs(canMove*gapPer)}</td></tr>`);
+  if(!reachable){
+    rows.push(`<tr class="bad"><td>Then cut ${rs(spendCut)} of the weakest spend</td><td class="n">${rs(spendCut)}</td>
+      <td class="n">${((revNow+canMove*gapPer)/spendNow).toFixed(2)} → ${goal.toFixed(2)}</td>
+      <td class="n neg">−${rs(revLost)}</td></tr>`);
+    const lift=revNow?100*((goal*spendNow-(revNow+canMove*gapPer))/(revNow+canMove*gapPer)):0;
+    rows.push(`<tr><td>…or instead lift ROAS on what is already running</td><td class="n">+${lift.toFixed(0)}%</td>
+      <td class="n">${goal.toFixed(2)}</td><td class="n goodc">no loss</td></tr>`);
+  }
+  $('goalB').innerHTML=rows.join('');
+  $('goalNote').innerHTML=reachable
+    ? `Moving <strong>${rs(needMove)}</strong> of the <strong>${rs(pool)}</strong> you can free is enough to reach
+       <strong>${goal}×</strong> once the reactivated campaigns clear learning. Nothing has to be cut, so revenue does not
+       fall. In week one it will read lower — reactivated campaigns run at ${Math.round(tax*100)}% of proven ROAS.`
+    : `Moving the entire ${rs(pool)} pool takes you to <strong>${maxBlend.toFixed(2)}×</strong>, short of your
+       ${goal}× goal. Getting the rest means either cutting <strong>${rs(spendCut)}</strong> of the weakest spend — which
+       costs about <strong>${rs(revLost)}/day of revenue</strong> and breaks your no-loss rule — or lifting ROAS on the
+       campaigns already running through better creative and offers. Reallocation alone cannot do it.`;
+
+  /* ---------- the plan ---------- */
+  const offRs=losers.reduce((x,c)=>x+c.budget,0);
+  const onRs=take.reduce((x,w)=>x+w.budget,0);
+  const spare=Math.max(0,pool-onRs);
+  const totalGain=freeGain+(mode==='grow'?pick.dr:0);
+
+  $('planTxt').textContent=mode==='hold'
+    ? 'Free money that is stuck, put it where it already works. Spend stays the same.'
+    : `Free the stuck money, redeploy it, then buy ${pick.pct}% of growth on top.`;
+  $('planAmt').innerHTML=`+${rs(totalGain)}<span style="font-size:.8rem;color:var(--ink3)"> revenue/day</span>`;
+  $('planK').innerHTML=`
+   <div><span class="lbl">You free up</span><b>${rs(pool)}</b><small>${losers.length} camps + ${stuck.length} adsets</small></div>
+   <div><span class="lbl">You redeploy</span><b>${rs(onRs)}</b><small>into ${take.length} proven camps</small></div>
+   <div><span class="lbl">Left over</span><b>${rs(spare)}</b><small>back into what works</small></div>
+   <div><span class="lbl">Total spend</span><b>unchanged</b><small>revenue cannot fall</small></div>
+   <div><span class="lbl">Revenue</span><b class="goodc">+${rs(totalGain)}</b><small>per day</small></div>`;
+
+  $('doH').textContent=`Four steps. About twenty minutes in Ads Manager.`;
+  $('doSub').innerHTML=`You free <strong>${rs(pool)}/day</strong>, put <strong>${rs(onRs)}</strong> of it into campaigns
+    already proven, and the remaining <strong>${rs(spare)}</strong> goes back into what is working.
+    <strong>Total spend does not change</strong>, so revenue cannot fall.`;
+
+  $('s1H').textContent=`1 · Switch off ${losers.length} campaigns that lose money — frees ${rs(offRs)}/day`;
+  $('s1B').innerHTML=losers.map(c=>`<tr class="bad"><td class="nm">${esc(c.name)}</td><td>${c.portal}</td>
+    <td class="n">${c.roas7.toFixed(2)}</td><td class="n">${rs(c.budget)}</td></tr>`).join('')||
+    '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:.9rem">nothing is under 1× right now</td></tr>';
+
+  $('s2H').textContent=`2 · Fix ${stuck.length} adsets too small to ever settle — frees ${rs(stuckRs)}/day`;
+  $('s2B').innerHTML=stuck.map(x=>`<tr class="bad"><td class="nm">${esc(x.name)}</td><td>${x.portal}</td>
+    <td class="n">${rs(x.spend)}</td><td class="n">${rs(EC.min_per_adset_day)}</td></tr>`).join('')||
+    '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:.9rem">every learning adset is funded properly</td></tr>';
+
+  const onSpend=onRs*dr;
+  const offSpendToday=losers.reduce((x,c)=>x+c.today_spend,0);
+  const liveAfter=(L.spend_live||0)-offSpendToday-stuckRs+onSpend;
+  const lrnAfter=learnAfterFix+onSpend;
+  const ratioAfter=liveAfter?lrnAfter/liveAfter:0;
+  const wk1=onRs?take.reduce((x,w)=>x+w.budget*w.roas7,0)/onRs*tax:0;
+  const wk2=onRs?take.reduce((x,w)=>x+w.budget*w.roas7,0)/onRs:0;
+  const wasRet=loserRs?losers.reduce((x,c)=>x+c.budget*c.roas7,0)/loserRs:0;
+  $('s3H').textContent=`3 · Switch on ${take.length} proven campaigns — spends ${rs(onRs)}/day`;
+  $('s3B').innerHTML=take.map(w=>`<tr class="good"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+    <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${(w.roas7*tax).toFixed(2)}</td>
+    <td class="n">${rs(w.budget)}</td></tr>`).join('')||
+    `<tr><td colspan="5" style="text-align:center;color:var(--ink3);padding:.9rem">nothing paused clears ${minR}×</td></tr>`;
+
+  const moves=rb?rb.keys.filter(p=>Math.abs(rb.alloc[p]-rb.cur[p])>1000):[];
+  $('s4H').textContent=moves.length
+    ? `4 · Shift ${rs(Math.abs(rb.alloc[moves[0]]-rb.cur[moves[0]]))} between portals — +${rs(rb.gain)}/day`
+    : `4 · No portal shift needed today`;
+  $('s4B').innerHTML=rb?rb.keys.map(p=>{
+    const d=rb.alloc[p]-rb.cur[p];
+    if(Math.abs(d)<1000&&moves.length) return '';
+    return `<tr class="${d>0?'good':(d<0?'bad':'')}"><td>${p}</td><td class="n">${rs(rb.cur[p])}</td>
+      <td class="n ${d>0?'pos':(d<0?'neg':'')}">${Math.abs(d)<1000?'no change':(d>0?'+':'−')+rs(Math.abs(d))}</td>
+      <td class="n"><strong>${rs(rb.alloc[p])}</strong></td>
+      <td class="n">${marg(F[p],rb.alloc[p]).toFixed(2)}</td></tr>`}).join(''):'';
+  $('s5H').textContent=(later.length||tooSmall.length)
+    ? `Hold ${later.length+tooSmall.length} back for wave 2 — switching everything on at once breaks learning`
+    : `Nothing held back — the whole list fits inside learning capacity`;
+  $('laterWrap').hidden=!(later.length||tooSmall.length);
+  $('laterB').innerHTML=[
+    ...later.map(w=>`<tr><td class="nm">${esc(w.name)}</td><td>${w.portal}</td><td class="n">${w.roas7.toFixed(2)}</td>
+      <td class="n">${rs(w.budget)}</td><td>no learning room left tomorrow</td></tr>`),
+    ...tooSmall.map(w=>`<tr class="bad"><td class="nm">${esc(w.name)}</td><td>${w.portal}</td>
+      <td class="n">${w.roas7.toFixed(2)}</td><td class="n">${rs(w.budget)}</td>
+      <td>under the ${rs(EC.min_per_adset_day)} floor — raise it first</td></tr>`)
+  ].join('');
+
+  const over=lrnAfter>capSpend;
+  $('afterK').innerHTML=`
+   <div><span class="lbl">Active : learning</span><b>${Math.round(100*(1-ratioAfter))} : ${Math.round(100*ratioAfter)}</b>
+     <small>from ${Math.round(100*(1-(L.ratio||0)))} : ${Math.round(100*(L.ratio||0))} today</small></div>
+   <div><span class="lbl">Learning spend</span><b class="${over?'neg':'goodc'}">${rs(lrnAfter)}</b>
+     <small>capacity ${rs(capSpend)}${over?' — OVER':''}</small></div>
+   <div><span class="lbl">New campaigns needed</span><b class="goodc">none</b><small>all toggles and budget edits</small></div>
+   <div><span class="lbl">Revenue week 1</span><b class="${wk1>wasRet?'goodc':'neg'}">${wk1.toFixed(2)}×</b>
+     <small>vs ${wasRet.toFixed(2)}× today — learning tax</small></div>
+   <div><span class="lbl">Revenue week 2+</span><b class="goodc">${wk2.toFixed(2)}×</b>
+     <small>+${rs(onRs*(wk2-wasRet))}/day once settled</small></div>`;
+  $('doNote').innerHTML=`<strong>Week one will look flat.</strong> Everything you switch on re-enters learning and runs at
+    ${Math.round(tax*100)}% of its proven number, so the gain is only about
+    ${rs(onRs*(wk1-wasRet))}/day at first. Once those campaigns clear learning the same money returns
+    <strong>${wk2.toFixed(2)}×</strong> — about <strong>${rs(onRs*(wk2-wasRet))}/day</strong>. Judge this after seven days,
+    not one. Nothing here needs a new campaign built: every step is a toggle or a budget edit on something that already
+    exists.`+
+    (AU.false_positive_n?` Separately, <strong>${AU.false_positive_n} campaigns were auto-closed today despite a 7-day
+    ROAS above ${AU.protect_roas}×</strong> (${rs(AU.false_positive_budget)}) — worth reopening too.`:'');
+
+}
+function chart(lad){
+  const c=$('chart'), x=c.getContext('2d'), W=c.width, H=c.height;
+  x.clearRect(0,0,W,H);
+  const d=lad.filter(r=>r.ds>0); if(!d.length) return;
+  const mx=Math.max(1.4,...d.map(r=>r.inc)), L=64, R=16, T=18, B=34;
+  const px=v=>H-B-(v/mx)*(H-T-B), bw=(W-L-R)/d.length;
+  x.strokeStyle='rgba(20,24,29,.12)'; x.lineWidth=1; x.font='12px ui-monospace'; x.fillStyle='#7C8892';
+  [0,0.5,1,1.5,2].forEach(g=>{ if(g>mx) return;
+    x.beginPath(); x.moveTo(L,px(g)); x.lineTo(W-R,px(g)); x.stroke();
+    x.fillText(g.toFixed(1),L-34,px(g)+4); });
+  x.strokeStyle='#14181D'; x.lineWidth=1.5; x.setLineDash([4,3]);
+  x.beginPath(); x.moveTo(L,px(1)); x.lineTo(W-R,px(1)); x.stroke(); x.setLineDash([]);
+  x.fillStyle='#14181D'; x.font='600 12px ui-monospace'; x.fillText('break even',W-R-96,px(1)-7);
+  d.forEach((r,i)=>{
+    const h=px(r.inc), y0=px(0), bx=L+i*bw+bw*0.18, w=bw*0.64;
+    x.fillStyle=r.inc>=1?'#1f66bd':'#b3261e';
+    x.fillRect(bx,Math.min(h,y0),w,Math.max(2,Math.abs(y0-h)));
+    x.fillStyle='#fff'; x.font='600 12px ui-monospace';
+    if(Math.abs(y0-h)>26) x.fillText(r.inc.toFixed(2),bx+w/2-15,h+16);
+    x.fillStyle='#4A555E'; x.font='12px ui-monospace';
+    x.fillText('+'+r.pct+'%',bx+w/2-13,H-12);
+  });
+}
+fetch('budget.json?t='+Date.now()).then(r=>r.json()).then(j=>{
+  S=j; $('app').hidden=false;
+  const t=String(j.generated).slice(0,16).replace('T',' ');
+  $('stamp').textContent='Budget Planner · data '+t+' IST';
+  $('foot').textContent='generated '+t;
+  $('iReact').value=j.reactivate_roas??1.5;
+  ['iMode','iGrow','iStep','iReact','iGoal'].forEach(id=>$(id).addEventListener('input',render));
+  render();
+}).catch(e=>{$('err').innerHTML='<strong>Could not load budget.json.</strong> '+e});
+</script></body></html>

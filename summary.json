@@ -1,0 +1,53 @@
+{
+ "built_at": "2026-09-29T08:27:16+05:30",
+ "today": "2026-09-29",
+ "live": {
+  "SM": {
+   "sales": 72538,
+   "orders": 87,
+   "spend": 64757,
+   "roas": 1.12
+  },
+  "SML": {
+   "sales": 15778,
+   "orders": 19,
+   "spend": 8186,
+   "roas": 1.93
+  },
+  "NBP": {
+   "sales": 42171,
+   "orders": 49,
+   "spend": 39674,
+   "roas": 1.06
+  }
+ },
+ "yesterday": {
+  "date": "2026-09-28",
+  "portals": {
+   "NBP": {
+    "sales": 313789,
+    "spend": 246628,
+    "orders": 381,
+    "roas": 1.27
+   },
+   "SM": {
+    "sales": 584224,
+    "spend": 457435,
+    "orders": 646,
+    "roas": 1.28
+   },
+   "SML": {
+    "sales": 92802,
+    "spend": 66805,
+    "orders": 127,
+    "roas": 1.39
+   }
+  }
+ },
+ "top_products_yday": [],
+ "closes_today_sm": {
+  "closes": 0,
+  "early": 0,
+  "sunk": 0
+ }
+}
