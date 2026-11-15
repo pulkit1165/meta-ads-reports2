@@ -20,14 +20,27 @@ const REF  = 'main';
 const ORIGIN = 'https://roas.jaddibooty.in';
 const PAGE = ORIGIN + '/';
 // Per-person report subscriptions — edit + redeploy to change who gets what.
+// Names per docs/WHATSAPP_CHANNEL.md. Keep them here: an unlabelled number is
+// how 919000096921 below sat undiagnosed for five weeks.
 const RECIPIENTS = {
   '919517744959': { morning: true, evening: true, hourly: true, yday: true, closing: true },   // Pulkit
-  '919815610890': { morning: true, evening: true, hourly: false, yday: true, closing: true },
-  '919988048804': { morning: false, evening: false, hourly: true, yday: true, closing: true },
-  '919915868288': { morning: false, evening: false, hourly: true, yday: true, closing: true },
-  '919988090074': { morning: false, evening: false, hourly: true, yday: true, closing: true },
-  '919592573796': { morning: false, evening: false, hourly: true, yday: true, closing: true },
-  '918283901380': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  '919815610890': { morning: true, evening: true, hourly: false, yday: true, closing: true },  // jewellery daily report only
+  '919988048804': { morning: false, evening: false, hourly: true, yday: true, closing: true }, // unidentified — in no roster
+  '919915868288': { morning: false, evening: false, hourly: true, yday: true, closing: true }, // Nia Khanna
+  '919988090074': { morning: false, evening: false, hourly: true, yday: true, closing: true }, // Harpreet Sahota
+  '919592573796': { morning: false, evening: false, hourly: true, yday: true, closing: true }, // Tajinder
+  '918283901380': { morning: false, evening: false, hourly: true, yday: true, closing: true }, // Sam / Navdeep
+  // NOT DELIVERING. Added 9 Oct 2026 to fix a "no images arriving" complaint;
+  // every message since has stopped at `sent` and never reached `delivered`
+  // (checked 15 Nov via /whapi-status). Whapi accepts the sends, so the number
+  // IS a registered WhatsApp account — which leaves blocked sender, a
+  // deregistered number, or a long-dead device. Nothing server-side can fix
+  // any of those. In no roster, so the owner is unknown.
+  '919000096921': { morning: false, evening: false, hourly: true, yday: true, closing: true },
+  // Kashish, 917889166849 — listed in docs/WHATSAPP_CHANNEL.md as "ops, daily
+  // reports" but has NEVER been in this map, so receives nothing. Uncomment to
+  // enrol (then redeploy: wrangler deploy from cron-worker/).
+  // '917889166849': { morning: false, evening: false, hourly: true, yday: true, closing: true },
 };
 const WA_RECIPIENTS = Object.keys(RECIPIENTS);
 const PORTAL_LABELS = { SM: 'Studd Muffyn', SML: 'SM Life', NBP: 'Nuskhe by Paras' };
@@ -701,6 +714,19 @@ export default {
     if (url.pathname === '/test-dispatch') {
       try {
         return new Response(await dispatchReminderPush(env, url.searchParams.get('to') || null), { headers: cors });
+      } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
+    }
+    if (url.pathname === '/send-text') {
+      // /send-text?key=…&to=<number>&text=<urlencoded text>  (added for IG comment bot drafts)
+      if (url.searchParams.get('key') !== 'ntnhourly2026') {
+        return new Response('nope', { status: 403, headers: cors });
+      }
+      const to = url.searchParams.get('to');
+      const text = url.searchParams.get('text');
+      if (!to || !text) return new Response('missing to/text', { status: 400, headers: cors });
+      try {
+        const r = await sendWaText(env, to, text);
+        return new Response('send-text → ' + (r && r.ok ? 'sent' : 'fail-' + (r && r.status)), { headers: cors });
       } catch (e) { return new Response('ERR ' + e.message, { headers: cors }); }
     }
     if (url.pathname === '/send-doc') {
