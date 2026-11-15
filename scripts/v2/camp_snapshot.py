@@ -198,21 +198,31 @@ def main():
             _c = sqlite3.connect(args.db)
             _prev_slot = _c.execute(
                 "SELECT MAX(hour_slot) FROM campaign_hourly_snapshots").fetchone()[0]
+            # Keyed on account_id, NOT account_name. The name comes from a
+            # separate lookup that can fail: when it does, fetch_active_campaigns
+            # falls back to the id string as the name and the slot stores the
+            # account under BOTH spellings. Keyed on the name, that fallback
+            # spelling has no live counterpart in any later run, so it reads as
+            # "vanished" forever and the re-pull can never clear it — 15 Nov,
+            # NBP Hair/Perfume deadlocked every snapshot for 5 hours and froze
+            # the dashboard. The id is stable, so it cannot happen again.
             _prev = dict(_c.execute(
-                "SELECT account_name, COUNT(*) FROM campaign_hourly_snapshots "
-                "WHERE hour_slot=? GROUP BY account_name", (_prev_slot,)).fetchall()
+                "SELECT account_id, COUNT(*) FROM campaign_hourly_snapshots "
+                "WHERE hour_slot=? GROUP BY account_id", (_prev_slot,)).fetchall()
             ) if _prev_slot else {}
-            # ids for the same accounts, so a silent empty can be re-pulled
-            _prev_ids = dict(_c.execute(
-                "SELECT account_name, account_id FROM campaign_hourly_snapshots "
-                "WHERE hour_slot=? GROUP BY account_name", (_prev_slot,)).fetchall()
+            # a readable name per id, for the log lines only
+            _prev_names = dict(_c.execute(
+                "SELECT account_id, MAX(account_name) FROM campaign_hourly_snapshots "
+                "WHERE hour_slot=? AND account_name NOT LIKE 'act|_%' ESCAPE '|' "
+                "GROUP BY account_id", (_prev_slot,)).fetchall()
             ) if _prev_slot else {}
             _c.close()
         except sqlite3.OperationalError:
-            _prev, _prev_ids, _prev_slot = {}, {}, None
+            _prev, _prev_names, _prev_slot = {}, {}, None
+        _label = lambda aid: f"{_prev_names.get(aid, aid)} ({aid})"
         _now = {}
         for r in rows:
-            _now[r['account_name']] = _now.get(r['account_name'], 0) + 1
+            _now[r['account_id']] = _now.get(r['account_id'], 0) + 1
         vanished = [(a, n) for a, n in _prev.items() if n >= 3 and _now.get(a, 0) == 0]
 
         # Same cool-off the explicit-error path gets. A silent empty is the same
@@ -225,19 +235,20 @@ def main():
         for _wait in (45, 90):
             if not vanished:
                 break
-            _ids = [_prev_ids[a] for a, _ in vanished if _prev_ids.get(a)]
+            _ids = [a for a, _ in vanished]
             if not _ids:
                 break
             print(f"silent empty from {len(vanished)} account(s): "
-                  f"{', '.join(a for a, _ in vanished)} — cooling off {_wait}s, then re-pulling")
+                  f"{', '.join(_label(a) for a, _ in vanished)} — cooling off {_wait}s, then re-pulling")
             time.sleep(_wait)
             rows += fetch_active_campaigns(tok, _ids, now=now)
             _now = {}
             for r in rows:
-                _now[r['account_name']] = _now.get(r['account_name'], 0) + 1
+                _now[r['account_id']] = _now.get(r['account_id'], 0) + 1
             _back = [a for a, _ in vanished if _now.get(a, 0) > 0]
             if _back:
-                print(f"  recovered {len(_back)} account(s) on retry: {', '.join(_back)}")
+                print(f"  recovered {len(_back)} account(s) on retry: "
+                      f"{', '.join(_label(a) for a in _back)}")
             vanished = [(a, n) for a, n in vanished if _now.get(a, 0) == 0]
             _seen = {e[0] for e in _known_errors}
             _known_errors += [e for e in ACCOUNT_ERRORS if e[0] not in _seen]
@@ -249,26 +260,25 @@ def main():
         if vanished:
             from camp_live import _paged
             still = []
-            for a, n in vanished:
-                aid = _prev_ids.get(a)
+            for aid, n in vanished:
                 try:
                     ins = _paged(f"{aid}/insights", {'fields': 'spend', 'date_preset': 'today'}, tok)
                     spent = sum(float(i.get('spend', 0) or 0) for i in ins)
                 except Exception as e:
-                    print(f"  could not verify {a} ({e}) — treating as failure")
-                    still.append((a, n))
+                    print(f"  could not verify {_label(aid)} ({e}) — treating as failure")
+                    still.append((aid, n))
                     continue
                 if spent > 0:
-                    still.append((a, n))
+                    still.append((aid, n))
                 else:
-                    print(f"  {a}: 0 campaigns and 0 spend today — genuinely idle, not a failure")
+                    print(f"  {_label(aid)}: 0 campaigns and 0 spend today — genuinely idle, not a failure")
             vanished = still
 
         if vanished:
             print(f"ABORTING WRITE: account(s) returned 0 campaigns but had rows at "
                   f"{_prev_slot} — silent API failure:")
             for a, n in vanished:
-                print(f"  - {a}: {n} campaigns last slot, 0 now")
+                print(f"  - {_label(a)}: {n} campaigns last slot, 0 now")
             print("previous snapshot left in place; the next run retries")
             raise SystemExit(1)
 
@@ -278,6 +288,22 @@ def main():
     cols = {r[1] for r in con.execute("PRAGMA table_info(campaign_hourly_snapshots)")}
     if 'status' not in cols:
         con.execute("ALTER TABLE campaign_hourly_snapshots ADD COLUMN status TEXT")
+    # Repair rows whose account_name is the account ID. fetch_active_campaigns
+    # falls back to the id when the name lookup fails, and those rows then map
+    # to NO portal (portal_of matches the friendly name), so their spend drops
+    # silently out of the roll-up. Backfill the real name from the same
+    # account's other rows — lossless and idempotent.
+    _fixed = con.execute(
+        "UPDATE campaign_hourly_snapshots SET account_name = ("
+        "   SELECT MAX(s.account_name) FROM campaign_hourly_snapshots s"
+        "    WHERE s.account_id = campaign_hourly_snapshots.account_id"
+        "      AND s.account_name NOT LIKE 'act|_%' ESCAPE '|')"
+        " WHERE account_name LIKE 'act|_%' ESCAPE '|'"
+        "   AND EXISTS (SELECT 1 FROM campaign_hourly_snapshots s"
+        "                WHERE s.account_id = campaign_hourly_snapshots.account_id"
+        "                  AND s.account_name NOT LIKE 'act|_%' ESCAPE '|')").rowcount
+    if _fixed:
+        print(f"repaired {_fixed} row(s) whose account_name was an account id")
     payload = [(ts, hour_slot, r['account_id'], r['account_name'], r['campaign_id'],
                 r['campaign_name'], r['objective'], r['status'], r['created_time'], r['age_hours'],
                 r['daily_budget'], r['spend'], r['revenue'], r['roas'], r['orders'],
